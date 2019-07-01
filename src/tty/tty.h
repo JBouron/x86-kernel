@@ -12,9 +12,13 @@
 void
 tty_init(void);
 
-// Print a string `str` in the tty, handles line wraps and newlines characters.
+// Print a char `c` in the tty. Handles line wraps and newline characters.
 void
-tty_print(const char *const str);
+tty_putc(const char c);
+
+// Print a formatted string in the tty.
+void
+tty_printf(const char *const fmt, ...);
 
 // Set the current foreground color of the tty. This color will be used for all
 // subsequent characters written in the tty.

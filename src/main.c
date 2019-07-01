@@ -1,15 +1,14 @@
 #include <includes/types.h>
 #include <vga/vga.h>
 #include <tty/tty.h>
+#include <string/string.h>
 
 void kernel_main(void) {
     // Initialize the VGA text buffer and the TTY.
+    int i = 1;
+    while(!i);
     vga_init();
     tty_init();
-	tty_print("Hello world!\n");
-    tty_set_fg_color(VGA_COLOR_GREEN);
-	tty_print("What a wonderful day\n");
-    tty_set_fg_color(VGA_COLOR_LIGHT_MAGENTA);
-    tty_set_bg_color(VGA_COLOR_BLUE);
-	tty_print("L33T\n");
+    uint32_t const big = 300000000;
+    tty_printf("Test %d string: %d and %d\n",big, 1010, 54);
 }

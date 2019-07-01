@@ -1,5 +1,6 @@
 #include <tty/tty.h>
 #include <string/string.h>
+#include <generic_printf/generic_printf.h>
 
 // The tty keep the cursor position in the VGA text matrix.
 static uint8_t _tty_cur_pos_x;
@@ -20,8 +21,8 @@ tty_init(void) {
     _tty_cur_bg_color = VGA_COLOR_BLACK;
 }
 
-static void
-_tty_put_char(const char c) {
+void
+tty_putc(const char c) {
     if (c == '\n') {
         // When dealing with a new-line character we simply go to the next line
         // in the VGA matrix.
@@ -46,12 +47,12 @@ _tty_put_char(const char c) {
 }
 
 void
-tty_print(const char *const str) {
-    size_t const len = strlen(str);
-    for(size_t i = 0; i < len; ++i) {
-        char const cur_char = str[i];
-        _tty_put_char(cur_char);
-    }
+tty_printf(const char *const fmt, ...) {
+    // We use the generic_printf function with the tty_putc function as backend.
+    va_list list;
+    va_start(list,fmt);
+    generic_printf(tty_putc,fmt,list);
+    va_end(list);
 }
 
 void
