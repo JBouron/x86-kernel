@@ -1,19 +1,19 @@
-# The compiler used to compile the kernel. We choose GNU gcc.
-CC=gcc
+# The compiler used to compile the kernel. The docker image contains the
+# cross-compiler i686-gcc and assembler i686-as which are installed in the
+# root's home directory.
+CC=/root/opt/cross/bin/i686-elf-gcc
+AS=/root/opt/cross/bin/i686-elf-as
 # The flags used to compile all the source files of the kernel.
-KERNEL_CFLAGS=-m32 -O0 -g -Wall -Wextra -Werror -ffreestanding -nostdlib -lgcc \
+KERNEL_CFLAGS=-O0 -g -Wall -Wextra -Werror -ffreestanding -nostdlib -lgcc \
 	-I./src
-# Flags used by the GNU as assembler. For now we only need the --32 for 32bits.
-AS_FLAGS=--32
 # The name of the linker script used to build the kernel image.
 LINKER_SCRIPT=linker.ld
 
-# The name of the kernel image and ISO file.
+# The name of the kernel image.
 KERNEL_IMG_NAME=kernel.bin
-KERNEL_ISO_NAME=kernel.iso
 
 # The build directory that will contain all the object files.
-BUILD_DIR=./build
+BUILD_DIR=./build_dir
 ISO_DIR=$(BUILD_DIR)/iso
 SRC_DIR=./src
 
@@ -27,11 +27,24 @@ HEADER_FILES:=$(shell find $(SRC_DIR) -type f -name "*.h")
 _OBJ_FILES:=$(SOURCE_FILES:.c=.o) $(ASM_FILES:.s=.o)
 OBJ_FILES:=$(patsubst $(SRC_DIR)/%,$(BUILD_DIR)/%,$(_OBJ_FILES))
 
-# The main rule:
+.PHONY: clean build
+# This is the main rule. This rule will start the builder docker container that
+# will build the kernel for us.
+build:
+	@# We link the current directory to the same point in the container so that
+	@# debug info in the kernel image are correct. (Eg. the paths for the source
+	@# files are the same).
+	@# We use the -t to get colored output.
+	sudo docker run -v $(PWD):$(PWD) -t kernel_builder make -C $(PWD) build_in_cont
+	@# Since the user in the docker container is root, we need to change the
+	@# owner once the build is complete.
+	sudo chown $(USER):$(USER) $(BUILD_DIR) -R
+
+# This rule is to be used *within* the builder docker container. It performs the
+# following:
 # 	0: Prepare the build directory.
 # 	1: Compile the kernel image. 
-# 	(2: Create the ISO.) Not anymore but still available.
-all: $(BUILD_DIR) $(BUILD_DIR)/$(KERNEL_IMG_NAME)
+build_in_cont: $(BUILD_DIR) $(BUILD_DIR)/$(KERNEL_IMG_NAME)
 
 # Create the build directory and all subdirectories.
 SUBDIRS_:=$(shell find ./src -type d)
@@ -49,21 +62,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c $(HEADER_FILES)
 	$(CC) -o $@ -c $< $(KERNEL_CFLAGS)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.s
-	as $(AS_FLAGS) -o $@ $<
+	$(AS) -o $@ $<
 
-# Create the disk image containing the kernel.
-$(KERNEL_ISO_NAME): $(BUILD_DIR)/$(KERNEL_IMG_NAME)
-	@mkdir -p $(ISO_DIR)/boot/grub
-	@# Copy the kernel image into the root of the ISO.
-	@cp $< $(ISO_DIR)/boot/$(KERNEL_IMG_NAME)
-	@# Prepare the grub entry for the kernel.
-	@echo menuentry "ktzkernel" { > $(ISO_DIR)/boot/grub/grub.cfg
-	@echo multiboot /boot/kernel.bin >> $(ISO_DIR)/boot/grub/grub.cfg
-	@echo } >> $(ISO_DIR)/boot/grub/grub.cfg
-	@# Create the ISO disk image.
-	grub-mkrescue -o $@ $(ISO_DIR)
-
-.PHONY: clean
 clean:
-	rm -rf ./build
-	rm -rf $(KERNEL_ISO_NAME)
+	rm -rf $(BUILD_DIR)
