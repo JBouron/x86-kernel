@@ -11,6 +11,10 @@ _gen_print_uint32_t(generic_putc_t putc, uint32_t const n) {
     uint8_t digit_idx = 0;
     // Loop over n, determine each base-10 digits and store them in `digits`.
     uint32_t curr = n;
+    if (n == 0) {
+        putc('0');
+        return;
+    }
     while (curr) {
         uint32_t rem = curr % 10;
         char const rem_char = '0' + rem;
@@ -96,6 +100,12 @@ generic_printf(generic_putc_t putc, const char *const fmt, va_list list) {
         while (*curr&&(*curr!='%')) {
             putc(*(curr++));
         }
+
+        if (!*curr) {
+            // We reach the end of the string, we can return now.
+            return;
+        }
+
         // Skip the '%'.
         curr++;
 
