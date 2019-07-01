@@ -6,6 +6,7 @@ AS=/root/opt/cross/bin/i686-elf-as
 # The flags used to compile all the source files of the kernel.
 KERNEL_CFLAGS=-O0 -g -Wall -Wextra -Werror -ffreestanding -nostdlib -lgcc \
 	-I./src
+KERNEL_ASFLAGS=-O0 -g
 # The name of the linker script used to build the kernel image.
 LINKER_SCRIPT=linker.ld
 
@@ -62,7 +63,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c $(HEADER_FILES)
 	$(CC) -o $@ -c $< $(KERNEL_CFLAGS)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.s
-	$(AS) -o $@ $<
+	$(AS) -o $@ $< $(KERNEL_ASFLAGS)
 
 clean:
 	rm -rf $(BUILD_DIR)
