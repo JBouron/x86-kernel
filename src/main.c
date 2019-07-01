@@ -10,6 +10,7 @@ kernel_main(void) {
     while(!i);
     vga_init();
     tty_init();
-    uint32_t const big = (uint32_t)(-1);
-    tty_printf("Test %x string%%: %p and %x\n",big, &big, 54);
+    for(uint32_t y = 0; y < VGA_HEIGHT; ++y) {
+        tty_printf("Line %u ########################################################################################################\n",y);
+    }
 }
