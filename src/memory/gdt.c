@@ -26,8 +26,8 @@ struct gdt_entry {
 } __attribute__((packed));
 
 // We use specific segments for the kernel.
-static uint16_t const KERNEL_CODE_SEGMENT_IDX = 1;
-static uint16_t const KERNEL_DATA_SEGMENT_IDX = 2;
+uint16_t const KERNEL_CODE_SEGMENT_IDX = 1;
+uint16_t const KERNEL_DATA_SEGMENT_IDX = 2;
 
 // The static list of GDT entries we wish to add to the GDT.
 static struct gdt_entry _gdt_entries[] = {
@@ -128,7 +128,8 @@ gdt_init(void) {
     uint16_t const gdt_size_bytes = GDT_SIZE*sizeof(struct segment_desc_t);
     struct table_desc_t table_desc = {
         .base_addr = (uint8_t*)GDT,
-        .limit = gdt_size_bytes
+        // The limit should point to the last valid bytes, thus the -1.
+        .limit = gdt_size_bytes-1,
     };
     LOG("GDT base address is %p, limit = %d bytes\n",GDT,gdt_size_bytes);
 

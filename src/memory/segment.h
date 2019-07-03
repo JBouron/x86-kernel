@@ -3,6 +3,11 @@
 #define _SEGMENT_H
 #include <includes/types.h>
 
+// We use specific segments for the kernel. These represent the indices of the
+// segments in the GDT, *NOT* the selectors.
+extern uint16_t const KERNEL_CODE_SEGMENT_IDX;
+extern uint16_t const KERNEL_DATA_SEGMENT_IDX;
+
 // Segment descriptors are 8-bytes value containing, among other things, the
 // base address and the limit for a segment.
 // This struct encodes this 8-byte value in a more readable way.
@@ -46,7 +51,8 @@ struct segment_desc_t {
 // containing both of these values.
 // Upon calling lgdt or lidt, an address to a table_desc_t is passed.
 struct table_desc_t {
-    // The size in bytes of the table.
+    // The size in bytes of the table. Note that base_addr + limit should point
+    // to the last valid bytes, thus in practice, limit = size - 1.
     uint16_t limit;
     // The base address of the table.
     uint8_t *base_addr;
