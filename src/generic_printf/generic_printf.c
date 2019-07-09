@@ -1,4 +1,5 @@
 #include <generic_printf/generic_printf.h>
+#include <string/string.h>
 
 // Prints a uint32_t in base 10 using the provided generic putc function.
 static void
@@ -80,6 +81,13 @@ _handle_substitution(generic_putc_t putc, char const **fmt, va_list *list) {
         case 'x': {
             uint32_t const val = va_arg((*list),uint32_t);
             _gen_print_uint32_t_hex(putc,val);
+            break;
+        }
+        case 's': {
+            char const*const str = va_arg((*list),char const*const);
+            for(size_t i=0;i<strlen(str);++i) {
+                putc(str[i]);
+            }
             break;
         }
         default: {

@@ -90,3 +90,9 @@ ASM_FUNC_DEF(pic_disable):
     outb     %al, $0xa1
     outb     %al, $0x21
     ret
+
+ASM_FUNC_DEF(lock_up):
+    cli
+1:
+    hlt
+    jmp 1b

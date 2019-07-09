@@ -50,4 +50,9 @@ dummy_interrupt_handler(void);
 
 void
 send_int(void);
+
+// Lock up the machine. Interrupts are disabled and the processor enters a halt
+// state.
+void
+lock_up(void);
 #endif

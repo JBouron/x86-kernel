@@ -6,6 +6,7 @@
 #include <memory/gdt.h>
 #include <interrupt/interrupt.h>
 #include <interrupt/handlers.h>
+#include <includes/debug.h>
 
 void
 kernel_main(void) {
