@@ -96,3 +96,14 @@ ASM_FUNC_DEF(lock_up):
 1:
     hlt
     jmp 1b
+
+ASM_FUNC_DEF(read_eflags):
+    pushf
+    pop     %eax
+    ret
+
+ASM_FUNC_DEF(write_eflags):
+    mov     0x4(%esp), %eax
+    push    %eax
+    popf
+    ret

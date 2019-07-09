@@ -55,4 +55,9 @@ send_int(void);
 // state.
 void
 lock_up(void);
+
+uint16_t
+read_eflags(void);
+void
+write_eflags(uint16_t eflags);
 #endif

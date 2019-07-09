@@ -7,6 +7,34 @@
 #include <interrupt/interrupt.h>
 #include <interrupt/handlers.h>
 #include <includes/debug.h>
+#include <asm/cpuid/cpuid.h>
+
+// Check all the assumptions we are making in this kernel. At least the ones
+// that are checkable at boot time.
+void
+assumptions_check(void) {
+    // We are using the CPUID extensively, as such we only support processor
+    // that have this feature. This is done by checking if we can flip the bit
+    // 21 in EFLAGS.
+    uint16_t const eflags = read_eflags();
+    uint16_t const eflags_no_21 = eflags&(~(1<<21));
+    uint16_t const bit21 = (eflags&(1<<21))>>21;
+    uint16_t const new_eflags = eflags_no_21|((~bit21)<<21);
+    write_eflags(new_eflags);
+    ASSERT(read_eflags()==new_eflags);
+
+    // For now (or maybe forever), we are supporting Intel processors only. Read
+    // the vendorId to make sure.
+    char eax[5],ebx[5],ecx[5],edx[5];
+    cpuid(0x0,0x0,(uint32_t*)eax,(uint32_t*)ebx,(uint32_t*)ecx,(uint32_t*)edx);
+    eax[4] = 0;
+    ebx[4] = 0;
+    ecx[4] = 0;
+    edx[4] = 0;
+    ASSERT(streq(ebx,"Genu"));
+    ASSERT(streq(edx,"ineI"));
+    ASSERT(streq(ecx,"ntel"));
+}
 
 void
 kernel_main(void) {
@@ -15,6 +43,8 @@ kernel_main(void) {
     while(i);
     vga_init();
     tty_init();
+    assumptions_check();
+
     gdt_init();
     idt_init();
 
