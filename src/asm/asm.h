@@ -20,9 +20,16 @@ interrupts_disable(void);
 void
 interrupts_enable(void);
 
+void
+pic_disable(void);
+
 // Load the address gdt into the GDTR register.
 void
 load_gdt(struct table_desc_t *table_desc);
+
+// Load the address gdt into the IDTR register.
+void
+load_idt(struct table_desc_t *table_desc);
 
 // Write value `val` in segment registers.
 void
@@ -37,4 +44,10 @@ void
 write_fs(uint16_t val);
 void
 write_gs(uint16_t val);
+
+void
+dummy_interrupt_handler(void);
+
+void
+send_int(void);
 #endif

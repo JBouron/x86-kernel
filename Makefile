@@ -20,12 +20,13 @@ SRC_DIR=./src
 
 # Find all the source files recursively in the $(SRC_DIR) directory.
 ASM_FILES:=$(shell find $(SRC_DIR) -type f -name "*.s")
+ASM_GCC_FILES:=$(shell find $(SRC_DIR) -type f -name "*.S")
 SOURCE_FILES:=$(shell find $(SRC_DIR) -type f -name "*.c")
 HEADER_FILES:=$(shell find $(SRC_DIR) -type f -name "*.h")
 # This is the set of object files that will be used for the compilation. Note
 # that the object files should be located in the $(BUILD_DIR), thus the
 # substitution.
-_OBJ_FILES:=$(SOURCE_FILES:.c=.o) $(ASM_FILES:.s=.o)
+_OBJ_FILES:=$(SOURCE_FILES:.c=.o) $(ASM_FILES:.s=.o) $(ASM_GCC_FILES:.S=.o)
 OBJ_FILES:=$(patsubst $(SRC_DIR)/%,$(BUILD_DIR)/%,$(_OBJ_FILES))
 
 .PHONY: clean build
@@ -64,6 +65,9 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c $(HEADER_FILES)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.s
 	$(AS) -o $@ $< $(KERNEL_ASFLAGS)
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.S
+	$(CC) -o $@ -c $< $(KERNEL_CFLAGS)
 
 clean:
 	rm -rf $(BUILD_DIR)

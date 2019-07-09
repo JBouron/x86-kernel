@@ -1,0 +1,30 @@
+#include <asm/macro.h>
+
+#define HANDLER_(irq) ;\
+    ASM_FUNC_DEF(interrupt_handler_##irq): ;\
+        push    $irq ;\
+        call    generic_handler ;\
+        pop     %eax # The irq number
+        iret
+
+HANDLER_(0)
+HANDLER_(1)
+HANDLER_(2)
+HANDLER_(3)
+HANDLER_(4)
+HANDLER_(5)
+HANDLER_(6)
+HANDLER_(7)
+HANDLER_(8)
+HANDLER_(9)
+HANDLER_(10)
+HANDLER_(11)
+HANDLER_(12)
+HANDLER_(13)
+HANDLER_(14)
+HANDLER_(15)
+HANDLER_(16)
+HANDLER_(17)
+HANDLER_(18)
+HANDLER_(19)
+HANDLER_(20)

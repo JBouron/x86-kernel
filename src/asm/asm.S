@@ -1,7 +1,5 @@
-.section .text
-.global read_msr
-.type read_msr, @function
-read_msr:
+#include <asm/macro.h>
+ASM_FUNC_DEF(read_msr):
     push    %ebp
     mov     %esp, %ebp
     // Mov `msr_num` into %ecx
@@ -16,9 +14,7 @@ read_msr:
     pop     %ebp
     ret
 
-.global read_tsc
-.type read_tsc, @function
-read_tsc:
+ASM_FUNC_DEF(read_tsc):
     push    %ebp
     mov     %esp, %ebp
     rdtsc
@@ -31,19 +27,15 @@ read_tsc:
     pop     %ebp
     ret
 
-.global interrupts_disable
-.type interrupts_disable, @function
-interrupts_disable:
+ASM_FUNC_DEF(interrupts_disable):
     cli
+    ret
 
-.global interrupts_enable
-.type interrupts_enable, @function
-interrupts_enable:
+ASM_FUNC_DEF(interrupts_enable):
     sti
+    ret
 
-.global load_gdt
-.type load_gdt, @function
-load_gdt:
+ASM_FUNC_DEF(load_gdt):
     push    %ebp
     mov     %esp, %ebp
     mov     0x8(%ebp), %eax
@@ -51,41 +43,50 @@ load_gdt:
     pop     %ebp
     ret
 
-.global write_cs
-.type write_cs, @function
-write_cs:
+ASM_FUNC_DEF(load_idt):
+    push    %ebp
+    mov     %esp, %ebp
+    mov     0x8(%ebp), %eax
+    lidt    (%eax)
+    pop     %ebp
+    ret
+
+ASM_FUNC_DEF(write_cs):
     mov     0x4(%esp), %eax
 # We must use a long jump to reload the value of $cs.
     ljmpl   $0x8, $end
 end:
     ret
 
-.global write_ds
-.type write_ds, @function
-write_ds:
+ASM_FUNC_DEF(write_ds):
     movw     0x4(%esp), %ds
     ret
 
-.global write_ss
-.type write_ss, @function
-write_ss:
+ASM_FUNC_DEF(write_ss):
     movw     0x4(%esp), %ss
     ret
 
-.global write_es
-.type write_es, @function
-write_es:
+ASM_FUNC_DEF(write_es):
     movw     0x4(%esp), %es
     ret
 
-.global write_fs
-.type write_fs, @function
-write_fs:
+ASM_FUNC_DEF(write_fs):
     movw     0x4(%esp), %fs
     ret
 
-.global write_gs
-.type write_gs, @function
-write_gs:
+ASM_FUNC_DEF(write_gs):
     movw     0x4(%esp), %gs
+    ret
+
+ASM_FUNC_DEF(dummy_interrupt_handler):
+    iret
+
+ASM_FUNC_DEF(send_int):
+    int $33
+    ret
+
+ASM_FUNC_DEF(pic_disable):
+    movb     $0xff, %al
+    outb     %al, $0xa1
+    outb     %al, $0x21
     ret
