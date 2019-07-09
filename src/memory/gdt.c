@@ -4,10 +4,6 @@
 #include <memory/memory.h>
 #include <includes/debug.h>
 
-// Privilege levels.
-#define PRIV_RING0  (0)
-#define PRIV_RING3  (3)
-
 // Most of the fields in segment_desc_t will have fixed value no matter what
 // type of segment it describes.
 // Thus instead of using the complex segment_desc_t struct, we prefer using the
@@ -25,15 +21,58 @@ struct gdt_entry {
     uint8_t type : 4;
 } __attribute__((packed));
 
+// Segment descriptors are 8-bytes value containing, among other things, the
+// base address and the limit for a segment.
+// This struct encodes this 8-byte value in a more readable way.
+// This is the real segment entry representation, and this is what the processor
+// expects in the GDT as opposed to gdt_entry which is made to be simpler to
+// manipulate.
+struct segment_desc_t {
+    // Lower 16-bits of the limit.
+    uint16_t limit_bits15_to_0 : 16;
+    // Some bits of the base.
+    uint16_t base_bits15_to_0 : 16;
+    uint8_t base_bits23_to_16 : 8;
+    // Indicate the type of segment encoded in 4 bits as follows:
+    // MSB: if 1, this is a code segment, else a data segment.
+    // If this is a code segment the last 3 bits are: C, R and A, where C
+    // indicate if the segment is conforming, R if it is readable and A
+    // accessed.
+    // If this is a data segment, the last 3 bits are: E, W and A where E
+    // indicates "Expand-down", W writable and A accessed.
+    uint8_t seg_type : 4;
+    // 0 = system segment, 1 = code or data segment.
+    uint8_t desc_type : 1;
+    // The priviledge level/ring required to use the segment.
+    uint8_t priv : 2;
+    // Is the segment present ?
+    uint8_t present : 1;
+    // Some bits of the limit.
+    uint8_t limit_bits19_to_16 : 4;
+    // Available bit. Unused for now.
+    uint8_t avl : 1;
+    // Should always be 0. (Reserved in non-IAe mode).
+    uint8_t is64bits : 1;
+    // Operation size: 0 = 16-bit, 1 = 32 bit segment. Should always be 1.
+    uint8_t db : 1;
+    // Scaling of the limit field. If 1 limit is interpreted in 4KB units,
+    // otherwise in bytes units.
+    uint8_t granularity : 1;
+    // Some bits of the base.
+    uint8_t base_bits31_to_24 : 8;
+} __attribute__((packed));
+
 // We use specific segments for the kernel.
 uint16_t const KERNEL_CODE_SEGMENT_IDX = 1;
 uint16_t const KERNEL_DATA_SEGMENT_IDX = 2;
+uint16_t const KERNEL_CODE_SEGMENT_SELECTOR = KERNEL_CODE_SEGMENT_IDX<<3|RING_0;
+uint16_t const KERNEL_DATA_SEGMENT_SELECTOR = KERNEL_DATA_SEGMENT_IDX<<3|RING_0;
 
 // The static list of GDT entries we wish to add to the GDT.
 static struct gdt_entry _gdt_entries[] = {
     {0,0,0,0}, // The null segment. It must be present as the first entry.
-    {0x0,0xFFFFF,PRIV_RING0,0xA}, // Kernel code segment. 0xA = Code/Executable.
-    {0x0,0xFFFFF,PRIV_RING0,0x2}, // Kernel data segment. 0x2 = Data/Writable.
+    {0x0,0xFFFFF,RING_0,0xA}, // Kernel code segment. 0xA = Code/Executable.
+    {0x0,0xFFFFF,RING_0,0x2}, // Kernel data segment. 0x2 = Data/Writable.
 };
 
 // Declare the *real* GDT array, that is the GDT that will be used by the
@@ -138,7 +177,6 @@ gdt_init(void) {
     load_gdt(&table_desc);
 
     // Update segment registers.
-    uint16_t const kernel_code_seg = KERNEL_CODE_SEGMENT_IDX<<3|PRIV_RING0;
-    uint16_t const kernel_data_seg = KERNEL_DATA_SEGMENT_IDX<<3|PRIV_RING0;
-    _refresh_segment_registers(kernel_code_seg,kernel_data_seg);
+    _refresh_segment_registers(KERNEL_CODE_SEGMENT_SELECTOR,
+                               KERNEL_DATA_SEGMENT_SELECTOR);
 }
