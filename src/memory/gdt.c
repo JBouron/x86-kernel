@@ -4,23 +4,6 @@
 #include <memory/memory.h>
 #include <includes/debug.h>
 
-// Most of the fields in segment_desc_t will have fixed value no matter what
-// type of segment it describes.
-// Thus instead of using the complex segment_desc_t struct, we prefer using the
-// following struct to create GDT entries.
-struct gdt_entry {
-    // The base address of the segment.
-    uint32_t base_addr;
-    // The limit of the segment, we use a page (4KB) granularity for GDT
-    // entries.
-    uint32_t limit : 20;
-    // The required privilege for the segment.
-    uint8_t privilege : 2;
-    // The type of the segment it is analogous as the type field in
-    // segment_desc_t.
-    uint8_t type : 4;
-} __attribute__((packed));
-
 // Segment descriptors are 8-bytes value containing, among other things, the
 // base address and the limit for a segment.
 // This struct encodes this 8-byte value in a more readable way.
@@ -67,6 +50,23 @@ uint16_t const KERNEL_CODE_SEGMENT_IDX = 1;
 uint16_t const KERNEL_DATA_SEGMENT_IDX = 2;
 uint16_t const KERNEL_CODE_SEGMENT_SELECTOR = KERNEL_CODE_SEGMENT_IDX<<3|RING_0;
 uint16_t const KERNEL_DATA_SEGMENT_SELECTOR = KERNEL_DATA_SEGMENT_IDX<<3|RING_0;
+
+// Most of the fields in segment_desc_t will have fixed value no matter what
+// type of segment it describes.
+// Thus instead of using the complex segment_desc_t struct, we prefer using the
+// following struct to create GDT entries.
+struct gdt_entry {
+    // The base address of the segment.
+    uint32_t base_addr;
+    // The limit of the segment, we use a page (4KB) granularity for GDT
+    // entries.
+    uint32_t limit : 20;
+    // The required privilege for the segment.
+    uint8_t privilege : 2;
+    // The type of the segment it is analogous as the type field in
+    // segment_desc_t.
+    uint8_t type : 4;
+} __attribute__((packed));
 
 // The static list of GDT entries we wish to add to the GDT.
 static struct gdt_entry _gdt_entries[] = {
