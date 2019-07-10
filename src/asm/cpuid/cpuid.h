@@ -6,6 +6,11 @@
 // respectively.
 // Write the resulting eax, ebx, ecx and edx in out_*.
 void
-cpuid(uint32_t in_eax,uint32_t in_ecx,
-      uint32_t *out_eax,uint32_t *out_ebx,uint32_t *out_ecx,uint32_t *out_edx);
+cpuid(uint32_t in_eax,
+      uint32_t in_ecx,
+      // Output:
+      uint32_t *out_eax,
+      uint32_t *out_ebx,
+      uint32_t *out_ecx,
+      uint32_t *out_edx);
 #endif

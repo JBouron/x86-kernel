@@ -10,5 +10,5 @@ typedef void (*generic_putc_t)(char const);
 
 // Prints a formatted string using the provided generic putc function.
 void
-generic_printf(generic_putc_t putc, const char *const fmt, va_list list);
+generic_printf(generic_putc_t putc, const char * const fmt, va_list list);
 #endif

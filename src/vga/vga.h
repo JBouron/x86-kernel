@@ -5,7 +5,7 @@
 
 // The location of the VGA buffer in memory. Note this is before paging is
 // enabled.
-static uint16_t *const VGA_BUFFER_OFFSET = (uint16_t*)0xB8000;
+static uint16_t * const VGA_BUFFER_OFFSET = (uint16_t*)0xB8000;
 // The width and height of the VGA text matrix.
 static size_t const VGA_WIDTH = 80;
 static size_t const VGA_HEIGHT = 25;
@@ -44,7 +44,7 @@ vga_clear_matrix(void);
 // background.
 typedef uint8_t vga_color_desc_t;
 
-// Create a VGA color pair (<foreground>,<background>).
+// Create a VGA color pair (<foreground>, <background>).
 vga_color_desc_t 
 vga_create_color_desc(enum vga_color_t const fg, enum vga_color_t const bg);
 
@@ -55,7 +55,7 @@ typedef uint16_t vga_char_t;
 vga_char_t
 vga_create_char(unsigned char const c, vga_color_desc_t const color_desc);
 
-// Write a VGA char in the VGA matrix at position (x,y).
+// Write a VGA char in the VGA matrix at position (x, y).
 void
 vga_put_char(vga_char_t const vga_char, uint8_t x, uint8_t y);
 #endif

@@ -40,8 +40,8 @@ static void
 _convert_idt_entry(struct interrupt_gate_t const * const from,
                    struct idt_gate_desc_t * const to) {
     uint32_t const offset = (uint32_t)from->offset;
-    to->offset_bits15_to_0 = (offset&0x0000FFFF);
-    to->offset_bits31to16 = (offset&0xFFFF0000)>>16;
+    to->offset_bits15_to_0 = (offset & 0x0000FFFF);
+    to->offset_bits31to16 = (offset & 0xFFFF0000) >> 16;
     to->zeros = 0x0;
     // For interrupt gates, the type should be "0D110" where D is '1' for 32-bit
     // handler. Thus in our case the type should be 0b01110
@@ -54,8 +54,8 @@ _convert_idt_entry(struct interrupt_gate_t const * const from,
 void
 idt_init(void) {
     // Zero the IDT to invalidate all entries.
-    uint16_t byte_size = IDT_SIZE*sizeof(struct idt_gate_desc_t);
-    memzero((uint8_t*)IDT,byte_size);
+    uint16_t byte_size = IDT_SIZE * sizeof(struct idt_gate_desc_t);
+    memzero((uint8_t*)IDT, byte_size);
 
     // Here are all the mandatory exception handlers ordered by vector.
     void (*exception_handlers[])(void) = {
@@ -70,7 +70,7 @@ idt_init(void) {
 
     // Copy all the mandatory exception handlers one-by-one.
     size_t const len = sizeof(exception_handlers)/sizeof(exception_handlers[0]);
-    for(size_t i = 0;i<len;++i) {
+    for(size_t i = 0; i < len; ++i) {
         struct interrupt_gate_t gate = {
             .vector = i,
             .offset = exception_handlers[i],
@@ -93,19 +93,21 @@ void
 idt_register_handler(struct interrupt_gate_t const * const handler) {
     struct idt_gate_desc_t desc;
     size_t const code = handler->vector;
-    _convert_idt_entry(handler,&desc);
+    _convert_idt_entry(handler, &desc);
 
     // Copy the handler to IDT[code].
-    memcpy((uint8_t*)(IDT+code),(uint8_t*)&desc,sizeof(struct idt_gate_desc_t));
+    uint8_t * const dest = (uint8_t*)(IDT + code);
+    uint8_t * const src = (uint8_t*)&desc;
+    memcpy(dest, src, sizeof(struct idt_gate_desc_t));
 }
 
 void
 generic_interrupt_handler(struct interrupt_desc_t const * const desc) {
     LOG("Interrupt: {\n");
-    LOG("   vector = %x\n",desc->vector);
-    LOG("   error code = %x\n",desc->error_code);
-    LOG("   eflags = %x\n",desc->eflags);
-    LOG("   cs = %x\n",desc->cs);
-    LOG("   eip = %x\n",desc->eip);
+    LOG("   vector = %x\n", desc->vector);
+    LOG("   error code = %x\n", desc->error_code);
+    LOG("   eflags = %x\n", desc->eflags);
+    LOG("   cs = %x\n", desc->cs);
+    LOG("   eip = %x\n", desc->eip);
     LOG("}\n");
 }

@@ -20,5 +20,5 @@ serial_readc(void);
 
 // Print a formatted string into the serial port.
 void
-serial_printf(const char *const fmt, ...);
+serial_printf(const char * const fmt, ...);
 #endif

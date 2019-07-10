@@ -2,7 +2,7 @@
 
 // Definition of the cpuid function.
 ASM_FUNC_DEF(cpuid):
-    # Args in order: in_eax,in_ecx,out_ebx,out_ecx,out_edx.
+    # Args in order: in_eax, in_ecx, out_ebx, out_ecx, out_edx.
     # Offset %ebp:   0x8   ,0xC   ,0x10   ,0x14   ,0x18.
     push    %ebp
     mov     %esp, %ebp

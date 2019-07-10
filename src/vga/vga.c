@@ -25,20 +25,20 @@ vga_create_color_desc(enum vga_color_t const fg, enum vga_color_t const bg) {
     // The pair of color making the color desc is simply an encoding in a
     // uint8_t where the foreground color is in the 4 LSBs while the background
     // color is in the 4 MSBs.
-    return fg | (bg<<4);
+    return fg | (bg << 4);
 }
 
 vga_char_t
 vga_create_char(unsigned char const c, vga_color_desc_t const color_desc) {
     // The VGA char is simply a uint16_t where the character is located in the
     // lower 8 bits and the color description is located in the higher 8 bits.
-    return c | (color_desc<<8);
+    return c | (color_desc << 8);
 }
 
 void
 vga_put_char(vga_char_t const vga_char, uint8_t x, uint8_t y) {
     // The VGA matrix is a single array in the memory, thus we have to compute
-    // the linear index corresponding to the position (x,y).
+    // the linear index corresponding to the position (x, y).
     uint16_t const linear_idx = x + y * VGA_WIDTH;
     // We assume that the VGA buffer stays at the same address after setting up
     // paging. This can be done using idempotent mapping for this memory area.

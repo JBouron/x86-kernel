@@ -18,7 +18,7 @@ tty_putc(const char c);
 
 // Print a formatted string in the tty.
 void
-tty_printf(const char *const fmt, ...);
+tty_printf(const char * const fmt, ...);
 
 // Set the current foreground color of the tty. This color will be used for all
 // subsequent characters written in the tty.

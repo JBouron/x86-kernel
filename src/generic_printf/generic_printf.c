@@ -6,7 +6,7 @@ static void
 _gen_print_uint32_t(generic_putc_t putc, uint32_t const n) {
     // `digits` is an array that will contain the char representation of all
     // digits of `n` in reverse order. For instance if n == 123 then digits will
-    // be ['3','2','1','\0',...,'\0'].
+    // be ['3', '2', '1', '\0', ..., '\0'].
     uint8_t const max_digits = 9;
     char digits[max_digits];
     uint8_t digit_idx = 0;
@@ -33,9 +33,9 @@ static void
 _gen_print_int32_t(generic_putc_t putc, int32_t const n) {
     if (n < 0) {
         putc('-');
-        _gen_print_uint32_t(putc,(uint32_t)(-n));
+        _gen_print_uint32_t(putc, (uint32_t)(-n));
     } else {
-        _gen_print_uint32_t(putc,(uint32_t)(n));
+        _gen_print_uint32_t(putc, (uint32_t)(n));
     }
 }
 
@@ -46,11 +46,11 @@ _gen_print_uint32_t_hex(generic_putc_t putc, uint32_t const n) {
     putc('x');
     for(int8_t i = 28; i >= 0; i -= 4) {
         uint32_t const mask = 0xF << i;
-        uint8_t const half_byte = (n&mask)>>(i);
+        uint8_t const half_byte = (n & mask) >> (i);
         if (half_byte < 0xA) {
-            putc('0'+half_byte);
+            putc('0' + half_byte);
         } else {
-            putc('A'+(half_byte-0xA));
+            putc('A' + (half_byte-0xA));
         }
     }
 
@@ -66,33 +66,33 @@ _handle_substitution(generic_putc_t putc, char const **fmt, va_list *list) {
     // We have the type, simply read the value from the va_list.
     switch (type) {
         case 'd': {
-            int32_t const val = va_arg((*list),int32_t);
-            _gen_print_int32_t(putc,val);
+            int32_t const val = va_arg((*list), int32_t);
+            _gen_print_int32_t(putc, val);
             break;
         }
         case 'u': {
-            uint32_t const val = va_arg((*list),uint32_t);
-            _gen_print_uint32_t(putc,val);
+            uint32_t const val = va_arg((*list), uint32_t);
+            _gen_print_uint32_t(putc, val);
             break;
         }
         case 'p': {
             // FALL-THROUGH
         }
         case 'x': {
-            uint32_t const val = va_arg((*list),uint32_t);
-            _gen_print_uint32_t_hex(putc,val);
+            uint32_t const val = va_arg((*list), uint32_t);
+            _gen_print_uint32_t_hex(putc, val);
             break;
         }
         case 's': {
-            char const*const str = va_arg((*list),char const*const);
-            for(size_t i=0;i<strlen(str);++i) {
+            char const * const str = va_arg((*list), char const * const);
+            for(size_t i = 0; i < strlen(str); ++i) {
                 putc(str[i]);
             }
             break;
         }
         case 'c': {
             // We need to convert to an int here, otherwise gcc is complaining.
-            char const val = va_arg((*list),int);
+            char const val = va_arg((*list), int);
             putc(val);
             break;
         }
@@ -107,11 +107,11 @@ _handle_substitution(generic_putc_t putc, char const **fmt, va_list *list) {
 }
 
 void
-generic_printf(generic_putc_t putc, const char *const fmt, va_list list) {
+generic_printf(generic_putc_t putc, const char * const fmt, va_list list) {
     char const *curr = fmt;
     while (curr) {
         // Skip all the character that does not mark a substitution.
-        while (*curr&&(*curr!='%')) {
+        while (*curr && (*curr != '%')) {
             putc(*(curr++));
         }
 
@@ -129,7 +129,7 @@ generic_printf(generic_putc_t putc, const char *const fmt, va_list list) {
         }
 
         // Handle the substitution.
-        _handle_substitution(putc,&curr,&list);
+        _handle_substitution(putc, &curr, &list);
     }
 }
 
