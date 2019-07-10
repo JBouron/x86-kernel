@@ -4,13 +4,14 @@
 // We are using the tty to print debug messages. The tty (as well as the
 // underlying buffer which should be VGA) should, obviously, never fail.
 #include <tty/tty.h>
+#include <io/serial/serial.h>
 
 // Macros coming from the linux kernel source code.
 #define __stringify_1(x...) #x
 #define __stringify(x...)   __stringify_1(x)
 
 // The logging function is no less that the tty_printf function.
-#define LOG tty_printf
+#define LOG serial_printf
 
 // Panic the kernel, output the error message an dump some states into the tty.
 #define PANIC(...) \

@@ -8,6 +8,7 @@
 #include <interrupt/handlers.h>
 #include <includes/debug.h>
 #include <asm/cpuid/cpuid.h>
+#include <io/serial/serial.h>
 
 // Check all the assumptions we are making in this kernel. At least the ones
 // that are checkable at boot time.
@@ -22,6 +23,7 @@ assumptions_check(void) {
     uint16_t const new_eflags = eflags_no_21|((~bit21)<<21);
     write_eflags(new_eflags);
     ASSERT(read_eflags()==new_eflags);
+    write_eflags(eflags);
 
     // For now (or maybe forever), we are supporting Intel processors only. Read
     // the vendorId to make sure.
@@ -43,6 +45,7 @@ kernel_main(void) {
     while(i);
     vga_init();
     tty_init();
+    serial_init();
     assumptions_check();
 
     gdt_init();
@@ -65,5 +68,6 @@ kernel_main(void) {
     // Test a `int $21`. This should print "Interrupt 33 received".
     send_int();
 
-    tty_printf("END\n");
+    while(1)
+        serial_printf("%c",serial_readc());
 }

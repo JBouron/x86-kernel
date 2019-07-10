@@ -107,3 +107,20 @@ ASM_FUNC_DEF(write_eflags):
     push    %eax
     popf
     ret
+
+ASM_FUNC_DEF(outb):
+    push    %ebp
+    mov     %esp, %ebp
+    mov     0x8(%ebp), %edx
+    mov     0xC(%ebp), %eax
+    outb    %al, %dx
+    pop     %ebp
+    ret
+
+ASM_FUNC_DEF(inb):
+    push    %ebp
+    mov     %esp, %ebp
+    mov     0x8(%ebp), %edx
+    inb     %dx, %al 
+    pop     %ebp
+    ret

@@ -60,4 +60,10 @@ uint16_t
 read_eflags(void);
 void
 write_eflags(uint16_t eflags);
+
+void
+outb(uint16_t const port, uint8_t const data);
+
+uint8_t
+inb(uint16_t const port);
 #endif

@@ -90,6 +90,12 @@ _handle_substitution(generic_putc_t putc, char const **fmt, va_list *list) {
             }
             break;
         }
+        case 'c': {
+            // We need to convert to an int here, otherwise gcc is complaining.
+            char const val = va_arg((*list),int);
+            putc(val);
+            break;
+        }
         default: {
             // For any other param, print the char and move along.
             putc(type);
