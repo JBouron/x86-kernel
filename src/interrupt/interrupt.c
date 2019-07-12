@@ -3,6 +3,7 @@
 #include <asm/asm.h>
 #include <includes/debug.h>
 #include <interrupt/handlers.h>
+#include <interrupt/apic/apic.h>
 
 // The interrupt all use the kernel code segment.
 static uint16_t const INT_CODE_SEGMENT = 0x8;
@@ -110,4 +111,7 @@ generic_interrupt_handler(struct interrupt_desc_t const * const desc) {
     LOG("   cs = %x\n", desc->cs);
     LOG("   eip = %x\n", desc->eip);
     LOG("}\n");
+    // Signal the end of interrupt to the local APIC, this can be done before
+    // the iret. 
+    apic_eoi();
 }

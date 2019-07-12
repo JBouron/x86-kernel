@@ -2,11 +2,13 @@
 #ifndef _ASM_H
 #define _ASM_H
 #include <memory/segment.h>
-// Read the Model-Specific-Register into hi and low.
-// Hi will contain the high order 32 bits of the MSR while low will contain the
-// low order ones. (ie. *hi = %edx, *low = %eax after the call to rdmsr).
+// Read the Model-Specific-Register into dest.
 void
-read_msr(uint8_t const msr_num, uint32_t * const hi, uint32_t * const low);
+read_msr(uint8_t const msr_num, uint64_t const * dest);
+
+// Write in an MSR the content of val
+void
+write_msr(uint8_t const msr_num, uint64_t const val);
 
 // Read the Timestamp counter register into *hi and *low.
 void

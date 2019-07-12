@@ -9,6 +9,7 @@
 #include <includes/debug.h>
 #include <asm/cpuid/cpuid.h>
 #include <io/serial/serial.h>
+#include <interrupt/apic/apic.h>
 
 // Check all the assumptions we are making in this kernel. At least the ones
 // that are checkable at boot time.
@@ -37,6 +38,9 @@ assumptions_check(void) {
     ASSERT(streq(ebx, "Genu"));
     ASSERT(streq(edx, "ineI"));
     ASSERT(streq(ecx, "ntel"));
+
+    // We require the APIC.
+    ASSERT(is_apic_present());
 }
 
 void
@@ -58,7 +62,7 @@ kernel_main(void) {
         .offset = interrupt_handler_33,
         .segment_selector = 0x8,
     };
-    idt_register_handler( & handler33);
+    idt_register_handler(&handler33);
 
     // It is important that we disable the legacy PIC before enabling
     // interrupts since it can send interrupts sharing the same vectors as
@@ -69,6 +73,15 @@ kernel_main(void) {
     // Test a `int $21`. This should print "Interrupt 33 received".
     send_int();
 
-    while(1)
-        serial_printf("%c", serial_readc());
+    uint64_t msr_val;
+    read_msr(0x10, &msr_val);
+    uint32_t tsc_hi, tsc_lo;
+    read_tsc(&tsc_hi, &tsc_lo);
+    serial_printf("%x\n",msr_val);
+    serial_printf("%x%x\n",tsc_hi,tsc_lo);
+
+    apic_enable();
+    apic_init();
+
+    while(1);
 }

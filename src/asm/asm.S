@@ -1,7 +1,8 @@
 #include <asm/macro.h>
-ASM_FUNC_DEF(read_msr):
+ASM_FUNC_DEF(__read_msr):
     push    %ebp
     mov     %esp, %ebp
+    push    %ebx
     // Mov `msr_num` into %ecx
     mov     0x8(%ebp), %ecx
     rdmsr
@@ -11,6 +12,19 @@ ASM_FUNC_DEF(read_msr):
     // *low = %eax
     mov     0x10(%ebp), %ebx
     mov     %eax, (%ebx)
+    pop     %ebx
+    pop     %ebp
+    ret
+
+ASM_FUNC_DEF(__write_msr):
+    push    %ebp
+    mov     %esp, %ebp
+    // %ecx specifies the MSR number.
+    mov     0x8(%ebp), %ecx
+    // %edx:%eax corresponds to hi:lo.
+    mov     0xC(%ebp), %edx 
+    mov     0x10(%ebp), %eax 
+    wrmsr
     pop     %ebp
     ret
 
