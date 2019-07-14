@@ -12,4 +12,13 @@ strlen(const char * const str);
 // same content.
 bool
 streq(const char * const str1, const char * const str2);
+
+bool
+strneq(const char * const str1, const char * const str2, size_t const n);
+
+#define STR_NPOS    ((size_t) -1)
+// Find a character in a string from index `begin`. If no such character is
+// found, return STR_NPOS.
+size_t
+str_find_chr(char const * const str, char const ch, size_t const begin);
 #endif
