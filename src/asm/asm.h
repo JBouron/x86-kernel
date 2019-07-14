@@ -58,10 +58,10 @@ send_int(void);
 void
 lock_up(void);
 
-uint16_t
+uint32_t
 read_eflags(void);
 void
-write_eflags(uint16_t eflags);
+write_eflags(uint32_t eflags);
 
 void
 outb(uint16_t const port, uint8_t const data);

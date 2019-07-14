@@ -10,6 +10,8 @@
 #include <asm/cpuid/cpuid.h>
 #include <io/serial/serial.h>
 #include <interrupt/apic/apic.h>
+#include <boot/multiboot.h>
+#include <boot/cmdline/cmdline.h>
 
 // Check all the assumptions we are making in this kernel. At least the ones
 // that are checkable at boot time.
@@ -18,13 +20,12 @@ assumptions_check(void) {
     // We are using the CPUID extensively, as such we only support processor
     // that have this feature. This is done by checking if we can flip the bit
     // 21 in EFLAGS.
-    uint16_t const eflags = read_eflags();
-    uint16_t const eflags_no_21 = eflags & (~(1 << 21));
-    uint16_t const bit21 = (eflags & (1 << 21)) >> 21;
-    uint16_t const new_eflags = eflags_no_21 | ((~bit21) << 21);
+    uint32_t const eflags = read_eflags();
+    uint32_t const bit21 = (eflags & (1 << 21)) >> 21;
+    uint32_t const eflags_no_21 = eflags & (~(1<<21));
+    uint32_t const new_eflags = eflags_no_21 | (bit21 ? 0 : 1<<21);
     write_eflags(new_eflags);
-    ASSERT(read_eflags() == new_eflags);
-    write_eflags(eflags);
+    ASSERT(read_eflags() & (1<<21));
 
     // For now (or maybe forever), we are supporting Intel processors only. Read
     // the vendorId to make sure.
@@ -44,13 +45,20 @@ assumptions_check(void) {
 }
 
 void
-kernel_main(void) {
-    // Initialize the VGA text buffer and the TTY.
-    bool i = 0;
-    while(i);
+kernel_main(struct multiboot_info_t const * const multiboot_info) {
+    char const * const cmdline = (char const * const)(multiboot_info->cmdline);
+    cmdline_parse(cmdline);
+
+    // If the kernel has been started with the --wait flag then loop until gdb
+    // attaches to the virtual machine and resume the execution.
+    while(CMDLINE_PARAMS.wait_start) {
+        asm("pause");
+    }
+
     vga_init();
     tty_init();
     serial_init();
+
     assumptions_check();
 
     gdt_init();

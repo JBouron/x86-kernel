@@ -4,9 +4,9 @@
 // low double words.
 extern void
 __read_msr(uint8_t const msr_num, uint32_t * const hi, uint32_t * const low);
-//
-// The actual implementation of write_msr, splitting the 64bit uint into high and
-// low double words.
+
+// The actual implementation of write_msr, splitting the 64bit uint into high
+// and low double words.
 extern void
 __write_msr(uint8_t const msr_num, uint32_t const hi, uint32_t const low);
 

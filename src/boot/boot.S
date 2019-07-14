@@ -1,6 +1,7 @@
 .set ALIGN,    1 << 0             # align loaded modules on page boundaries
 .set MEMINFO,  1 << 1             # provide memory map
-.set FLAGS,    ALIGN | MEMINFO  # this is the Multiboot 'flag' field
+.set VIDINFO,  1 << 2
+.set FLAGS,    ALIGN | VIDINFO | MEMINFO  # this is the Multiboot 'flag' field
 .set MAGIC,    0x1BADB002       # 'magic num' lets bootloader find the header
 .set CHECKSUM, -(MAGIC + FLAGS) # checksum of above, to prove we are multiboot
 
@@ -10,6 +11,10 @@
 .long MAGIC
 .long FLAGS
 .long CHECKSUM
+.skip 24 # Skip the entries of the multiboot header corresponding to flag[16].
+.long 0 # No preference for width.
+.long 0 # No preference for height.
+.long 0 # No preference for depth.
 
 # Define the stack here. By default use 16KiB.
 .section .bss
@@ -29,6 +34,8 @@ _start_kernel:
 	mov $stack_top, %esp
 
 	# Enter the main of the kernel.
+    # EBX contains the address of the multiboot_info_t structure.
+    push    %ebx
 	call kernel_main
 
 	# In case we return from the kernel just loop infinitely.
