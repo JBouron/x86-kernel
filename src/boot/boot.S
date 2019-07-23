@@ -25,16 +25,23 @@ stack_bottom:
 stack_top:
 
 .section .text
-.global _enable_paging
-.type _enable_paging, @function
-_enable_paging:
-    # We need to be *very* careful here: paging is not yet enabled and all
-    # sections have been linked to the higher-half of the virtual memory, which
-    # means we need to convert all memory reference to their physical address
-    # (which is simply addr - KERNEL_START).
-    call __early_boot__setup_paging
+.global __early_boot__enable_paging
+.type __early_boot__enable_paging, @function
+__early_boot__enable_paging:
+    # Enable paging with the page directory address passed as argument but stay
+    # in the lower memory.
+    mov     4(%esp), %eax
+    # %eax now contains the address (physical) of the page directory to be used.
+    # We have now everything we need to setup paging.
+    # Store page dir address.
+    mov     %eax, %cr3
+    # Enable paging with protection bits.
+    mov     %cr0, %eax
+    or      $0x80000001, %eax
+    mov     %eax, %cr0
     ret
     
+
 
 # Finally define the entry point of the kernel in the .text section, this is
 # where life starts !
@@ -50,29 +57,22 @@ _start_kernel:
     # need it later in the kernel_main thus save it into the stack
     push    %ebx
 
-    call _enable_paging
+    call __early_boot__setup_paging
 
     # Get back the saved value of the address of the multiboot header.
     pop     %ebx
 
-    # At this point paging is enabled. We can reset the stack pointer to use a
-    # virtual address this time.
-	mov $(stack_top), %esp
-    # %eax now contains the address (physical) of the page directory to be used.
-    # We have now everything we need to setup paging.
-    # Store page dir address.
-    mov     %eax, %cr3
-    # Enable paging with protection bits.
-    mov     %cr0, %eax
-    or      $0x80000001, %eax
-    mov     %eax, %cr0
-
-    # Perform an absolute jump to get into the higher-half kernel.
+    # Paging has been enabled, but we were still using the identity mapping
+    # until now. It is time to get into the higher-half kernel with an absolute
+    # jump.
     lea 0f, %eax
     jmp %eax
 0:
 
-    # Translate the address of the multiboot header to virtual.
+    # We can reset the stack pointer to use a virtual address this time.
+	mov $(stack_top), %esp
+    # Translate the address of the multiboot header to virtual. This is a simple
+    # offset.
     add     $0xC0000000, %ebx
     # Enter the main of the kernel with the address of the multi boot header as
     # argument.

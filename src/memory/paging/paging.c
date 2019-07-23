@@ -17,7 +17,7 @@ static p_addr FRAME_ALLOC_ADDR;
 // address.
 // We declare it in the .c file so that it is not accessible from anywhere else.
 // The linker will find it though.
-p_addr
+void
 __early_boot__setup_paging(void);
 
 #define KERNEL_VIRT_START_ADDR  (0xC0000000)
@@ -100,8 +100,8 @@ __do_map(pagedir_t root_page_dir,
     }
 }
 
-p_addr
-__early_boot__setup_paging(void) {
+static p_addr
+__early_boot__create_mappings(void) {
     // To setup paging we create two mappings of the kernel:
     //      _ An identity mapping, this is required since the next instruction
     //      fetched after enabling paging will still use physical addressing.
@@ -122,17 +122,43 @@ __early_boot__setup_paging(void) {
 
     // Allocate the page directory.
     bool const early_boot = true;
-    p_addr const kernel_page_dir = __new_page_dir(early_boot);
+    p_addr const page_dir = __new_page_dir(early_boot);
 
     // Create identity mapping.
-    __do_map((pagedir_t)kernel_page_dir, early_boot, start, size, start);
+    __do_map((pagedir_t)page_dir, early_boot, start, size, start);
 
     // Create higher-half mapping.
     v_addr const higher_half_start = KERNEL_VIRT_START_ADDR + start;
-    __do_map((pagedir_t)kernel_page_dir, early_boot, start, size, higher_half_start);
+    __do_map((pagedir_t)page_dir, early_boot, start, size, higher_half_start);
+
+    // Create the back pointer, that is the mapping 0xFFFFF000 ->
+    // page_dir. This back-pointer will allow us to get the physical address of
+    // the kernel page directory after paging is enabled.
+    __do_map((pagedir_t)page_dir, early_boot, page_dir, PAGE_SIZE, 0xFFFFF000);
 
     // Return address of the kernel page dir to be loaded in CR3.
-    return kernel_page_dir;
+    return page_dir;
+}
+
+// This function will enable paging with the page_dir as CR3. However it will
+// not jump into the higher half kernel yet, but stay in the identity mapping
+// instead.
+extern void
+__early_boot__enable_paging(p_addr const page_dir);
+
+void
+__early_boot__setup_paging(void) {
+    // Create the two (identity and higher-half) mappings and retrieve the
+    // address of the kernel page directory.
+    p_addr const kernel_page_dir = __early_boot__create_mappings();
+
+    // Enable paging.
+    __early_boot__enable_paging(kernel_page_dir);
+    // Paging is from now on enabled.
+
+    // Note: While paging is enabled, we are still using the identity mapping
+    // here. Yet we can now access the global variables.
+    KERNEL_PAGEDIRECTORY = (pagedir_t)kernel_page_dir;
 }
 
 void
