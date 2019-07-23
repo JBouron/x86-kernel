@@ -58,7 +58,6 @@ _start_kernel:
     # At this point paging is enabled. We can reset the stack pointer to use a
     # virtual address this time.
 	mov $(stack_top), %esp
-
     # %eax now contains the address (physical) of the page directory to be used.
     # We have now everything we need to setup paging.
     # Store page dir address.

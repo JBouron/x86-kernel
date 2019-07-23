@@ -13,9 +13,9 @@ SECTIONS
 	/* First put the multiboot header, as it is required to be put very early
 	   early in the image or the bootloader won't recognize the file format.
 	   Next we'll put the .text section. */
+    __KERNEL_START = .;
 	.text ALIGN(4K) : AT(ADDR(.text)-0xC0000000)
 	{
-        __KERNEL_START = .;
         __SECTION_TEXT_START = .;
 		*(.multiboot)
 		*(.text)
@@ -45,8 +45,8 @@ SECTIONS
 		*(COMMON)
 		*(.bss)
         __SECTION_BSS_END = .;
-        __KERNEL_END = .;
 	}
+    __KERNEL_END = .;
  
 	/* The compiler may produce other sections, by default it will put them
 	 * in a segment with the same name. Simply add stuff here as needed. */

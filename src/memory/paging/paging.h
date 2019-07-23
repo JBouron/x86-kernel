@@ -69,7 +69,16 @@ typedef struct pagetable_entry_t *pagetable_t;
 // This is the kernel's page directory. We use identity mapping.
 extern pagedir_t KERNEL_PAGEDIRECTORY;
 
+// Some typdef making reading code easier.
+typedef uint32_t p_addr;
+typedef uint32_t v_addr;
+
 // Initialize and enable paging.
 void
 paging_init(void);
+
+// Map a physical memory region start:start+size to dest:dest+size. All
+// addresses must be PAGE_SIZE aligned. Size must be a multiple of PAGE_SIZE.
+void
+paging_map(p_addr const start, size_t const size, v_addr const dest);
 #endif

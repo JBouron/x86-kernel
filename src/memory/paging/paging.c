@@ -1,10 +1,14 @@
 #include <memory/paging/paging.h>
 #include <includes/math.h>
 #include <includes/kernel_map.h>
+#include <memory/memory.h>
 
 // The page directory used by the kernel. This table must be PAGE_SIZE bytes
 // aligned.
 pagedir_t KERNEL_PAGEDIRECTORY __attribute__((aligned(PAGE_SIZE)));
+
+// This is the physical address of the next free frame in RAM.
+static p_addr FRAME_ALLOC_ADDR;
 
 // This function sets up the paging during early boot. It is defined as static
 // so that it cannot be called anywhere else.
@@ -13,111 +17,133 @@ pagedir_t KERNEL_PAGEDIRECTORY __attribute__((aligned(PAGE_SIZE)));
 // address.
 // We declare it in the .c file so that it is not accessible from anywhere else.
 // The linker will find it though.
-uint32_t
+p_addr
 __early_boot__setup_paging(void);
 
-static void
-__early_boot__add_pde(pagedir_t pd,
-                      uint16_t const idx,
-                      uint32_t const table_offset) {
-    struct pagedir_entry_t *const pde = pd + idx;
-    pde->present = 1;
-    pde->writable = 1;
-    pde->user_accessible = 0;
-    pde->write_through = 0;
-    pde->cacheable = 1;
-    pde->huge_page = 0;
-    pde->pagetable_addr = ((uint32_t)table_offset) >> 12;
-}
-
-static void
-__early_boot__add_pte(pagetable_t pt,
-                      uint16_t const idx,
-                      uint32_t const page_offset) {
-    ASSERT(!(page_offset & 0xfff));
-    // Page offset must be 4KiB aligned.
-    struct pagetable_entry_t * const entry = pt + idx;
-    entry->present = 1;
-    entry->writable = 1;
-    entry->user_accessible = 0;
-    entry->write_through = 0;
-    entry->cacheable = 1;
-    entry->zero = entry->zero2 = 0;
-    entry->pageframe_addr = page_offset >> 12;
-}
-
-uint32_t
-__early_boot__setup_paging(void) {
 #define KERNEL_VIRT_START_ADDR  (0xC0000000)
-#define PHYS_ADDR(addr) (((uint8_t*)(addr)) - KERNEL_VIRT_START_ADDR)
-#define VIRT_ADDR(addr) (((uint8_t*)(addr)) + KERNEL_VIRT_START_ADDR)
-    // To setup paging we need both an identity mapping of the first N Mbytes
-    // (the size of the entire kernel in MB) and a mapping at the virtual
-    // address of the kernel to the first N MB in physical memory.
+#define PHYS_ADDR(addr) ((p_addr)(((uint8_t*)(addr)) - KERNEL_VIRT_START_ADDR))
 
-    uint8_t const * const kernel_end = PHYS_ADDR(KERNEL_END);
+// Allocate a new frame in RAM.
+static p_addr
+__new_frame(bool early_boot) {
+    p_addr *frame_alloc_addr_ptr;
+    if (early_boot) {
+        frame_alloc_addr_ptr = (p_addr*)PHYS_ADDR(&FRAME_ALLOC_ADDR);
+    } else {
+        frame_alloc_addr_ptr = &FRAME_ALLOC_ADDR;
+    }
+    p_addr const addr = *frame_alloc_addr_ptr;
+    *frame_alloc_addr_ptr += PAGE_SIZE;
+    return addr;
+}
 
-    // Compute the number of pages and page tables we need to allocate.
-    uint32_t const num_alloc_pages = ceil_x_over_y((uint32_t)kernel_end,
-                                                   PAGE_SIZE);
+static p_addr
+__new_page_dir(bool early_boot) {
+    // Allocate a new frame for the page dir and zero it.
+    p_addr const pt_addr = __new_frame(early_boot);
+    memzero((uint8_t*)pt_addr, PAGE_SIZE);
+    return pt_addr;
+}
 
-    // The start alloc addr indicates the physical address at which we start
-    // allocating frames. Since here the kernel's frame are already allocated
-    // (eg. they are in physical memory already), we only need to allocate the
-    // page directory and the page table(s).
-    uint32_t const start_alloc_addr = (1 + (uint32_t)(kernel_end) / PAGE_SIZE)
-        * PAGE_SIZE;
-    // This is the next available address for allocation.
-    uint32_t alloc_addr = start_alloc_addr;
+static p_addr
+__new_page_table(bool early_boot) {
+    // Allocate a new frame for the page table and zero it.
+    p_addr const pt_addr = __new_frame(early_boot);
+    memzero((uint8_t*)pt_addr, PAGE_SIZE);
+    return pt_addr;
+}
 
-    // The first page in the pool is used for the kernel's page directory.
-    pagedir_t kernel_page_dir = (pagedir_t)alloc_addr;
-    alloc_addr += PAGE_SIZE;
+// Map a physical memory region start:start+size to dest:dest+size. Addresses
+// are assumed to be PAGE_SIZE aligned and size a multiple of PAGE_SIZE.
+// root_page_dir is the address of the page directory to write the mapping to.
+static void
+__do_map(pagedir_t root_page_dir,
+         bool early_boot,
+         p_addr const start, 
+         size_t const size,
+         v_addr const dest) {
+    // Iterate over all addresses that are multiple of PAGE_SIZE.
+    for (v_addr v = dest, p = start; v < dest + size; v += PAGE_SIZE, p += PAGE_SIZE) {
+        uint32_t const page_idx = v / PAGE_SIZE;
+        uint32_t const pde_idx = page_idx / PAGEDIR_ENTRIES_COUNT;
+        uint32_t const pte_idx = page_idx % PAGETABLE_ENTRIES_COUNT;
 
-    // We need at least one page table.
-    pagetable_t curr_pagetable = NULL;
+        // Check the existance of the PDE.
+        struct pagedir_entry_t * const pde = root_page_dir + pde_idx;
+        if (!pde->present) {
+            // The PDE is not present, we need to create a new page table and
+            // set this PDE.
+            // Reset the PDE.
+            memzero((uint8_t*)pde, sizeof(*pde));
+            // Allocate new page table.
+            pde->pagetable_addr = __new_page_table(early_boot) >> 12;
 
-    for(uint32_t pageidx = 0; pageidx < num_alloc_pages; ++pageidx) {
-        uint32_t const page_start_addr = pageidx * PAGE_SIZE;
-        uint16_t const pte_idx = pageidx % 1024;
-        if (!pte_idx) {
-            // We reached the end of the current page table, allocate a new one
-            // an continue the allocation with it.
-            curr_pagetable = (pagetable_t)alloc_addr;
-            alloc_addr += PAGE_SIZE;
+            // Set some attributes.
+            pde->writable = 1;
+            pde->cacheable = 1;
 
-            uint16_t const pde_idx = pageidx / 1024;
-            __early_boot__add_pde(kernel_page_dir,
-                                  pde_idx, 
-                                  (uint32_t)curr_pagetable);
+            // Finally mark it as present.
+            pde->present = 1;
         }
-        __early_boot__add_pte(curr_pagetable, pte_idx, page_start_addr);
+
+        pagetable_t pt = (pagetable_t) (pde->pagetable_addr << 12);
+        struct pagetable_entry_t * const pte = pt + pte_idx;
+        // Reset the PTE.
+        memzero((uint8_t*)pte, sizeof(*pte));
+        // Write PTE attributes.
+        pte->writable = 1;
+        pte->cacheable = 1;
+        pte->pageframe_addr = p >> 12;
+
+        // Set present bit.
+        pte->present = 1;
     }
+}
 
-    // We now have to map the kernel to the higher-half.
-    uint32_t const start_kernel_page = KERNEL_VIRT_START_ADDR / PAGE_SIZE;
-    uint32_t const start_kernel_pde_idx = start_kernel_page / 1024;
-    // Simply copy the PDEs from the identity mapping to the higher half.
-    uint32_t const num_pdes = ceil_x_over_y(num_alloc_pages, 1024);
-    for (uint32_t i = 0; i < num_pdes; ++i) {
-        kernel_page_dir[i+start_kernel_pde_idx] = kernel_page_dir[i];
-    }
+p_addr
+__early_boot__setup_paging(void) {
+    // To setup paging we create two mappings of the kernel:
+    //      _ An identity mapping, this is required since the next instruction
+    //      fetched after enabling paging will still use physical addressing.
+    //      _ A mapping in the higher half starting at KERNEL_VIRT_START_ADDR.
 
-    // Set the KERNEL_PAGEDIRECTORY global variable. It should be set to the
-    // virtual address of `kernel_page_dir` since this global variable will be
-    // used *after* paging is enabled.
-    pagedir_t *const global = (pagedir_t*)PHYS_ADDR(&KERNEL_PAGEDIRECTORY);
-    *global = (pagedir_t)VIRT_ADDR(kernel_page_dir);
+    // Compute the memory area occupied by the kernel. We want to map from
+    // address KERNEL_START to KERNEL_END. 
+    p_addr const start = PHYS_ADDR(KERNEL_START);
+    p_addr const size = KERNEL_SIZE;
 
-    // Return the physical address of the page directory that must be used in
-    // CR3.
-    return (uint32_t) kernel_page_dir;
-    
-#undef PHYS_ADDR
-#undef KERNEL_START
-#undef KERNEL_VIRT_START_ADDR
+    // We need to setup the frame allocation address since we will need to
+    // allocate the page directory and page tables.
+    // the RAM region 0x00100000-0x00EFFFFF is free of use (and also contains
+    // the kernel) we can start directly after the kernel sections.
+    p_addr * frame_alloc_addr = (p_addr*)PHYS_ADDR(&FRAME_ALLOC_ADDR);
+    // The address needs to be PAGE_SIZE aligned.
+    *frame_alloc_addr = (1 + PHYS_ADDR(KERNEL_END) / PAGE_SIZE) * PAGE_SIZE;
+
+    // Allocate the page directory.
+    bool const early_boot = true;
+    p_addr const kernel_page_dir = __new_page_dir(early_boot);
+
+    // Create identity mapping.
+    __do_map((pagedir_t)kernel_page_dir, early_boot, start, size, start);
+
+    // Create higher-half mapping.
+    v_addr const higher_half_start = KERNEL_VIRT_START_ADDR + start;
+    __do_map((pagedir_t)kernel_page_dir, early_boot, start, size, higher_half_start);
+
+    // Return address of the kernel page dir to be loaded in CR3.
+    return kernel_page_dir;
 }
 
 void
 paging_init(void) {
+}
+
+void
+paging_map(p_addr const start, size_t const size, v_addr const dest) {
+    ASSERT((start & (PAGE_SIZE-1)) == 0);
+    ASSERT((dest & (PAGE_SIZE-1)) == 0);
+    ASSERT((size & (PAGE_SIZE-1)) == 0);
+    bool const early_boot = false;
+    __do_map(KERNEL_PAGEDIRECTORY, early_boot, start, size, dest);
 }
