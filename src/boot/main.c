@@ -12,6 +12,7 @@
 #include <interrupt/apic/apic.h>
 #include <boot/multiboot.h>
 #include <boot/cmdline/cmdline.h>
+#include <includes/kernel_map.h>
 
 // Check all the assumptions we are making in this kernel. At least the ones
 // that are checkable at boot time.
@@ -46,8 +47,11 @@ assumptions_check(void) {
 
 void
 kernel_main(struct multiboot_info_t const * const multiboot_info) {
-    char const * const cmdline = (char const * const)(multiboot_info->cmdline);
-    cmdline_parse(cmdline);
+    ASSERT(multiboot_info);
+    // TODO: command line parsing is disabled until page fault is handled
+    // correctly or a mechanism to read from physical memory is implemented.
+    //char const * const cmdline = (char const * const)(multiboot_info->cmdline);
+    //cmdline_parse(cmdline);
 
     // If the kernel has been started with the --wait flag then loop until gdb
     // attaches to the virtual machine and resume the execution.
@@ -60,6 +64,23 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
     serial_init();
 
     assumptions_check();
+
+    LOG("KERNEL_START         = %x\n", KERNEL_START);
+    LOG("SECTION_TEXT_START   = %x\n", SECTION_TEXT_START);
+    LOG("SECTION_TEXT_END     = %x\n", SECTION_TEXT_END);
+    LOG("SECTION_RODATA_START = %x\n", SECTION_RODATA_START);
+    LOG("SECTION_RODATA_END   = %x\n", SECTION_RODATA_END);
+    LOG("SECTION_DATA_START   = %x\n", SECTION_DATA_START);
+    LOG("SECTION_DATA_END     = %x\n", SECTION_DATA_END);
+    LOG("SECTION_BSS_START    = %x\n", SECTION_BSS_START);
+    LOG("SECTION_BSS_END      = %x\n", SECTION_BSS_END);
+    LOG("KERNEL_END           = %x\n", KERNEL_END);
+
+    LOG("KERNEL_SIZE          = %d bytes.\n", KERNEL_SIZE);
+    LOG("SECTION_TEXT_SIZE    = %d bytes.\n", SECTION_TEXT_SIZE);
+    LOG("SECTION_RODATA_SIZE  = %d bytes.\n", SECTION_RODATA_SIZE);
+    LOG("SECTION_DATA_SIZE    = %d bytes.\n", SECTION_DATA_SIZE);
+    LOG("SECTION_BSS_SIZE     = %d bytes.\n", SECTION_BSS_SIZE);
 
     gdt_init();
     idt_init();
@@ -78,6 +99,9 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
     pic_disable();
     interrupts_enable();
 
+    int i = 0;
+    while(!i);
+
     // Test a `int $21`. This should print "Interrupt 33 received".
     send_int();
 
@@ -88,8 +112,8 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
     serial_printf("%x\n",msr_val);
     serial_printf("%x%x\n",tsc_hi,tsc_lo);
 
-    apic_enable();
-    apic_init();
+    //apic_enable();
+    //apic_init();
 
     while(1);
 }

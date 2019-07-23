@@ -5,6 +5,7 @@
 // underlying buffer which should be VGA) should, obviously, never fail.
 #include <tty/tty.h>
 #include <io/serial/serial.h>
+#include <asm/asm.h>
 
 // Macros coming from the linux kernel source code.
 #define __stringify_1(x...) #x
@@ -28,4 +29,6 @@
             PANIC("Condition failed: " __stringify(condition) "\n"); \
         } \
     } while(0)
+
+#define STATIC_ASSERT(condition, msg)    _Static_assert(condition, msg)
 #endif
