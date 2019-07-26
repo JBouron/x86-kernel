@@ -2,6 +2,7 @@
 #define _PAGING_H
 #include <includes/types.h>
 #include <includes/debug.h>
+#include <memory/paging/alloc/alloc.h>
 
 // Entry of a page directory.
 struct pagedir_entry_t {
@@ -69,16 +70,17 @@ typedef struct pagetable_entry_t *pagetable_t;
 // This is the kernel's page directory. We use identity mapping.
 extern pagedir_t KERNEL_PAGEDIRECTORY;
 
-// Some typdef making reading code easier.
-typedef uint32_t p_addr;
-typedef uint32_t v_addr;
-
 // Initialize and enable paging.
 void
 paging_init(void);
 
 // Map a physical memory region start:start+size to dest:dest+size. All
 // addresses must be PAGE_SIZE aligned. Size must be a multiple of PAGE_SIZE.
+// Uses the page directory and frame allocator specified as arguments.
 void
-paging_map(p_addr const start, size_t const size, v_addr const dest);
+paging_map(pagedir_t root_page_dir,
+           struct frame_alloc_t *allocator,
+           p_addr const start,
+           size_t const size,
+           v_addr const dest);
 #endif
