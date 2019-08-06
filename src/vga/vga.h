@@ -3,8 +3,8 @@
 #define _VGA_H
 #include <includes/types.h>
 
-// The location of the VGA buffer in memory. Note this is before paging is
-// enabled.
+// The location of the VGA buffer in memory. This address is identity mapped for
+// now.
 static uint16_t * const VGA_BUFFER_OFFSET = (uint16_t*)0xB8000;
 // The width and height of the VGA text matrix.
 static size_t const VGA_WIDTH = 80;

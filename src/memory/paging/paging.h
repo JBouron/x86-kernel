@@ -83,4 +83,8 @@ paging_map(pagedir_t root_page_dir,
            p_addr const start,
            size_t const size,
            v_addr const dest);
+
+// Short-cut to avoid boiler-plate.
+#define paging_create_map(start, size, dest) \
+    paging_map(KERNEL_PAGEDIRECTORY, &FRAME_ALLOCATOR, start, size, dest)
 #endif

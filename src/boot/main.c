@@ -13,6 +13,7 @@
 #include <boot/multiboot.h>
 #include <boot/cmdline/cmdline.h>
 #include <includes/kernel_map.h>
+#include <memory/paging/alloc/alloc.h>
 
 // Check all the assumptions we are making in this kernel. At least the ones
 // that are checkable at boot time.
@@ -59,6 +60,9 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
         asm("pause");
     }
 
+    int j = 0;
+    while(!j);
+
     vga_init();
     tty_init();
     serial_init();
@@ -98,9 +102,6 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
     // regular exceptions, thus causing problems.
     pic_disable();
     interrupts_enable();
-
-    int i = 0;
-    while(!i);
 
     // Test a `int $21`. This should print "Interrupt 33 received".
     send_int();

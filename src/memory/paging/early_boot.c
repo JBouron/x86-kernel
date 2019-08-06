@@ -15,6 +15,8 @@
 
 #include <memory/paging/paging.h>
 #include <memory/paging/alloc/early_boot.h>
+#include <memory/paging/alloc/alloc.h>
+#include <memory/paging/alloc/simple.h>
 #include <includes/kernel_map.h>
 
 void
@@ -30,8 +32,10 @@ extern void
 __early_boot__enable_paging(p_addr const page_dir);
 
 
+// Create the identity and higher-half mappings and return the physical address
+// of the kernel page directory that needs to be stored in CR3.
 static p_addr
-__early_boot__create_mappings(void) {
+__early_boot__create_mappings(p_addr * const last_allocated_frame) {
     // To setup paging we create two mappings of the kernel:
     //      _ An identity mapping, this is required since the next instruction
     //      fetched after enabling paging will still use physical addressing.
@@ -70,6 +74,10 @@ __early_boot__create_mappings(void) {
     // the kernel page directory after paging is enabled.
     paging_map((pagedir_t)page_dir, alloc, page_dir, PAGE_SIZE, 0xFFFFF000);
 
+    // Output the address of the last allocated frame in RAM, that will be used
+    // by the next frame allocator.
+    *last_allocated_frame = _eb_allocator.next_frame_addr - PAGE_SIZE;
+
     // Return address of the kernel page dir to be loaded in CR3.
     return page_dir;
 }
@@ -78,7 +86,10 @@ void
 __early_boot__setup_paging(void) {
     // Create the two (identity and higher-half) mappings and retrieve the
     // address of the kernel page directory.
-    p_addr const kernel_page_dir = __early_boot__create_mappings();
+    p_addr last_allocated_frame = 0x0;
+    // This will contain the address of the last allocated frame.
+    p_addr const kernel_page_dir = __early_boot__create_mappings(
+        &last_allocated_frame);
 
     // Enable paging.
     __early_boot__enable_paging(kernel_page_dir);
@@ -86,9 +97,19 @@ __early_boot__setup_paging(void) {
 
     // Note: While paging is enabled, we are still using the identity mapping
     // here. Yet we can now access the global variables.
+    // Set the KERNEL_PAGEDIRECTORY global to the physical address of the
+    // kernel's page directory.
     KERNEL_PAGEDIRECTORY = (pagedir_t)kernel_page_dir;
+
+    // We can now setup the frame allocator.
+    struct simple_frame_alloc_t * fa_simple = (struct simple_frame_alloc_t *)
+        &FRAME_ALLOCATOR;
+    fa_simple_alloc_init(fa_simple, last_allocated_frame + PAGE_SIZE);
 }
 
+// To be called once paging as beed enabled and *after* jumping into the higher
+// half. This function will remove the identity mapping and setup the frame
+// allocator.
 void
 __early_boot__finish_paging(void) {
     // Paging has been enabled, and we have jumped to the higher-half kernel. We
@@ -107,7 +128,5 @@ __early_boot__finish_paging(void) {
     }
     // Important note: The page table used by the PDEs of the identity mapping
     // can be overwritten from now.
-
-    // We can now setup the frame allocator.
 }
 

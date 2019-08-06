@@ -10,6 +10,9 @@ KERNEL_ASFLAGS=-O0 -g
 # The name of the linker script used to build the kernel image.
 LINKER_SCRIPT=linker.ld
 
+# The number of jobs used by make inside the kernel builder container.
+NJOBS=16
+
 # The name of the kernel image.
 KERNEL_IMG_NAME=kernel.bin
 
@@ -37,7 +40,7 @@ build:
 	@# debug info in the kernel image are correct. (Eg. the paths for the source
 	@# files are the same).
 	@# We use the -t to get colored output.
-	sudo docker run -v $(PWD):$(PWD) -t kernel_builder make -C $(PWD) build_in_cont
+	sudo docker run -v $(PWD):$(PWD) -t kernel_builder make -C $(PWD) -j $(NJOBS) build_in_cont
 	@# Since the user in the docker container is root, we need to change the
 	@# owner once the build is complete.
 	sudo chown $(USER):$(USER) $(BUILD_DIR) -R

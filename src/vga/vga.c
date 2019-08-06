@@ -1,7 +1,14 @@
 #include <vga/vga.h>
+#include <memory/paging/paging.h>
 
 void
 vga_init(void) {
+    // Identity map the VGA buffer in virtual memory.
+    p_addr const start = (p_addr) VGA_BUFFER_OFFSET;
+    size_t const size = VGA_WIDTH * VGA_HEIGHT * sizeof(*VGA_BUFFER_OFFSET);
+    v_addr const dest = (v_addr) VGA_BUFFER_OFFSET;
+    paging_create_map(start, size, dest);
+
     // Clear the VGA matrix by writing empty char (black on black). This is
     // needed as the VGA matrix is used by the BIOS before the kernel is
     // started and thus we might see garbage.
