@@ -60,9 +60,6 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
         asm("pause");
     }
 
-    int j = 0;
-    while(!j);
-
     vga_init();
     tty_init();
     serial_init();
