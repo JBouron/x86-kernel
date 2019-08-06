@@ -98,20 +98,15 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
     // interrupts since it can send interrupts sharing the same vectors as
     // regular exceptions, thus causing problems.
     pic_disable();
-    interrupts_enable();
+    interrupts_disable();
+
+    // Initialize and enable the APIC.
+    apic_init();
+    apic_enable();
 
     // Test a `int $21`. This should print "Interrupt 33 received".
     send_int();
 
-    uint64_t msr_val;
-    read_msr(0x10, &msr_val);
-    uint32_t tsc_hi, tsc_lo;
-    read_tsc(&tsc_hi, &tsc_lo);
-    serial_printf("%x\n",msr_val);
-    serial_printf("%x%x\n",tsc_hi,tsc_lo);
-
-    //apic_enable();
-    //apic_init();
-
+    // Lock up the computer.
     while(1);
 }

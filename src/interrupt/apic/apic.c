@@ -2,10 +2,11 @@
 #include <asm/cpuid/cpuid.h>
 #include <asm/asm.h>
 #include <includes/debug.h>
+#include <memory/paging/paging.h>
 
 // This is the base address of the APIC registers. This is subject to change,
 // when paging is enabled for instance.
-uint32_t * APIC_REG_ADDR = (uint32_t*)0xFEE00000;
+uint8_t * APIC_REG_ADDR = (uint8_t*)0xFEE00000;
 
 uint8_t
 is_apic_present(void) {
@@ -54,27 +55,42 @@ apic_disable(void) {
 // Read the register at `offset` from the local APIC.
 static uint32_t
 __read_apic_register(uint32_t const offset) {
-    uint32_t const * const reg = (uint32_t*)offset;
+    uint32_t const * const reg = (uint32_t *)(APIC_REG_ADDR + offset);
     return *reg;
 }
 
 // Write the register at `offset` from the local APIC.
 static void
 __write_apic_register(uint32_t const offset, uint32_t const val) {
-    uint32_t * const reg = (uint32_t*)offset;
+    uint32_t * const reg = (uint32_t *)(APIC_REG_ADDR + offset);
     *reg = val;
+}
+
+// Map the APIC registers to the higher half kernel.
+static void
+__map_apic_regs(void) {
+    // TODO: For now we identity map.
+    p_addr const start_apic_regs = (p_addr) APIC_REG_ADDR;
+    size_t const apic_reg_size = PAGE_SIZE;
+    v_addr const dest = start_apic_regs;
+    paging_create_map(start_apic_regs, apic_reg_size, dest);
 }
 
 void
 apic_init(void) {
+    // The very first thing to do is to map the APIC registers to our virtual
+    // address space. We need to do that even before the very first interrupt
+    // since dealing with an interrupt requires writting to the EOI register.
+    __map_apic_regs();
+
     // Setup a periodic timer.
     // First setup the initial count.
-    uint32_t const INIT_TIMER_REG = 0xFEE00380;
+    uint32_t const INIT_TIMER_REG = 0x380;
     uint32_t const initial_timer_count = 0xFFFFFFF;
     __write_apic_register(INIT_TIMER_REG, initial_timer_count);
 
     // Setup the timer register in the LVT.
-    uint32_t const TIMER_REG = 0xFEE00320;
+    uint32_t const TIMER_REG = 0x320;
     uint32_t const curr_timer_reg = __read_apic_register(TIMER_REG);
     uint32_t const timer_mode = 1 << 17;    // Periodic timer.
     uint32_t const vector = 33;             // Interrupt # for timer.
@@ -93,7 +109,7 @@ apic_init(void) {
 
 void
 apic_eoi(void) {
-    uint32_t const EOI_REG = 0xFEE000B0;
+    uint32_t const EOI_REG = 0xB0;
     // The write to the EOI register indicates the end of interrupt to the local
     // APIC.
     __write_apic_register(EOI_REG, 0);
