@@ -15,6 +15,8 @@ NJOBS=16
 
 # The name of the kernel image.
 KERNEL_IMG_NAME=kernel.bin
+# The name of the kernel static library used for testing.
+KERNEL_LIB_NAME=libkernel.a
 
 # The build directory that will contain all the object files.
 BUILD_DIR=./build_dir
@@ -49,7 +51,8 @@ build:
 # following:
 # 	0: Prepare the build directory.
 # 	1: Compile the kernel image. 
-build_in_cont: $(BUILD_DIR) $(BUILD_DIR)/$(KERNEL_IMG_NAME)
+# 	2: Compile the kernel lib.
+build_in_cont: $(BUILD_DIR) $(BUILD_DIR)/$(KERNEL_IMG_NAME) $(BUILD_DIR)/$(KERNEL_LIB_NAME)
 
 # Create the build directory and all subdirectories.
 SUBDIRS_:=$(shell find ./src -type d)
@@ -60,6 +63,11 @@ $(BUILD_DIR):
 # Kernel image compilation. The kernel image depends on *all* object files.
 $(BUILD_DIR)/$(KERNEL_IMG_NAME): $(OBJ_FILES)
 	$(CC) -T $(LINKER_SCRIPT) -o $@ $(KERNEL_CFLAGS) $^
+
+$(BUILD_DIR)/$(KERNEL_LIB_NAME): $(OBJ_FILES)
+	@# We use a static library that we can link to an arbitrary executable to
+	@# test functions.
+	ar rcs $@ $^
 
 # Given a .o under the $(BUILD_DIR), it should depend on the *.c, or *.s, in the
 # $(SRC_DIR).
