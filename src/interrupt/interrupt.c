@@ -1,7 +1,7 @@
 #include <interrupt/interrupt.h>
-#include <memory/memory.h>
+#include <utils/memory.h>
 #include <asm/asm.h>
-#include <includes/debug.h>
+#include <utils/debug.h>
 #include <interrupt/handlers.h>
 #include <interrupt/apic/apic.h>
 

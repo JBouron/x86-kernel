@@ -1,6 +1,6 @@
 #ifndef _APIC_H
 #define _APIC_H
-#include <includes/types.h>
+#include <utils/types.h>
 
 // Returns wether the APIC functionality is supported by the processor.
 uint8_t

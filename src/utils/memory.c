@@ -1,4 +1,4 @@
-#include <memory/memory.h>
+#include <utils/memory.h>
 
 void
 memcpy(uint8_t * const to, uint8_t const * const from, size_t const len) {

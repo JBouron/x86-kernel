@@ -6,7 +6,7 @@
 #ifndef _ALLOC_EARLY_BOOT_H
 #define _ALLOC_EARLY_BOOT_H
 
-#include <includes/types.h>
+#include <utils/types.h>
 #include <memory/paging/alloc/alloc.h>
 
 // This is a "sub-class" for the frame allocator. This one is used for early

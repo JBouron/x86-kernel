@@ -1,8 +1,8 @@
 #include <memory/gdt.h>
 #include <memory/segment.h>
 #include <asm/asm.h>
-#include <memory/memory.h>
-#include <includes/debug.h>
+#include <utils/memory.h>
+#include <utils/debug.h>
 
 // Segment descriptors are 8-bytes value containing, among other things, the
 // base address and the limit for a segment.

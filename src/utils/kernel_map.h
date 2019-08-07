@@ -1,5 +1,5 @@
-#ifndef _KERNEL_MAP_H
-#define _KERNEL_MAP_H
+#ifndef _UTILS_KERNEL_MAP_H
+#define _UTILS_KERNEL_MAP_H
 
 // This file contains the memory locations of all the section of the kernel's
 // executable.

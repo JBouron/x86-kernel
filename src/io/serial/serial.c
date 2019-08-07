@@ -1,7 +1,7 @@
 #include <io/serial/serial.h>
 #include <asm/asm.h>
 #include <generic_printf/generic_printf.h>
-#include <includes/debug.h>
+#include <utils/debug.h>
 
 // We use COM1 as the serial port.
 uint16_t const SERIAL_PORT = 0x3F8;

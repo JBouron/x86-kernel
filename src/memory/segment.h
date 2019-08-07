@@ -1,7 +1,7 @@
 // Define types and helpers for memory segmentation.
 #ifndef _SEGMENT_H
 #define _SEGMENT_H
-#include <includes/types.h>
+#include <utils/types.h>
 
 // Privilege levels.
 #define RING_0  (0)

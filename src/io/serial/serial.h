@@ -1,6 +1,6 @@
 #ifndef _SERIAL_H
 #define _SERIAL_H
-#include <includes/types.h>
+#include <utils/types.h>
 
 // The port used by the serial console.
 extern uint16_t const SERIAL_PORT;

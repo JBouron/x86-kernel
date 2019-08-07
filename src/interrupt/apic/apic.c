@@ -1,7 +1,7 @@
 #include <interrupt/apic/apic.h>
 #include <asm/cpuid/cpuid.h>
 #include <asm/asm.h>
-#include <includes/debug.h>
+#include <utils/debug.h>
 #include <memory/paging/paging.h>
 
 // This is the base address of the APIC registers. This is subject to change,

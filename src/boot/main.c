@@ -1,18 +1,18 @@
-#include <includes/types.h>
+#include <utils/types.h>
 #include <vga/vga.h>
 #include <tty/tty.h>
-#include <string/string.h>
+#include <utils/string.h>
 #include <asm/asm.h>
 #include <memory/gdt.h>
 #include <interrupt/interrupt.h>
 #include <interrupt/handlers.h>
-#include <includes/debug.h>
+#include <utils/debug.h>
 #include <asm/cpuid/cpuid.h>
 #include <io/serial/serial.h>
 #include <interrupt/apic/apic.h>
 #include <boot/multiboot.h>
 #include <boot/cmdline/cmdline.h>
-#include <includes/kernel_map.h>
+#include <utils/kernel_map.h>
 #include <memory/paging/alloc/alloc.h>
 
 // Check all the assumptions we are making in this kernel. At least the ones

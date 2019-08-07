@@ -5,7 +5,7 @@
 // functions and static variables.
 #ifndef _TTY_H
 #define _TTY_H
-#include <includes/types.h>
+#include <utils/types.h>
 #include <vga/vga.h>
 
 // Initialize the tty.

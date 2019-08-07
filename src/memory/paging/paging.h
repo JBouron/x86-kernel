@@ -1,7 +1,7 @@
 #ifndef _PAGING_H
 #define _PAGING_H
-#include <includes/types.h>
-#include <includes/debug.h>
+#include <utils/types.h>
+#include <utils/debug.h>
 #include <memory/paging/alloc/alloc.h>
 
 // Entry of a page directory.

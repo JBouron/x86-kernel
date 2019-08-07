@@ -1,7 +1,7 @@
 // Memory manipulation functions.
-#ifndef _MEMORY_H
-#define _MEMORY_H
-#include <includes/types.h>
+#ifndef _UTILS_MEMORY_H
+#define _UTILS_MEMORY_H
+#include <utils/types.h>
 // Copy a memory region to another.
 // Copy `len` bytes.
 void

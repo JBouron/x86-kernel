@@ -1,7 +1,7 @@
 #ifndef _ALLOC_H
 #define _ALLOC_H
 
-#include <includes/types.h>
+#include <utils/types.h>
 
 // A frame allocator allocates physical page frames in memory. It is defined as
 // a struct containing specific functions pointer carrying out the operations.

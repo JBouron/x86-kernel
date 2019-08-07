@@ -17,8 +17,8 @@
 #include <memory/paging/alloc/early_boot.h>
 #include <memory/paging/alloc/alloc.h>
 #include <memory/paging/alloc/simple.h>
-#include <includes/kernel_map.h>
-#include <memory/memory.h>
+#include <utils/kernel_map.h>
+#include <utils/memory.h>
 
 void
 __early_boot__setup_paging(void);

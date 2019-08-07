@@ -1,6 +1,6 @@
 // Useful functions and macros to debug the kernel.
-#ifndef _DEBUG_H
-#define _DEBUG_H
+#ifndef _UTILS_DEBUG_H
+#define _UTILS_DEBUG_H
 // We are using the tty to print debug messages. The tty (as well as the
 // underlying buffer which should be VGA) should, obviously, never fail.
 #include <tty/tty.h>

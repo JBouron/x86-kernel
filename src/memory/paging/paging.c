@@ -1,6 +1,6 @@
 #include <memory/paging/paging.h>
-#include <includes/math.h>
-#include <memory/memory.h>
+#include <utils/math.h>
+#include <utils/memory.h>
 
 // The page directory used by the kernel. This table must be PAGE_SIZE bytes
 // aligned.

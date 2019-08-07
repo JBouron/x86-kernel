@@ -1,5 +1,5 @@
 #include <boot/cmdline/cmdline.h>
-#include <string/string.h>
+#include <utils/string.h>
 
 struct cmdline_params_t CMDLINE_PARAMS;
 

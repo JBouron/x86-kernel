@@ -1,5 +1,5 @@
-#ifndef _MATH_H
-#define _MATH_H
+#ifndef _UTILS_MATH_H
+#define _UTILS_MATH_H
 
 // Computes ceil(x/y).
 #define ceil_x_over_y(x, y) (((x) / (y)) + (((x) % (y)) != 0))

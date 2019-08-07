@@ -1,7 +1,7 @@
 // Top level header file for interrupt related operations.
 #ifndef _INTERRUPT_H
 #define _INTERRUPT_H
-#include <includes/types.h>
+#include <utils/types.h>
 
 // Here are the type of IDT gate descriptor.
 // Task: Upon receiving an interrupt, a task handle it.

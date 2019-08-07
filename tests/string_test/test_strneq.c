@@ -1,4 +1,4 @@
-#include <string/string.h>
+#include <utils/string.h>
 
 // Test the strneq function comparing two strings.
 

@@ -1,4 +1,4 @@
-#include <string/string.h>
+#include <utils/string.h>
 
 // Test the string manipulation functions defined under src/string/*.
 

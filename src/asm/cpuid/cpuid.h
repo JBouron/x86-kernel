@@ -2,7 +2,7 @@
 // features more easily.
 #ifndef _CPUID_H
 #define _CPUID_H
-#include <includes/types.h>
+#include <utils/types.h>
 
 // This is where the magic happens. This function expects all pointers to be
 // valid.

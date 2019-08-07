@@ -2,7 +2,7 @@
 // putc as argument and use this function to print every character.
 #ifndef _GENERIC_PRINTF
 #define _GENERIC_PRINTF
-#include <string/string.h>
+#include <utils/string.h>
 
 // The generic functions provided by this header expect a putc function that can
 // output characters.

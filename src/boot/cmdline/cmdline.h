@@ -1,6 +1,6 @@
 #ifndef _CMDLINE_H
 #define _CMDLINE_H
-#include <includes/types.h>
+#include <utils/types.h>
 
 // Contains a summary of the parameters' value passed through the command line.
 struct cmdline_params_t {

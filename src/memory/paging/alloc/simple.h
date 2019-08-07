@@ -5,7 +5,7 @@
 #ifndef _ALLOC_SIMPLE_H
 #define _ALLOC_SIMPLE_H
 
-#include <includes/types.h>
+#include <utils/types.h>
 #include <memory/paging/alloc/alloc.h>
 
 // "Subclass" of the frame_alloc_t structure use by the simple frame allocator.

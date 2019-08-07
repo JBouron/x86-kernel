@@ -1,4 +1,4 @@
-#include <string/string.h>
+#include <utils/string.h>
 #include <stdio.h>
 
 // Test the str_find_chr function.

@@ -1,7 +1,7 @@
 // Basic string manipulation.
-#ifndef _STRING_H
-#define _STRING_H
-#include <includes/types.h>
+#ifndef _UTILS_STRING_H
+#define _UTILS_STRING_H
+#include <utils/types.h>
 
 // Return the lenght of the string `str`.
 // Strings are as per C specification and end with a '\0' character.

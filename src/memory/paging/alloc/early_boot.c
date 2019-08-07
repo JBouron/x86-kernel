@@ -1,6 +1,6 @@
 #include <memory/paging/alloc/early_boot.h>
-#include <includes/kernel_map.h>
-#include <memory/memory.h>
+#include <utils/kernel_map.h>
+#include <utils/memory.h>
 
 #define PAGE_SIZE (4096)
 #define KERNEL_VIRT_START_ADDR  (0xC0000000)
