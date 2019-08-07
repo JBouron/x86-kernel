@@ -1,6 +1,6 @@
 // Functions, types and constants used to interact with the VGA text matrix.
-#ifndef _VGA_H
-#define _VGA_H
+#ifndef _VGA_VGA_H
+#define _VGA_VGA_H
 #include <utils/types.h>
 
 // The location of the VGA buffer in memory. This address is identity mapped for

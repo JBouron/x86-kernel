@@ -2,8 +2,8 @@
 // This allocator allocates the frames after the kernel (as in the early boot
 // allocator).
 
-#ifndef _ALLOC_SIMPLE_H
-#define _ALLOC_SIMPLE_H
+#ifndef _MEMORY_PAGING_ALLOC_SIMPLE_H
+#define _MEMORY_PAGING_ALLOC_SIMPLE_H
 
 #include <utils/types.h>
 #include <memory/paging/alloc/alloc.h>

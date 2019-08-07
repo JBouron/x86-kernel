@@ -1,6 +1,6 @@
 // Top level header file for interrupt related operations.
-#ifndef _INTERRUPT_H
-#define _INTERRUPT_H
+#ifndef _INTERRUPT_INTERRUPT_H
+#define _INTERRUPT_INTERRUPT_H
 #include <utils/types.h>
 
 // Here are the type of IDT gate descriptor.

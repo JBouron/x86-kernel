@@ -1,6 +1,6 @@
 // Define the Multiboot information datastructure passed by the boot-loader.
-#ifndef _MULTIBOOT_H
-#define _MULTIBOOT_H
+#ifndef _BOOT_MULTIBOOT_H
+#define _BOOT_MULTIBOOT_H
 
 // Copyright (C) 1999,2003,2007,2008,2009,2010  Free Software Foundation, Inc.
 //

@@ -1,5 +1,5 @@
-#ifndef _APIC_H
-#define _APIC_H
+#ifndef _INTERRUPT_APIC_APIC_H
+#define _INTERRUPT_APIC_APIC_H
 #include <utils/types.h>
 
 // Returns wether the APIC functionality is supported by the processor.

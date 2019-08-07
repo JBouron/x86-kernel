@@ -1,5 +1,5 @@
-#ifndef _PAGING_H
-#define _PAGING_H
+#ifndef _MEMORY_PAGING_PAGING_H
+#define _MEMORY_PAGING_PAGING_H
 #include <utils/types.h>
 #include <utils/debug.h>
 #include <memory/paging/alloc/alloc.h>

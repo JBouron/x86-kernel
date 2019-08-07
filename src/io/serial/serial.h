@@ -1,5 +1,5 @@
-#ifndef _SERIAL_H
-#define _SERIAL_H
+#ifndef _SERIAL_SERIAL_H
+#define _SERIAL_SERIAL_H
 #include <utils/types.h>
 
 // The port used by the serial console.

@@ -1,7 +1,7 @@
 // Wrapper for the cpuid instruction as well as helper functions to identify
 // features more easily.
-#ifndef _CPUID_H
-#define _CPUID_H
+#ifndef _ASM_CPUID_CPUID_H
+#define _ASM_CPUID_CPUID_H
 #include <utils/types.h>
 
 // This is where the magic happens. This function expects all pointers to be

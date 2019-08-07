@@ -3,8 +3,8 @@
 // Once paging is enabled and the kernel booted, a better fram allocator will be
 // used, using virtual addressing this time.
 
-#ifndef _ALLOC_EARLY_BOOT_H
-#define _ALLOC_EARLY_BOOT_H
+#ifndef _MEMORY_PAGING_ALLOC_EARLY_BOOT_H
+#define _MEMORY_PAGING_ALLOC_EARLY_BOOT_H
 
 #include <utils/types.h>
 #include <memory/paging/alloc/alloc.h>

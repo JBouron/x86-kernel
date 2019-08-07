@@ -1,6 +1,6 @@
 // Prototypes of the handlers defined in handlers.S
-#ifndef _HANDLERS_H
-#define _HANDLERS_H
+#ifndef _INTERRUPT_HANDLERS_H
+#define _INTERRUPT_HANDLERS_H
 
 // Generate the declaration of the interrupt handler for vector `irq`.
 // The handler is named interrupt_handler_<irq>

@@ -1,5 +1,5 @@
-#ifndef _CMDLINE_H
-#define _CMDLINE_H
+#ifndef _BOOT_CMDLINE_CMDLINE_H
+#define _BOOT_CMDLINE_CMDLINE_H
 #include <utils/types.h>
 
 // Contains a summary of the parameters' value passed through the command line.

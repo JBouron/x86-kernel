@@ -1,7 +1,7 @@
 // Defines generic printf functions. Those function take an implementation of
 // putc as argument and use this function to print every character.
-#ifndef _GENERIC_PRINTF
-#define _GENERIC_PRINTF
+#ifndef _GENERIC_PRINTF_GENERIC_PRINTF_H
+#define _GENERIC_PRINTF_GENERIC_PRINTF_H
 #include <utils/string.h>
 
 // The generic functions provided by this header expect a putc function that can

@@ -3,8 +3,8 @@
 // For now there can only be one tty at a time since there is only one VGA
 // buffer. Thus there is not tty "object"/"struct" per se but rather global
 // functions and static variables.
-#ifndef _TTY_H
-#define _TTY_H
+#ifndef _TTY_TTY_H
+#define _TTY_TTY_H
 #include <utils/types.h>
 #include <vga/vga.h>
 

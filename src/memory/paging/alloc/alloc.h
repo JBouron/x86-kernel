@@ -1,5 +1,5 @@
-#ifndef _ALLOC_H
-#define _ALLOC_H
+#ifndef _MEMORY_PAGING_ALLOC_ALLOC_H
+#define _MEMORY_PAGING_ALLOC_ALLOC_H
 
 #include <utils/types.h>
 
