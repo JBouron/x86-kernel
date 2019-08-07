@@ -13,6 +13,8 @@ strlen(const char * const str);
 bool
 streq(const char * const str1, const char * const str2);
 
+// Compare two strings up to n character. Note that there are no check on the
+// length of the strings and so n can be bigger that the lenght of the strings.
 bool
 strneq(const char * const str1, const char * const str2, size_t const n);
 

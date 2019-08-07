@@ -30,6 +30,12 @@ strneq(const char * const str1, const char * const str2, size_t const n) {
 
 size_t
 str_find_chr(char const * const str, char const ch, size_t const begin) {
+    if (begin >= strlen(str)) {
+        // If the begin index is bigger than the size of the actual string we
+        // return STR_NPOS.
+        return STR_NPOS;
+    }
+
     char const * curr = str + begin;
     while (*curr && *curr != ch) {
         curr ++;
@@ -40,7 +46,7 @@ str_find_chr(char const * const str, char const ch, size_t const begin) {
         // NPOS.
         return STR_NPOS;
     } else {
-        size_t const len = curr - (str + begin);
+        size_t const len = curr - str;
         return len;
     }
 }
