@@ -1,11 +1,13 @@
 #ifndef _UTILS_MATH_H
 #define _UTILS_MATH_H
 
+#include <utils/types.h>
+
 // Computes ceil(x/y).
-#define ceil_x_over_y(x, y) (((x) / (y)) + (((x) % (y)) != 0))
+uint32_t ceil_x_over_y(uint32_t const x, uint32_t const y);
 
 // Compute min/max(x, y).
-#define max(x, y) (((x) > (y)) ? (x) : (y))
-#define min(x, y) (((x) < (y)) ? (x) : (y))
+uint32_t max(uint32_t const x, uint32_t const y);
+uint32_t min(uint32_t const x, uint32_t const y);
 
 #endif
