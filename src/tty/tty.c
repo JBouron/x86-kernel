@@ -1,7 +1,7 @@
 #include <tty/tty.h>
 #include <utils/string.h>
 #include <utils/memory.h>
-#include <generic_printf/generic_printf.h>
+#include <utils/generic_printf/generic_printf.h>
 
 // The tty keep the cursor position in the VGA text matrix.
 static uint8_t _tty_cur_pos_x;

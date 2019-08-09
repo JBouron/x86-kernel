@@ -1,6 +1,6 @@
 #include <io/serial/serial.h>
 #include <asm/asm.h>
-#include <generic_printf/generic_printf.h>
+#include <utils/generic_printf/generic_printf.h>
 #include <utils/debug.h>
 
 // We use COM1 as the serial port.

@@ -1,4 +1,4 @@
-#include <generic_printf/generic_printf.h>
+#include <utils/generic_printf/generic_printf.h>
 #include <utils/string.h>
 
 // Prints a uint32_t in base 10 using the provided generic putc function.
