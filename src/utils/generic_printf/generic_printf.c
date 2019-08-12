@@ -97,7 +97,8 @@ _handle_substitution(generic_putc_t putc, char const **fmt, va_list *list) {
             break;
         }
         default: {
-            // For any other param, print the char and move along.
+            // For any other param, print the % and the char and move along.
+            putc('%');
             putc(type);
             break;
         }

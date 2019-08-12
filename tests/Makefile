@@ -8,7 +8,7 @@
 # All of the above is accomplished simply using `make` in the test directory.
 
 CC=gcc
-CFLAGS=-I../src -L../build_dir -lkernel -m32 -g -O0
+CFLAGS=-I../src -L../build_dir -lkernel -m32 -g -O0 -fno-builtin
 
 TEST_DIR:=.
 
