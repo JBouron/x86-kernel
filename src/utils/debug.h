@@ -12,7 +12,7 @@
 #define __stringify(x...)   __stringify_1(x)
 
 // The logging function is no less that the tty_printf function.
-#define LOG serial_printf
+#define LOG tty_printf
 
 // Panic the kernel, output the error message an dump some states into the tty.
 #define PANIC(...) \

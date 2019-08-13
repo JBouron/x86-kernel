@@ -15,6 +15,9 @@
 #include <utils/kernel_map.h>
 #include <memory/paging/alloc/alloc.h>
 
+// This is the global serial device used to log in the kernel.
+static struct serial_dev_t SERIAL_DEVICE;
+
 // Check all the assumptions we are making in this kernel. At least the ones
 // that are checkable at boot time.
 void
@@ -60,9 +63,10 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
         asm("pause");
     }
 
-    vga_init();
-    tty_init();
-    serial_init();
+    uint16_t const serial_port = 0x3F8;
+    serial_init_dev(&SERIAL_DEVICE, serial_port);
+
+    tty_init(((struct char_dev_t *)&SERIAL_DEVICE));
 
     assumptions_check();
 

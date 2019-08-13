@@ -1,16 +1,22 @@
-// A basic tty manipulating text on top of the VGA text buffer provided by the
-// BIOS.
-// For now there can only be one tty at a time since there is only one VGA
-// buffer. Thus there is not tty "object"/"struct" per se but rather global
-// functions and static variables.
+// A TTY is a wrapper around a char device implementing putc and printf, amoung
+// other things.
+// In this kernel, the TTY struct is a singleton.
 #ifndef _TTY_TTY_H
 #define _TTY_TTY_H
 #include <utils/types.h>
 #include <vga/vga.h>
+#include <devices/char_device.h>
 
-// Initialize the tty.
+struct tty_t {
+    struct char_dev_t * dev;
+};
+
+// The global tty.
+extern struct tty_t TTY;
+
+// Initialize the tty with a given char device.
 void
-tty_init(void);
+tty_init(struct char_dev_t * const cdev);
 
 // Print a char `c` in the tty. Handles line wraps and newline characters.
 void
@@ -19,14 +25,4 @@ tty_putc(const char c);
 // Print a formatted string in the tty.
 void
 tty_printf(const char * const fmt, ...);
-
-// Set the current foreground color of the tty. This color will be used for all
-// subsequent characters written in the tty.
-void
-tty_set_fg_color(enum vga_color_t const color);
-
-// Set the current background color of the tty. This color will be used for all
-// subsequent characters written in the tty.
-void
-tty_set_bg_color(enum vga_color_t const color);
 #endif
