@@ -1,6 +1,7 @@
 #include <memory/paging/paging.h>
 #include <utils/math.h>
 #include <utils/memory.h>
+#include <utils/kernel_map.h>
 
 // The page directory used by the kernel. This table must be PAGE_SIZE bytes
 // aligned.
@@ -93,4 +94,35 @@ paging_map(pagedir_t root_page_dir,
 
 void
 paging_init(void) {
+    // Paging has beed enabled in early boot and the kernel is currently mapped
+    // twice: identity mapping and higher half.
+    // Get rid of the identity mapping.
+    p_addr const p_kernel_start = (v_addr)KERNEL_START - 0xC0000000;
+    uint16_t pde_idx = (p_kernel_start / PAGE_SIZE) / PAGEDIR_ENTRIES_COUNT;
+
+    struct pagedir_entry_t * pde = __get_pde(pde_idx);
+    while(pde->present) {
+        pde->present = 0;
+        pde_idx ++;
+        pde = __get_pde(pde_idx);
+    }
+}
+
+void
+paging_dump_pagedir(void) {
+    for (uint16_t pdi = 0; pdi < PAGEDIR_ENTRIES_COUNT; ++pdi) {
+        struct pagedir_entry_t const * const pde = __get_pde(pdi);
+        if (!pde->present) {
+            continue;
+        }
+
+        LOG("[%d] -> table at %p\n", pdi, pde->pagetable_addr << 12);
+        for (uint16_t pti = 0; pti < PAGETABLE_ENTRIES_COUNT; ++pti) {
+            struct pagetable_entry_t const * const pte = __get_pte(pdi, pti);
+            if (!pte->present) {
+                continue;
+            }
+            LOG("  [%d] -> frame at %p\n", pti, pte->pageframe_addr << 12);
+        }
+    }
 }

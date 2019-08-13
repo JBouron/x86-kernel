@@ -84,6 +84,10 @@ paging_map(pagedir_t root_page_dir,
            size_t const size,
            v_addr const dest);
 
+// Prints the layout of the pagedirectory of the kernel in the serial console.
+void
+paging_dump_pagedir(void);
+
 // Short-cut to avoid boiler-plate.
 #define paging_create_map(start, size, dest) \
     paging_map(KERNEL_PAGEDIRECTORY, &FRAME_ALLOCATOR, start, size, dest)

@@ -23,9 +23,6 @@
 void
 __early_boot__setup_paging(void);
 
-void
-__early_boot__finish_paging(void);
-
 // This function will enable paging with the page_dir as CR3. However it will
 // not jump into the higher half kernel yet, but stay in the identity mapping
 // instead.
@@ -147,10 +144,10 @@ __early_boot__create_mappings(p_addr * const last_allocated_frame) {
 
 void
 __early_boot__setup_paging(void) {
+    // This will contain the address of the last allocated frame.
+    p_addr last_allocated_frame = 0x0;
     // Create the two (identity and higher-half) mappings and retrieve the
     // address of the kernel page directory.
-    p_addr last_allocated_frame = 0x0;
-    // This will contain the address of the last allocated frame.
     p_addr const kernel_page_dir = __early_boot__create_mappings(
         &last_allocated_frame);
 
@@ -164,33 +161,14 @@ __early_boot__setup_paging(void) {
     // kernel's page directory.
     KERNEL_PAGEDIRECTORY = (pagedir_t)kernel_page_dir;
 
-    // We can now setup the frame allocator.
+    // We can now setup the frame allocator that will be used in the rest of the
+    // kernel.
+    // We used last_allocated_frame + PAGE_SIZE as the starting physical address
+    // for frame allocation. The rationale is:
+    //  * Below this bound (phy addr <= last_allocated_frame) we have the kernel
+    //  * Below the kernel (loaded at phy 1MiB) memory is reserved anyway.
     struct simple_frame_alloc_t * fa_simple = (struct simple_frame_alloc_t *)
         &FRAME_ALLOCATOR;
     fa_simple_alloc_init(fa_simple, last_allocated_frame + PAGE_SIZE);
-}
-
-// To be called once paging as beed enabled and *after* jumping into the higher
-// half. This function will remove the identity mapping and setup the frame
-// allocator.
-void
-__early_boot__finish_paging(void) {
-    // Paging has been enabled, and we have jumped to the higher-half kernel. We
-    // can now get rid of the identity mapping and set some globals related to
-    // paging.
-
-    // Go over each PDE starting from the first one. This gets rid of the
-    // identity mapping.
-    v_addr const start_addr = (v_addr)KERNEL_START;
-    uint32_t const pde_start = (start_addr / PAGE_SIZE) / PAGEDIR_ENTRIES_COUNT;
-    struct pagedir_entry_t * entry = KERNEL_PAGEDIRECTORY + pde_start;
-    while(entry->present) {
-        // The PDE is marked as present, we can remove it.
-        entry->present = 0;
-        // Go to the next entry.
-        entry++;
-    }
-    // Important note: The page table used by the PDEs of the identity mapping
-    // can be overwritten from now.
 }
 

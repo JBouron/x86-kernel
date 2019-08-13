@@ -14,6 +14,7 @@
 #include <boot/cmdline/cmdline.h>
 #include <utils/kernel_map.h>
 #include <memory/paging/alloc/alloc.h>
+#include <memory/paging/paging.h>
 
 // This is the global serial device used to log in the kernel.
 static struct serial_dev_t SERIAL_DEVICE;
@@ -62,6 +63,7 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
     while(CMDLINE_PARAMS.wait_start) {
         asm("pause");
     }
+    paging_init();
 
     // Disable the interrupts and the PIC. 
     interrupts_disable();
@@ -112,8 +114,9 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
     apic_enable();
     interrupts_enable();
 
-    apic_start_periodic_timer(33);
+    //apic_start_periodic_timer(33);
 
+    paging_dump_pagedir();
     // Lock up the computer.
-    while(1);
+    lock_up();
 }
