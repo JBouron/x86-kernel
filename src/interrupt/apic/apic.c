@@ -82,7 +82,10 @@ apic_init(void) {
     // address space. We need to do that even before the very first interrupt
     // since dealing with an interrupt requires writting to the EOI register.
     __map_apic_regs();
+}
 
+void
+apic_start_periodic_timer(uint8_t const _vector) {
     // Setup a periodic timer.
     // First setup the initial count.
     uint32_t const INIT_TIMER_REG = 0x380;
@@ -93,7 +96,7 @@ apic_init(void) {
     uint32_t const TIMER_REG = 0x320;
     uint32_t const curr_timer_reg = __read_apic_register(TIMER_REG);
     uint32_t const timer_mode = 1 << 17;    // Periodic timer.
-    uint32_t const vector = 33;             // Interrupt # for timer.
+    uint32_t const vector = _vector;             // Interrupt # for timer.
     uint32_t const mask = 0 << 16;          // Unmasked.
 
     // It is recommended not to touch the reserved bits.

@@ -63,13 +63,22 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
         asm("pause");
     }
 
+    // Disable the interrupts and the PIC. 
+    interrupts_disable();
+    pic_disable();
+
+    // Initialize the serial console and the tty.
     uint16_t const serial_port = 0x3F8;
     serial_init_dev(&SERIAL_DEVICE, serial_port);
-
     tty_init(((struct char_dev_t *)&SERIAL_DEVICE));
 
-    assumptions_check();
+    // We now initialize the GDT and IDT. We do that after the serial and tty
+    // initialization since we want logs. In practice it doesn't matter that
+    // much since we are already in a flat segment.
+    gdt_init();
+    idt_init();
 
+    // Log some memory info.
     LOG("KERNEL_START         = %x\n", KERNEL_START);
     LOG("SECTION_TEXT_START   = %x\n", SECTION_TEXT_START);
     LOG("SECTION_TEXT_END     = %x\n", SECTION_TEXT_END);
@@ -80,15 +89,15 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
     LOG("SECTION_BSS_START    = %x\n", SECTION_BSS_START);
     LOG("SECTION_BSS_END      = %x\n", SECTION_BSS_END);
     LOG("KERNEL_END           = %x\n", KERNEL_END);
-
     LOG("KERNEL_SIZE          = %d bytes.\n", KERNEL_SIZE);
     LOG("SECTION_TEXT_SIZE    = %d bytes.\n", SECTION_TEXT_SIZE);
     LOG("SECTION_RODATA_SIZE  = %d bytes.\n", SECTION_RODATA_SIZE);
     LOG("SECTION_DATA_SIZE    = %d bytes.\n", SECTION_DATA_SIZE);
     LOG("SECTION_BSS_SIZE     = %d bytes.\n", SECTION_BSS_SIZE);
 
-    gdt_init();
-    idt_init();
+    // Check that all the assumptions made during the development of this kernel
+    // hold on the current machine. If not, it will panic.
+    assumptions_check();
 
     // Add an example interrupt handler for interrupt 33.
     struct interrupt_gate_t handler33 = {
@@ -98,18 +107,12 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
     };
     idt_register_handler(&handler33);
 
-    // It is important that we disable the legacy PIC before enabling
-    // interrupts since it can send interrupts sharing the same vectors as
-    // regular exceptions, thus causing problems.
-    pic_disable();
-    interrupts_disable();
-
     // Initialize and enable the APIC.
     apic_init();
     apic_enable();
+    interrupts_enable();
 
-    // Test a `int $21`. This should print "Interrupt 33 received".
-    send_int();
+    apic_start_periodic_timer(33);
 
     // Lock up the computer.
     while(1);
