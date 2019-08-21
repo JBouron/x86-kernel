@@ -17,6 +17,9 @@ struct serial_dev_t {
 // The port used by the serial console.
 extern uint16_t const SERIAL_PORT;
 
+// The global serial device TODO: Should be somewhere else.
+struct serial_dev_t SERIAL_DEVICE;
+
 // Initialise the serial device to the correct baud rate with the correct
 // parameters (bits, parity, stop bit(s)).
 void

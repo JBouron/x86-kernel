@@ -84,7 +84,7 @@ serial_init_dev(struct serial_dev_t * const dev, uint16_t const port) {
     dev->dev.write = __serial_write;
 
     // For now the serial console does not use interrupts. Disable them.
-    __write_serial_register(dev, 0x1, 0x00);
+    __write_serial_register(dev, 0x1, 0x01);
 
     // Set the divisor to match the baud rate. 115200 is the maximum baud rate
     // possible.

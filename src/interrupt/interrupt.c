@@ -113,5 +113,10 @@ generic_interrupt_handler(struct interrupt_desc_t const * const desc) {
     LOG("}\n");
     // Signal the end of interrupt to the local APIC, this can be done before
     // the iret. 
+    ASSERT(desc);
+    struct char_dev_t * dev = &SERIAL_DEVICE.dev;
+    uint8_t buf[1];
+    dev->read(dev,buf,1);
+    LOG("%c",buf[0]);
     apic_eoi();
 }

@@ -15,9 +15,10 @@
 #include <utils/kernel_map.h>
 #include <memory/paging/alloc/alloc.h>
 #include <memory/paging/paging.h>
+#include <interrupt/apic/ioapic.h>
 
 // This is the global serial device used to log in the kernel.
-static struct serial_dev_t SERIAL_DEVICE;
+//static struct serial_dev_t SERIAL_DEVICE;
 
 // Check all the assumptions we are making in this kernel. At least the ones
 // that are checkable at boot time.
@@ -111,6 +112,7 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
 
     // Initialize and enable the APIC.
     apic_init();
+    ioapic_init();
     apic_enable();
     interrupts_enable();
 
@@ -118,5 +120,5 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
 
     paging_dump_pagedir();
     // Lock up the computer.
-    lock_up();
+    while(1);
 }
