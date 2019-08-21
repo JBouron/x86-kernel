@@ -2,7 +2,6 @@
 #include <utils/memory.h>
 #include <asm/asm.h>
 #include <utils/debug.h>
-#include <interrupt/handlers.h>
 #include <interrupt/apic/apic.h>
 
 // The interrupt all use the kernel code segment.
@@ -102,21 +101,21 @@ idt_register_handler(struct interrupt_gate_t const * const handler) {
     memcpy(dest, src, sizeof(struct idt_gate_desc_t));
 }
 
+void __handle_serial_int(void); // TODO: Clean this.
 void
 generic_interrupt_handler(struct interrupt_desc_t const * const desc) {
-    LOG("Interrupt: {\n");
-    LOG("   vector = %x\n", desc->vector);
-    LOG("   error code = %x\n", desc->error_code);
-    LOG("   eflags = %x\n", desc->eflags);
-    LOG("   cs = %x\n", desc->cs);
-    LOG("   eip = %x\n", desc->eip);
-    LOG("}\n");
+    if (desc->vector == 0x21) {
+        __handle_serial_int();
+    } else {
+        LOG("Interrupt: {\n");
+        LOG("   vector = %x\n", desc->vector);
+        LOG("   error code = %x\n", desc->error_code);
+        LOG("   eflags = %x\n", desc->eflags);
+        LOG("   cs = %x\n", desc->cs);
+        LOG("   eip = %x\n", desc->eip);
+        LOG("}\n");
+    }
     // Signal the end of interrupt to the local APIC, this can be done before
     // the iret. 
-    ASSERT(desc);
-    struct char_dev_t * dev = &SERIAL_DEVICE.dev;
-    uint8_t buf[1];
-    dev->read(dev,buf,1);
-    LOG("%c",buf[0]);
     apic_eoi();
 }

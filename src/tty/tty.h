@@ -8,6 +8,7 @@
 #include <devices/char_device.h>
 
 struct tty_t {
+    // The underlying device used by the tty to read from and write to.
     struct char_dev_t * dev;
 };
 

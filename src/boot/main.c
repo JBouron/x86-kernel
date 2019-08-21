@@ -5,7 +5,6 @@
 #include <asm/asm.h>
 #include <memory/gdt.h>
 #include <interrupt/interrupt.h>
-#include <interrupt/handlers.h>
 #include <utils/debug.h>
 #include <asm/cpuid/cpuid.h>
 #include <io/serial/serial.h>
@@ -18,7 +17,16 @@
 #include <interrupt/apic/ioapic.h>
 
 // This is the global serial device used to log in the kernel.
-//static struct serial_dev_t SERIAL_DEVICE;
+static struct serial_dev_t SERIAL_DEVICE;
+
+void
+__handle_serial_int(void) {
+    // Handle interrupt from serial device.
+    struct char_dev_t * dev = &SERIAL_DEVICE.dev;
+    uint8_t buf[1];
+    dev->read(dev,buf,1);
+    LOG("%c",buf[0]);
+}
 
 // Check all the assumptions we are making in this kernel. At least the ones
 // that are checkable at boot time.

@@ -2,6 +2,7 @@
 #ifndef _INTERRUPT_INTERRUPT_H
 #define _INTERRUPT_INTERRUPT_H
 #include <utils/types.h>
+#include <interrupt/handlers.h>
 
 // Here are the type of IDT gate descriptor.
 // Task: Upon receiving an interrupt, a task handle it.
