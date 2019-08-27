@@ -41,11 +41,11 @@ ASM_FUNC_DEF(read_tsc):
     pop     %ebp
     ret
 
-ASM_FUNC_DEF(interrupts_disable):
+ASM_FUNC_DEF(interrupt_disable):
     cli
     ret
 
-ASM_FUNC_DEF(interrupts_enable):
+ASM_FUNC_DEF(interrupt_enable):
     sti
     ret
 
@@ -137,4 +137,8 @@ ASM_FUNC_DEF(inb):
     mov     0x8(%ebp), %edx
     inb     %dx, %al 
     pop     %ebp
+    ret
+
+ASM_FUNC_DEF(read_cr0):
+    mov     %cr0, %eax
     ret

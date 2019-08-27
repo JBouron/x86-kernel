@@ -9,7 +9,7 @@
     (interrupt_handler_##irq)
 
 // All the interrupts handlers are indexable in this array.
-interrupt_handler_t const INTERRUPT_HANDLERS[256] = {
+__bare_interrupt_handler_t const INTERRUPT_HANDLERS[256] = {
     // All Intel reserved vectors.
     HANDLER_OFFSET(0), HANDLER_OFFSET(1), HANDLER_OFFSET(2),
     HANDLER_OFFSET(3), HANDLER_OFFSET(4), HANDLER_OFFSET(5),

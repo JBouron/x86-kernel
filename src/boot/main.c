@@ -20,8 +20,9 @@
 static struct serial_dev_t SERIAL_DEVICE;
 
 void
-__handle_serial_int(void) {
+__handle_serial_int(struct interrupt_desc_t const * const desc) {
     // Handle interrupt from serial device.
+    ASSERT(desc);
     struct char_dev_t * dev = &SERIAL_DEVICE.dev;
     uint8_t buf[1];
     dev->read(dev,buf,1);
@@ -59,6 +60,30 @@ assumptions_check(void) {
     ASSERT(is_apic_present());
 }
 
+// Print boot banner.
+static void
+__print_banner(void) {
+    LOG("\n");
+    LOG("==================================================================\n");
+    LOG("Kernel info:\n");
+    LOG("    KERNEL_START         = %x\n", KERNEL_START);
+    LOG("    SECTION_TEXT_START   = %x\n", SECTION_TEXT_START);
+    LOG("    SECTION_TEXT_END     = %x\n", SECTION_TEXT_END);
+    LOG("    SECTION_RODATA_START = %x\n", SECTION_RODATA_START);
+    LOG("    SECTION_RODATA_END   = %x\n", SECTION_RODATA_END);
+    LOG("    SECTION_DATA_START   = %x\n", SECTION_DATA_START);
+    LOG("    SECTION_DATA_END     = %x\n", SECTION_DATA_END);
+    LOG("    SECTION_BSS_START    = %x\n", SECTION_BSS_START);
+    LOG("    SECTION_BSS_END      = %x\n", SECTION_BSS_END);
+    LOG("    KERNEL_END           = %x\n", KERNEL_END);
+    LOG("    KERNEL_SIZE          = %d bytes.\n", KERNEL_SIZE);
+    LOG("    SECTION_TEXT_SIZE    = %d bytes.\n", SECTION_TEXT_SIZE);
+    LOG("    SECTION_RODATA_SIZE  = %d bytes.\n", SECTION_RODATA_SIZE);
+    LOG("    SECTION_DATA_SIZE    = %d bytes.\n", SECTION_DATA_SIZE);
+    LOG("    SECTION_BSS_SIZE     = %d bytes.\n", SECTION_BSS_SIZE);
+    LOG("==================================================================\n");
+}
+
 void
 kernel_main(struct multiboot_info_t const * const multiboot_info) {
     ASSERT(multiboot_info);
@@ -68,61 +93,36 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
     //cmdline_parse(cmdline);
 
     // If the kernel has been started with the --wait flag then loop until gdb
-    // attaches to the virtual machine and resume the execution.
+    // attaches to the virtual machine and resumes the execution. This is very
+    // useful since we cannot set a breakpoint on the main before starting the
+    // VM.
     while(CMDLINE_PARAMS.wait_start) {
         asm("pause");
     }
-    paging_init();
 
-    // Disable the interrupts and the PIC. 
-    interrupts_disable();
-    pic_disable();
-
-    // Initialize the serial console and the tty.
+    // Initialize the serial console and the tty. We want to do this before
+    // anything else so that we can have logs. The following functions
+    // (serial_init_dev and tty_init) should not be a problem.
     uint16_t const serial_port = 0x3F8;
     serial_init_dev(&SERIAL_DEVICE, serial_port);
     tty_init(((struct char_dev_t *)&SERIAL_DEVICE));
-
-    // We now initialize the GDT and IDT. We do that after the serial and tty
-    // initialization since we want logs. In practice it doesn't matter that
-    // much since we are already in a flat segment.
-    gdt_init();
-    idt_init();
-
-    // Log some memory info.
-    LOG("KERNEL_START         = %x\n", KERNEL_START);
-    LOG("SECTION_TEXT_START   = %x\n", SECTION_TEXT_START);
-    LOG("SECTION_TEXT_END     = %x\n", SECTION_TEXT_END);
-    LOG("SECTION_RODATA_START = %x\n", SECTION_RODATA_START);
-    LOG("SECTION_RODATA_END   = %x\n", SECTION_RODATA_END);
-    LOG("SECTION_DATA_START   = %x\n", SECTION_DATA_START);
-    LOG("SECTION_DATA_END     = %x\n", SECTION_DATA_END);
-    LOG("SECTION_BSS_START    = %x\n", SECTION_BSS_START);
-    LOG("SECTION_BSS_END      = %x\n", SECTION_BSS_END);
-    LOG("KERNEL_END           = %x\n", KERNEL_END);
-    LOG("KERNEL_SIZE          = %d bytes.\n", KERNEL_SIZE);
-    LOG("SECTION_TEXT_SIZE    = %d bytes.\n", SECTION_TEXT_SIZE);
-    LOG("SECTION_RODATA_SIZE  = %d bytes.\n", SECTION_RODATA_SIZE);
-    LOG("SECTION_DATA_SIZE    = %d bytes.\n", SECTION_DATA_SIZE);
-    LOG("SECTION_BSS_SIZE     = %d bytes.\n", SECTION_BSS_SIZE);
+    // Print the banner.
+    __print_banner();
 
     // Check that all the assumptions made during the development of this kernel
     // hold on the current machine. If not, it will panic.
     assumptions_check();
 
-    // Add an example interrupt handler for interrupt 33.
-    struct interrupt_gate_t handler33 = {
-        .vector = 33,
-        .offset = interrupt_handler_33,
-        .segment_selector = 0x8,
-    };
-    idt_register_handler(&handler33);
+    // Setup the memory address spaces (segments and paging).
+    paging_init();
+    gdt_init();
 
-    // Initialize and enable the APIC.
-    apic_init();
-    ioapic_init();
-    apic_enable();
-    interrupts_enable();
+    // Finally setup interrupts.
+    interrupt_init();
+
+    // Add an example interrupt handler for interrupt 33.
+    interrupt_register_ext_vec(4, 0x21, __handle_serial_int);
+    interrupt_enable();
 
     //apic_start_periodic_timer(33);
 

@@ -24,5 +24,13 @@
 #define IOAPIC_REG_IOREDTBL(n)  (0x10 + 2*(n))
 
 // Initialize the default IO APIC to handle external interrupts.
-void ioapic_init(void);
+void
+ioapic_init(void);
+
+// Program the IO APIC to redirect external interrupts of vector `ext_vector` as
+// interrupt with vector `dest_vector` to the local APIC.
+void
+ioapic_redirect_ext_int(v_addr const ioapic,
+                        uint8_t const ext_vector,
+                        uint8_t const dest_vector);
 #endif

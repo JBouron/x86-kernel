@@ -14,14 +14,6 @@ write_msr(uint8_t const msr_num, uint64_t const val);
 void
 read_tsc(uint32_t * const hi, uint32_t * const low);
 
-// Disable interrupts.
-void
-interrupts_disable(void);
-
-// Enable interrupts.
-void
-interrupts_enable(void);
-
 void
 pic_disable(void);
 
@@ -68,4 +60,7 @@ outb(uint16_t const port, uint8_t const data);
 
 uint8_t
 inb(uint16_t const port);
+
+uint32_t
+read_cr0(void);
 #endif

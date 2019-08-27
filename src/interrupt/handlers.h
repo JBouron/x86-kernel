@@ -257,10 +257,13 @@ DECL_HANDLER(253)
 DECL_HANDLER(254)
 DECL_HANDLER(255)
 
-typedef void (*interrupt_handler_t)(void);
+// Typedef for a bare interrupt handler, that is the very handler put into the
+// IDT. Those handlers are only responsible to call the generic interrupt
+// handler with information about the interrupt that just occured.
+typedef void (*__bare_interrupt_handler_t)(void);
 
 // Array containing all the interrupt handlers for every possible vector.
-extern interrupt_handler_t const INTERRUPT_HANDLERS[256];
+extern __bare_interrupt_handler_t const INTERRUPT_HANDLERS[256];
 
 #undef DECL_HANDLER
 #endif

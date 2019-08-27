@@ -85,10 +85,14 @@ ioapic_init(void) {
     v_addr const ioapic_v = __map_ioapic(default_ioapic);
     // Make some checks that we have indeed an IOAPIC at this location.
     __check_ioapic(ioapic_v);
+}
 
-    // Setup redirection entry for interrupt 4 (serial) redirected to interrupt
-    // 0x21. TODO: This should be somewhere else.
-    uint64_t const vec = 0x21;
-    uint64_t const val = vec;
-    __write_redtbl(ioapic_v, 4, val);
+void
+ioapic_redirect_ext_int(v_addr const ioapic,
+                        uint8_t const ext_vector,
+                        uint8_t const dest_vector) {
+    // TODO: For now we are using a lot of default (read 0) in the redirection
+    // table entry.
+    uint64_t const redtbl_entry = dest_vector;
+    __write_redtbl(ioapic, ext_vector, redtbl_entry);
 }
