@@ -4,12 +4,13 @@
 #include <utils/memory.h>
 #include <utils/debug.h>
 
+// This kernel uses a flat model, that is we are using only two segement (one
+// data segment and one code segment) both covering the entire linear address
+// space.
+
 // Segment descriptors are 8-bytes value containing, among other things, the
 // base address and the limit for a segment.
 // This struct encodes this 8-byte value in a more readable way.
-// This is the real segment entry representation, and this is what the processor
-// expects in the GDT as opposed to gdt_entry which is made to be simpler to
-// manipulate.
 struct segment_desc_t {
     // Lower 16-bits of the limit.
     uint16_t limit_bits15_to_0 : 16;
@@ -45,7 +46,8 @@ struct segment_desc_t {
     uint8_t base_bits31_to_24 : 8;
 } __attribute__((packed));
 
-// We use specific segments for the kernel.
+// The code segment of the kernel is at index 1 in the GDT while the data
+// segment is at index 2.
 uint16_t const KERNEL_CODE_SEGMENT_IDX = 1;
 uint16_t const KERNEL_DATA_SEGMENT_IDX = 2;
 
@@ -55,92 +57,55 @@ uint16_t const KERNEL_CODE_SEGMENT_SELECTOR =
 uint16_t const KERNEL_DATA_SEGMENT_SELECTOR =
     KERNEL_DATA_SEGMENT_IDX << 3 | RING_0;
 
-// Most of the fields in segment_desc_t will have fixed value no matter what
-// type of segment it describes.
-// Thus instead of using the complex segment_desc_t struct, we prefer using the
-// following struct to create GDT entries.
-struct gdt_entry {
-    // The base address of the segment.
-    uint32_t base_addr;
-    // The limit of the segment, we use a page (4KB) granularity for GDT
-    // entries.
-    uint32_t limit : 20;
-    // The required privilege for the segment.
-    uint8_t privilege : 2;
-    // The type of the segment it is analogous as the type field in
-    // segment_desc_t.
-    uint8_t type : 4;
-} __attribute__((packed));
-
-// The static list of GDT entries we wish to add to the GDT.
-static struct gdt_entry _gdt_entries[] = {
-    {0, 0, 0, 0}, // The null segment. It must be present as the first entry.
-    {0x0, 0xFFFFF, RING_0, 0xA}, // Kernel code segment. 0xA = Code/Executable.
-    {0x0, 0xFFFFF, RING_0, 0x2}, // Kernel data segment. 0x2 = Data/Writable.
-};
-
-// Declare the *real* GDT array, that is the GDT that will be used by the
-// processor. Unlike _gdt_entries, this array must be an array of
-// segment_desc_t.
-#define GDT_SIZE ((sizeof(_gdt_entries)/sizeof(struct gdt_entry)))
+// This is the GDT, it only contains 3 entries:
+//  _ The NULL entry, it is mandatory,
+//  _ One code segment spanning the entire address space.
+//  _ One data segment spanning the entire address space.
+#define GDT_SIZE (3)
 static struct segment_desc_t GDT[GDT_SIZE];
 
-// Convert a struct gdt_entry into a struct segment_desc_t.
+// Add a segment to the GDT.
 static void
-convert_gdt_seg_desc_t(struct gdt_entry const * const from,
-                       struct segment_desc_t * const to) {
+__add_segment(uint16_t const index,
+              uint32_t const base,
+              uint32_t const size,
+              uint8_t const type) {
+    // The size of the segment must be 4KB granularity so that we can cover the
+    // entire 32-bit addressable space.
+    ASSERT(0 < index && index < 8192);
+    struct segment_desc_t * const desc = GDT + index;
+
+    // The current entry in the GDT should not be present. That would mean that
+    // we want to modify the GDT entry which doesn't really make sense since we
+    // are not supporting that.
+    ASSERT(!desc->present);
+
     // Encode the base addr.
-    to->base_bits31_to_24 = (0xFF000000 & from->base_addr) >> 24;
-    to->base_bits23_to_16 = (0x00FF0000 & from->base_addr) >> 16;
-    to->base_bits15_to_0  = (0x0000FFFF & from->base_addr) >> 0;
+    desc->base_bits31_to_24 = (0xFF000000 & base) >> 24;
+    desc->base_bits23_to_16 = (0x00FF0000 & base) >> 16;
+    desc->base_bits15_to_0  = (0x0000FFFF & base) >> 0;
 
     // Encode the limit.
-    to->limit_bits19_to_16 = (0xF0000 & from->limit) >> 16;
-    to->limit_bits15_to_0 = (0x0FFFF & from->limit) >> 0;
+    desc->limit_bits19_to_16 = (0xF0000 & size) >> 16;
+    desc->limit_bits15_to_0 = (0x0FFFF & size) >> 0;
 
     // Those values will never change:
-    to->granularity = 1;     // 4KB units for the limit.
-    to->db = 1;              // 32-bit segment.
-    to->is64bits = 0;        // We are not in 64-bit mode.
-    to->avl = 0;             // Not used, set to 0.
-    to->present = 1;         // The segment will obviously be present.
+    desc->granularity = 1;     // 4KB units for the limit.
+    desc->db = 1;              // 32-bit segment.
+    desc->is64bits = 0;        // We are not in 64-bit mode.
+    desc->avl = 0;             // Not used, set to 0.
 
-    // Setup the privilege of the segment.
-    to->priv = from->privilege;
+    // All of our segments are ring 0.
+    desc->priv = RING_0;
 
-    // This segment will either be a code or data segment.
-    to->desc_type = 1;
+    // For now we only care about data or code segment, not system segments,
+    // thus this bit is set to indicate that this is a code/data segment.
+    desc->desc_type = 1;
     // Setup the access rights.
-    to->seg_type = from->type;
-}
+    desc->seg_type = type;
 
-// Pretty print the addition of a gdt_entry at index `i` in the logs.
-static void
-_pretty_print_gdt_entry(struct gdt_entry const * const entry, size_t const i) {
-    LOG("Add GDT entry [%d] = {\n", i);
-    LOG("   .base_addr = %x, \n", entry->base_addr);
-    LOG("   .limit     = %x, \n", entry->limit);
-    LOG("   .privilege = %x, \n", entry->privilege);
-    LOG("   .type      = %x, \n", entry->type);
-    LOG("}\n");
-}
-
-// Add a gdt_entry to the GDT at index `idx`.
-static void
-add_gdt_entry(struct gdt_entry const * const entry, size_t const idx) {
-    // Since the GDT hold segment_desc_t, we need to convert our entry first.
-    struct segment_desc_t seg;
-    _pretty_print_gdt_entry(entry, idx);
-    if(idx) {
-        // Convert the entry to a real segment descriptor.
-        convert_gdt_seg_desc_t(entry, &seg);
-    } else {
-        // For the NULL entry, memset the descriptor to 0.
-        memzero((uint8_t*)&seg, sizeof(seg));
-    }
-
-    // Perform the copy.
-    memcpy((uint8_t*)&(GDT[idx]), (uint8_t*)&seg, sizeof(seg));
+    // The segment is not fully setup, we can set the present bit.
+    desc->present = 1;
 }
 
 // Refresh the segment registers and use the new code and data segments.
@@ -148,7 +113,7 @@ add_gdt_entry(struct gdt_entry const * const entry, size_t const idx) {
 //      CS = `code_seg`
 //      DS = SS = ES = FS = GS = `data_seg`.
 static void
-_refresh_segment_registers(uint16_t const code_seg, uint16_t const data_seg) {
+__refresh_segment_registers(uint16_t const code_seg, uint16_t const data_seg) {
     LOG("Use segments: Code = %x, Data = %x\n", code_seg, data_seg);
     write_cs(code_seg);
     write_ds(data_seg);
@@ -160,15 +125,21 @@ _refresh_segment_registers(uint16_t const code_seg, uint16_t const data_seg) {
 
 void
 gdt_init(void) {
-    // Add each GDT entry defined in _gdt_entries into the real GDT.
-    LOG("Add %d entries to GDT ...\n", GDT_SIZE);
-    for (size_t i = 0; i < GDT_SIZE; ++i) {
-        struct gdt_entry const * const entry = _gdt_entries + i;
-        add_gdt_entry(entry, i);
-    }
+    // memzero the entire GDT.
+    uint16_t const gdt_size_bytes = GDT_SIZE * sizeof(struct segment_desc_t);
+    memzero((uint8_t*)GDT, gdt_size_bytes);
+
+    uint32_t const base = 0x0;
+    uint32_t const limit = 0xFFFFF;
+    uint8_t const code_seg_type = 0xA; // = CODE | EXECUTABLE.
+    uint8_t const data_seg_type = 0x2; // = DATA | WRITABLE.
+
+    // Create the flat code segment.
+    __add_segment(KERNEL_CODE_SEGMENT_IDX, base, limit, code_seg_type);
+    // Create the flat data segment.
+    __add_segment(KERNEL_DATA_SEGMENT_IDX, base, limit, data_seg_type);
 
     // Generate the table descriptor for the GDT.
-    uint16_t const gdt_size_bytes = GDT_SIZE * sizeof(struct segment_desc_t);
     struct table_desc_t table_desc = {
         .base_addr = (uint8_t*)GDT,
         // The limit should point to the last valid bytes, thus the -1.
@@ -181,6 +152,6 @@ gdt_init(void) {
     load_gdt(&table_desc);
 
     // Update segment registers.
-    _refresh_segment_registers(KERNEL_CODE_SEGMENT_SELECTOR,
-                               KERNEL_DATA_SEGMENT_SELECTOR);
+    __refresh_segment_registers(KERNEL_CODE_SEGMENT_SELECTOR,
+                                KERNEL_DATA_SEGMENT_SELECTOR);
 }
