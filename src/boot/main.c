@@ -19,6 +19,13 @@
 // This is the global serial device used to log in the kernel.
 static struct serial_dev_t SERIAL_DEVICE;
 
+// This is the GDT, it only contains 3 entries:
+//  _ The NULL entry, it is mandatory,
+//  _ One code segment spanning the entire address space.
+//  _ One data segment spanning the entire address space.
+#define GDT_SIZE (3)
+static struct segment_desc_t GDT[GDT_SIZE];
+
 void
 __handle_serial_int(struct interrupt_desc_t const * const desc) {
     // Handle interrupt from serial device.
@@ -115,7 +122,7 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
 
     // Setup the memory address spaces (segments and paging).
     paging_init();
-    gdt_init();
+    gdt_init(GDT, GDT_SIZE);
 
     // Finally setup interrupts.
     interrupt_init();
