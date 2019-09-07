@@ -49,7 +49,7 @@ ASM_FUNC_DEF(interrupt_enable):
     sti
     ret
 
-ASM_FUNC_DEF(load_gdt):
+ASM_FUNC_DEF(__x86_lgdt):
     push    %ebp
     mov     %esp, %ebp
     mov     0x8(%ebp), %eax

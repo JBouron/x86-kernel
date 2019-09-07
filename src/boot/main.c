@@ -23,8 +23,7 @@ static struct serial_dev_t SERIAL_DEVICE;
 //  _ The NULL entry, it is mandatory,
 //  _ One code segment spanning the entire address space.
 //  _ One data segment spanning the entire address space.
-#define GDT_SIZE (3)
-static struct segment_desc_t GDT[GDT_SIZE];
+DECLARE_GDT(GDT, 2)
 
 void
 __handle_serial_int(struct interrupt_desc_t const * const desc) {
@@ -34,6 +33,48 @@ __handle_serial_int(struct interrupt_desc_t const * const desc) {
     uint8_t buf[1];
     dev->read(dev,buf,1);
     LOG("%c",buf[0]);
+}
+
+// Refresh the segment registers and use the new code and data segments.
+// After this function returns:
+//      CS = `code_seg`
+//      DS = SS = ES = FS = GS = `data_seg`.
+static void
+__refresh_segment_registers(uint16_t const code_seg, uint16_t const data_seg) {
+    LOG("Use segments: Code = %x, Data = %x\n", code_seg, data_seg);
+    write_cs(code_seg);
+    write_ds(data_seg);
+    write_ss(data_seg);
+    write_es(data_seg);
+    write_fs(data_seg);
+    write_gs(data_seg);
+}
+
+// The code segment of the kernel is at index 1 in the GDT while the data
+// segment is at index 2.
+static uint16_t const CODE_SEGMENT_IDX = 1;
+static uint16_t const DATA_SEGMENT_IDX = 2;
+
+// Right after the GDT is set up, we will load those two selectors into the
+// segment registers.
+static uint16_t const CODE_SEGMENT_SELECTOR = CODE_SEGMENT_IDX << 3 | RING_0;
+static uint16_t const DATA_SEGMENT_SELECTOR = DATA_SEGMENT_IDX << 3 | RING_0;
+
+void
+initialize_gdt(void) {
+    // Create a flat segmentation model.
+    struct segment_desc_t flat_seg = {
+        .base = 0x0,
+        .size = 0xFFFFF,
+        .type = SEGMENT_TYPE_CODE,
+        .priv_level = SEGMENT_PRIV_LEVEL_RING0,
+    };
+
+    // Create the flat code segment.
+    gdt_add_segment(&GDT, CODE_SEGMENT_IDX, flat_seg);
+    // Create the flat data segment.
+    flat_seg.type = SEGMENT_TYPE_DATA;
+    gdt_add_segment(&GDT, DATA_SEGMENT_IDX, flat_seg);
 }
 
 // Check all the assumptions we are making in this kernel. At least the ones
@@ -122,7 +163,13 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
 
     // Setup the memory address spaces (segments and paging).
     paging_init();
-    gdt_init(GDT, GDT_SIZE);
+
+    // Initialize the GDT and create a flat segmentation model.
+    gdt_init(&GDT);
+    initialize_gdt();
+    // Load the GDT and update the segment registers accordingly.
+    gdt_load(&GDT);
+    __refresh_segment_registers(CODE_SEGMENT_SELECTOR, DATA_SEGMENT_SELECTOR);
 
     // Finally setup interrupts.
     interrupt_init();

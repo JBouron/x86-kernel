@@ -1,63 +1,69 @@
-// GDT operations.
 #ifndef _MEMORY_GDT_H
 #define _MEMORY_GDT_H
 #include <utils/types.h>
 
-// Segment descriptors are 8-bytes value containing, among other things, the
-// base address and the limit for a segment.
-// This struct encodes this 8-byte value in a more readable way.
+// This file contains types and functions to operate with the processor's GDT.
+
+// Declare and define a new GDT variable with name `name` containing `size`
+// entries. This macro takes care of allocating the NULL entry, ie. the `size`
+// is the number of entries in the GDT not counting the NULL entry.
+// Note that this macro will also define the underlying memory region that will
+// contain the GDT entries under the name __<name>_data.
+#define DECLARE_GDT(name,_size)                 \
+    uint8_t __##name_gdt_entries[(_size)*8];    \
+    struct gdt_t name = {                       \
+        .size = _size + 1,                      \
+        .entries = (void *)__##name_gdt_entries,\
+    };
+
+// Enum for the segment type, either code or data. Code segments are set to
+// executable and data segments redable.
+enum segment_type_t {
+    SEGMENT_TYPE_CODE = 0xA,
+    SEGMENT_TYPE_DATA = 0x2,
+};
+
+// The priviledge level indicates what level is required to access the segment.
+enum segment_priv_level_t {
+    SEGMENT_PRIV_LEVEL_RING0 = 0,
+    SEGMENT_PRIV_LEVEL_RING3 = 3,
+};
+
+// This structure describes a segment.
 struct segment_desc_t {
-    // Lower 16-bits of the limit.
-    uint16_t limit_bits15_to_0 : 16;
-    // Some bits of the base.
-    uint16_t base_bits15_to_0 : 16;
-    uint8_t base_bits23_to_16 : 8;
-    // Indicate the type of segment encoded in 4 bits as follows:
-    // MSB: if 1, this is a code segment, else a data segment.
-    // If this is a code segment the last 3 bits are: C, R and A, where C
-    // indicate if the segment is conforming, R if it is readable and A
-    // accessed.
-    // If this is a data segment, the last 3 bits are: E, W and A where E
-    // indicates "Expand-down", W writable and A accessed.
-    uint8_t seg_type : 4;
-    // 0 = system segment, 1 = code or data segment.
-    uint8_t desc_type : 1;
-    // The priviledge level/ring required to use the segment.
-    uint8_t priv : 2;
-    // Is the segment present ?
-    uint8_t present : 1;
-    // Some bits of the limit.
-    uint8_t limit_bits19_to_16 : 4;
-    // Available bit. Unused for now.
-    uint8_t avl : 1;
-    // Should always be 0. (Reserved in non-IAe mode).
-    uint8_t is64bits : 1;
-    // Operation size: 0 = 16-bit, 1 = 32 bit segment. Should always be 1.
-    uint8_t db : 1;
-    // Scaling of the limit field. If 1 limit is interpreted in 4KB units,
-    // otherwise in bytes units.
-    uint8_t granularity : 1;
-    // Some bits of the base.
-    uint8_t base_bits31_to_24 : 8;
-} __attribute__((packed));
+    // The base virtual address of the segment.
+    v_addr base;
+    // The size of the segment, this is by increments of 4KB.
+    size_t size;
+    // Type of segment.
+    enum segment_type_t type;
+    // The privilege level required for the segment.
+    enum segment_priv_level_t priv_level;
+};
 
-// A Global Descriptor Table is no more no less than an address in the linear
-// address space.
-typedef struct segment_desc_t * gdt_t;
+// Wrapper describing a GDT.
+struct gdt_t {
+    // The number of entries in the GDT, including the NULL entry (which means
+    // that this field should always be >0).
+    size_t const size;
+    // The actual array of entries. This is a void* to hide implementation
+    // details.
+    void * const entries;
+};
 
+// Add a segment to a GDT to a specific index.
 void
-gdt_add_segment(gdt_t const gdt,
+gdt_add_segment(struct gdt_t * const gdt,
                 uint16_t const index,
-                uint32_t const base,
-                uint32_t const size,
-                uint8_t const type);
+                struct segment_desc_t const desc);
 
-// Initialize a GDT to get a flat model with one code segment and one data
-// segment covering the entire address space.
-// This function also refreshes all segment register to use the new segments,
-// therefore the new segments come in effect right after this function returns.
-// `gdt_size` refers to the number of entries available in the provided GDT.
-// This is accounting for the NULL entry (mandatory).
+// Initialize a GDT by zeroing the table.
 void
-gdt_init(gdt_t const gdt, size_t const gdt_size);
+gdt_init(struct gdt_t * const gdt);
+
+// Load a GDT on the processor.
+// Note: This function does not change the segment register, it is up to the
+// programmer to change them after this function returns.
+void
+gdt_load(struct gdt_t const * const gdt);
 #endif
