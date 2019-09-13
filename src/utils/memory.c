@@ -1,20 +1,23 @@
 #include <utils/memory.h>
 
 void
-memcpy(uint8_t * const to, uint8_t const * const from, size_t const len) {
+memcpy(void * const to, void const * const from, size_t const len) {
+    uint8_t * const __to = (uint8_t*)to;
+    uint8_t const * const __from = (uint8_t*)from;
     for (size_t i = 0; i < len; ++i) {
-        to[i] = from[i];
+        __to[i] = __from[i];
     }
 }
 
 void
-memset(uint8_t * const to, uint8_t const byte, size_t const len) {
+memset(void * const to, uint8_t const byte, size_t const len) {
+    uint8_t * const __to = (uint8_t*)to;
     for (size_t i = 0; i < len; ++i) {
-        to[i] = byte;
+        __to[i] = byte;
     }
 }
 
 void
-memzero(uint8_t * const to, size_t const len) {
+memzero(void * const to, size_t const len) {
     memset(to, 0, len);
 }

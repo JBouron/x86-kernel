@@ -1,5 +1,5 @@
-#ifndef _MEMORY_GDT_H
-#define _MEMORY_GDT_H
+#ifndef _MEMORY_GDT_GDT_H
+#define _MEMORY_GDT_GDT_H
 #include <utils/types.h>
 
 // This file contains types and functions to operate with the processor's GDT.
@@ -29,11 +29,12 @@ enum segment_priv_level_t {
     SEGMENT_PRIV_LEVEL_RING3 = 3,
 };
 
-// This structure describes a segment.
+// This structure describes a segment. It is meant to be used as a parameter to
+// the gdt_add_segment function.
 struct segment_desc_t {
     // The base virtual address of the segment.
     v_addr base;
-    // The size of the segment, this is by increments of 4KB.
+    // The size of the segment in bytes. Valid values from 0 to 0xFFFFFFFF.
     size_t size;
     // Type of segment.
     enum segment_type_t type;
@@ -55,7 +56,7 @@ struct gdt_t {
 void
 gdt_add_segment(struct gdt_t * const gdt,
                 uint16_t const index,
-                struct segment_desc_t const desc);
+                struct segment_desc_t const *const desc);
 
 // Initialize a GDT by zeroing the table.
 void
@@ -66,4 +67,15 @@ gdt_init(struct gdt_t * const gdt);
 // programmer to change them after this function returns.
 void
 gdt_load(struct gdt_t const * const gdt);
+
+// Read the segment descriptor at index `index` in the GDT.
+void
+gdt_get_segment(struct gdt_t const * const gdt,
+                uint16_t const index,
+                struct segment_desc_t * const out_desc);
+
+// Remove an entry from the GDT. The entry will be zero, and thus marked as not
+// present.
+void
+gdt_remove_segment(struct gdt_t * const gdt, uint16_t const index);
 #endif

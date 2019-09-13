@@ -3,7 +3,7 @@
 #include <tty/tty.h>
 #include <utils/string.h>
 #include <asm/asm.h>
-#include <memory/gdt.h>
+#include <memory/gdt/gdt.h>
 #include <interrupt/interrupt.h>
 #include <utils/debug.h>
 #include <asm/cpuid/cpuid.h>
@@ -65,16 +65,16 @@ initialize_gdt(void) {
     // Create a flat segmentation model.
     struct segment_desc_t flat_seg = {
         .base = 0x0,
-        .size = 0xFFFFF,
+        .size = 0xFFFFFFFF,
         .type = SEGMENT_TYPE_CODE,
         .priv_level = SEGMENT_PRIV_LEVEL_RING0,
     };
 
     // Create the flat code segment.
-    gdt_add_segment(&GDT, CODE_SEGMENT_IDX, flat_seg);
+    gdt_add_segment(&GDT, CODE_SEGMENT_IDX, &flat_seg);
     // Create the flat data segment.
     flat_seg.type = SEGMENT_TYPE_DATA;
-    gdt_add_segment(&GDT, DATA_SEGMENT_IDX, flat_seg);
+    gdt_add_segment(&GDT, DATA_SEGMENT_IDX, &flat_seg);
 }
 
 // Check all the assumptions we are making in this kernel. At least the ones
