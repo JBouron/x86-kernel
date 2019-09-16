@@ -1,6 +1,5 @@
 // Prototypes of the handlers defined in handlers.S
-#ifndef _INTERRUPT_HANDLERS_H
-#define _INTERRUPT_HANDLERS_H
+#pragma once
 
 // Generate the declaration of the interrupt handler for vector `irq`.
 // The handler is named interrupt_handler_<irq>
@@ -266,4 +265,3 @@ typedef void (*__bare_interrupt_handler_t)(void);
 extern __bare_interrupt_handler_t const INTERRUPT_HANDLERS[256];
 
 #undef DECL_HANDLER
-#endif

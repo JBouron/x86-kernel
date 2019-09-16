@@ -1,5 +1,4 @@
-#ifndef _BOOT_CMDLINE_CMDLINE_H
-#define _BOOT_CMDLINE_CMDLINE_H
+#pragma once
 #include <utils/types.h>
 
 // Contains a summary of the parameters' value passed through the command line.
@@ -16,4 +15,3 @@ extern struct cmdline_params_t CMDLINE_PARAMS;
 void
 cmdline_parse(char const * const cmdline);
 
-#endif

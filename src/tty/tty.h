@@ -1,8 +1,7 @@
 // A TTY is a wrapper around a char device implementing putc and printf, amoung
 // other things.
 // In this kernel, the TTY struct is a singleton.
-#ifndef _TTY_TTY_H
-#define _TTY_TTY_H
+#pragma once
 #include <utils/types.h>
 #include <vga/vga.h>
 #include <devices/char_device.h>
@@ -26,4 +25,3 @@ tty_putc(const char c);
 // Print a formatted string in the tty.
 void
 tty_printf(const char * const fmt, ...);
-#endif

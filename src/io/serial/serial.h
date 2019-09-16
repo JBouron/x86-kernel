@@ -1,5 +1,4 @@
-#ifndef _SERIAL_SERIAL_H
-#define _SERIAL_SERIAL_H
+#pragma once
 #include <utils/types.h>
 #include <devices/char_device.h>
 
@@ -22,4 +21,3 @@ extern uint16_t const SERIAL_PORT;
 void
 serial_init_dev(struct serial_dev_t * const dev, uint16_t const port);
 
-#endif

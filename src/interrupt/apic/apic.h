@@ -1,5 +1,4 @@
-#ifndef _INTERRUPT_APIC_APIC_H
-#define _INTERRUPT_APIC_APIC_H
+#pragma once
 #include <utils/types.h>
 
 // Returns wether the APIC functionality is supported by the processor.
@@ -27,4 +26,3 @@ apic_start_periodic_timer(uint8_t const vector);
 // send subsequent interrupts.
 void
 apic_eoi(void);
-#endif

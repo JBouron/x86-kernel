@@ -1,6 +1,5 @@
 // Define types and helpers for memory segmentation.
-#ifndef _MEMORY_SEGMENT_H
-#define _MEMORY_SEGMENT_H
+#pragma once
 #include <utils/types.h>
 
 // Privilege levels.
@@ -24,4 +23,3 @@ struct table_desc_t {
     // The base address of the table.
     uint8_t *base_addr;
 } __attribute__((packed));
-#endif

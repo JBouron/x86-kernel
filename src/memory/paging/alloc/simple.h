@@ -2,8 +2,7 @@
 // This allocator allocates the frames after the kernel (as in the early boot
 // allocator).
 
-#ifndef _MEMORY_PAGING_ALLOC_SIMPLE_H
-#define _MEMORY_PAGING_ALLOC_SIMPLE_H
+#pragma once
 
 #include <utils/types.h>
 #include <memory/paging/alloc/alloc.h>
@@ -27,4 +26,3 @@ fa_simple_alloc_init(struct simple_frame_alloc_t * const allocator,
 p_addr
 fa_simple_alloc_frame(struct frame_alloc_t * const allocator);
 
-#endif

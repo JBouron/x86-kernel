@@ -1,5 +1,4 @@
-#ifndef _UTILS_KERNEL_MAP_H
-#define _UTILS_KERNEL_MAP_H
+#pragma once
 
 // This file contains the memory locations of all the section of the kernel's
 // executable.
@@ -38,4 +37,3 @@ extern uint8_t __KERNEL_END;
 #define SECTION_DATA_SIZE   (SECTION_DATA_END - SECTION_DATA_START)
 #define SECTION_BSS_SIZE    (SECTION_BSS_END - SECTION_BSS_START)
 
-#endif

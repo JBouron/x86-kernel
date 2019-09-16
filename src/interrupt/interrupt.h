@@ -1,6 +1,5 @@
 // Top level header file for interrupt related operations.
-#ifndef _INTERRUPT_INTERRUPT_H
-#define _INTERRUPT_INTERRUPT_H
+#pragma once
 #include <utils/types.h>
 #include <interrupt/handlers.h>
 
@@ -49,4 +48,3 @@ interrupt_enable(void);
 // Disable interrupts.
 void
 interrupt_disable(void);
-#endif

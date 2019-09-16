@@ -1,5 +1,4 @@
-#ifndef _MEMORY_GDT_GDT_H
-#define _MEMORY_GDT_GDT_H
+#pragma once
 #include <utils/types.h>
 
 // This file contains types and functions to operate with the processor's GDT.
@@ -78,4 +77,3 @@ gdt_get_segment(struct gdt_t const * const gdt,
 // present.
 void
 gdt_remove_segment(struct gdt_t * const gdt, uint16_t const index);
-#endif

@@ -1,6 +1,5 @@
 // Prototype of functions written in assembly.
-#ifndef _ASM_ASM_H
-#define _ASM_ASM_H
+#pragma once
 #include <memory/segment.h>
 // Read the Model-Specific-Register into dest.
 void
@@ -63,4 +62,3 @@ inb(uint16_t const port);
 
 uint32_t
 read_cr0(void);
-#endif

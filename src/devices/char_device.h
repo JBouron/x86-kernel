@@ -1,5 +1,4 @@
-#ifndef _DEVICES_CHAR_DEVICE_H
-#define _DEVICES_CHAR_DEVICE_H
+#pragma once
 
 // Definition of a character device supporting read and write operations.
 struct char_dev_t {
@@ -14,4 +13,3 @@ struct char_dev_t {
                     uint8_t const * const buf,
                     size_t const len);
 } __attribute__((packed));
-#endif

@@ -1,5 +1,4 @@
-#ifndef _MEMORY_PAGING_PAGING_H
-#define _MEMORY_PAGING_PAGING_H
+#pragma once
 #include <utils/types.h>
 #include <utils/debug.h>
 #include <memory/paging/alloc/alloc.h>
@@ -91,4 +90,3 @@ paging_dump_pagedir(void);
 // Short-cut to avoid boiler-plate.
 #define paging_create_map(start, size, dest) \
     paging_map(KERNEL_PAGEDIRECTORY, &FRAME_ALLOCATOR, start, size, dest)
-#endif

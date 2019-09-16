@@ -1,6 +1,5 @@
 // Use freestanding libs to get fixed size types and useful macros.
-#ifndef _UTILS_TYPES_H
-#define _UTILS_TYPES_H
+#pragma once
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -14,4 +13,3 @@ typedef uint32_t l_addr;
 // Virtual address.
 typedef uint32_t v_addr;
 
-#endif

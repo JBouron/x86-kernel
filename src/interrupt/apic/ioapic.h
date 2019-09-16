@@ -1,6 +1,5 @@
 // I/O APIC related stuff.
-#ifndef _INTERRUPT_APIC_IOAPIC_H
-#define _INTERRUPT_APIC_IOAPIC_H
+#pragma once
 
 #include <utils/types.h>
 
@@ -33,4 +32,3 @@ void
 ioapic_redirect_ext_int(v_addr const ioapic,
                         uint8_t const ext_vector,
                         uint8_t const dest_vector);
-#endif

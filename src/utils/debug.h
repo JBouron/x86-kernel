@@ -1,6 +1,5 @@
 // Useful functions and macros to debug the kernel.
-#ifndef _UTILS_DEBUG_H
-#define _UTILS_DEBUG_H
+#pragma once
 // We are using the tty to print debug messages. The tty (as well as the
 // underlying buffer which should be VGA) should, obviously, never fail.
 #include <tty/tty.h>
@@ -31,4 +30,3 @@
     } while(0)
 
 #define STATIC_ASSERT(condition, msg)    _Static_assert(condition, msg)
-#endif

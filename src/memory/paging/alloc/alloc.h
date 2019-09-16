@@ -1,5 +1,4 @@
-#ifndef _MEMORY_PAGING_ALLOC_ALLOC_H
-#define _MEMORY_PAGING_ALLOC_ALLOC_H
+#pragma once
 
 #include <utils/types.h>
 
@@ -16,4 +15,3 @@ extern struct frame_alloc_t FRAME_ALLOCATOR;
 // A shortcut function to allocate a frame.
 p_addr
 allocate_frame(void);
-#endif

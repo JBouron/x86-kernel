@@ -1,6 +1,5 @@
 // Some functions to handle the Interrupt Descriptor Table of the processor.
-#ifndef _INTERRUPT_IDT_IDT_H
-#define _INTERRUPT_IDT_IDT_H
+#pragma once
 
 #include <utils/types.h>
 
@@ -37,5 +36,3 @@ extern struct idt_entry_t IDT[IDT_SIZE];
 // detect invalid interrupts.
 void
 idt_init(void);
-
-#endif

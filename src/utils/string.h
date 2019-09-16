@@ -1,6 +1,5 @@
 // Basic string manipulation.
-#ifndef _UTILS_STRING_H
-#define _UTILS_STRING_H
+#pragma once
 #include <utils/types.h>
 
 // Return the lenght of the string `str`.
@@ -23,4 +22,3 @@ strneq(const char * const str1, const char * const str2, size_t const n);
 // found, return STR_NPOS.
 size_t
 str_find_chr(char const * const str, char const ch, size_t const begin);
-#endif

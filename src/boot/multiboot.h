@@ -1,6 +1,5 @@
 // Define the Multiboot information datastructure passed by the boot-loader.
-#ifndef _BOOT_MULTIBOOT_H
-#define _BOOT_MULTIBOOT_H
+#pragma once
 
 // Copyright (C) 1999,2003,2007,2008,2009,2010  Free Software Foundation, Inc.
 //
@@ -113,4 +112,3 @@ struct multiboot_info_t {
 		};
 	};
 };
-#endif

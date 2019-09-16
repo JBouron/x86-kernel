@@ -1,7 +1,6 @@
 // Wrapper for the cpuid instruction as well as helper functions to identify
 // features more easily.
-#ifndef _ASM_CPUID_CPUID_H
-#define _ASM_CPUID_CPUID_H
+#pragma once
 #include <utils/types.h>
 
 // This is where the magic happens. This function expects all pointers to be
@@ -38,4 +37,3 @@ cpuid(uint32_t in_eax,
     if (out_ecx) *out_ecx = _out_ecx;
     if (out_edx) *out_edx = _out_edx;
 }
-#endif

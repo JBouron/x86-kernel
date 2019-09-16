@@ -1,5 +1,4 @@
-#ifndef _UTILS_MATH_H
-#define _UTILS_MATH_H
+#pragma once
 
 #include <utils/types.h>
 
@@ -10,4 +9,3 @@ uint32_t ceil_x_over_y(uint32_t const x, uint32_t const y);
 uint32_t max(uint32_t const x, uint32_t const y);
 uint32_t min(uint32_t const x, uint32_t const y);
 
-#endif

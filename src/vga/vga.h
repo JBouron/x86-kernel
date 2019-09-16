@@ -1,6 +1,5 @@
 // Functions, types and constants used to interact with the VGA text matrix.
-#ifndef _VGA_VGA_H
-#define _VGA_VGA_H
+#pragma once
 #include <utils/types.h>
 
 // The location of the VGA buffer in memory. This address is identity mapped for
@@ -58,4 +57,3 @@ vga_create_char(unsigned char const c, vga_color_desc_t const color_desc);
 // Write a VGA char in the VGA matrix at position (x, y).
 void
 vga_put_char(vga_char_t const vga_char, uint8_t x, uint8_t y);
-#endif
