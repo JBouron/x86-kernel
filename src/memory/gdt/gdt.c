@@ -4,6 +4,25 @@
 #include <utils/memory.h>
 #include <utils/debug.h>
 
+// +===========================================================================+
+// | Static functions, types and consts                                        |
+// +===========================================================================+
+
+// Note the GDT implementation:
+// In the type struct gdt_t the field `entries` is of type void* to hide
+// implementation details.
+// The real type of this field is struct __x86_segment_desc_t *.
+// However, we do not want to expose the real format of the entries for multiple
+// reasons:
+//      _ First it would mean that the programmer can directly modify the
+//      entries without using the public interface of the GDT module. While it
+//      is still possible to fiddle with them directly, using the void* makes it
+//      harder.
+//      _ Second, the struct __x86_segment_desc_t is a mess, a lot of fields
+//      have fixed values or have their bits scatterred. We chose to use a
+//      simplified format for the segment descriptors in the public interface:
+//      struct segment_desc_t.
+
 // The GDT can have at most 8192 entries.
 #define MAX_GDT_INDEX   (8192)
 
@@ -44,6 +63,8 @@ struct __x86_segment_desc_t {
 } __attribute__((packed));
 
 // Convert a segment_desc_t to the actual x86 segment descriptor.
+//   @param from: The simplified segment descriptor to be translated.
+//   @param to: Pointer to the real x86 segment descriptor to be written to.
 static void
 __translate_segment_desc(struct segment_desc_t const * const from,
                          struct __x86_segment_desc_t * const to) {
@@ -57,8 +78,9 @@ __translate_segment_desc(struct segment_desc_t const * const from,
     to->db = 1;              // 32-bit segment.
     to->is64bits = 0;        // We are not in 64-bit mode.
     to->avl = 0;             // Not used, set to 0.
-
     to->granularity = 1;     // 4KB units for the limit.
+
+    // Encode the limit.
     uint32_t const limit = from->size;
     ASSERT(limit <= 0xFFFFF);
     to->limit_bits19_to_16 = (0xF0000 & limit) >> 16;
@@ -77,25 +99,57 @@ __translate_segment_desc(struct segment_desc_t const * const from,
 }
 
 // Get a pointer to the x86 segment descriptor at a specified index in the GDT.
+// Get a pointer to an entry in the GDT.
+//   @param gdt: The GDT from which to get the address of the entry.
+//   @param index: The index of the entry of interest.
 static struct __x86_segment_desc_t *
-__get_x86_segment_desc_ptr(struct gdt_t const * const gdt, uint16_t index) {
+__get_x86_entry_ptr(struct gdt_t const * const gdt, uint16_t const index) {
     struct __x86_segment_desc_t *d = (struct __x86_segment_desc_t*)gdt->entries;
     return d + index;
 }
 
-// Add a segment to the GDT.
+// Compute the size in bytes of a GDT.
+//   @param gdt: The GDT.
+static size_t
+__gdt_size_bytes(struct gdt_t const * const gdt) {
+    return gdt->size * sizeof(struct __x86_segment_desc_t);
+}
+
+// Check that an index is within the bounds of a GDT. Panic if this is not the
+// case.
+//   @param gdt: The GDT on which to perform the test.
+//   @param index: The index.
+// A valid index is an index that is < gdt->size. 0 is considered within the
+// bounds.
+static void
+__check_bounds(struct gdt_t const * const gdt, uint16_t const index) {
+    ASSERT(index < MAX_GDT_INDEX && index < gdt->size);
+}
+
+// +===========================================================================+
+// | Public interface implementation                                           |
+// +===========================================================================+
+
+void
+gdt_init(struct gdt_t * const gdt) {
+    // memzero the entire GDT. This will take care of setting up the NULL entry.
+    ASSERT(gdt->size);
+    size_t const gdt_size_bytes = __gdt_size_bytes(gdt);
+    memzero((uint8_t*)gdt->entries, gdt_size_bytes);
+}
+
 void
 gdt_add_segment(struct gdt_t * const gdt,
                 uint16_t const index,
                 struct segment_desc_t const * const desc) {
-    ASSERT(0 < index && index < MAX_GDT_INDEX);
-    ASSERT(index < gdt->size);
+    __check_bounds(gdt, index);
+    // The first entry is the NULL entry and thus cannot be modified.
+    ASSERT(0 < index);
 
-    // Get a ptr on the segment to fill up.
-    struct __x86_segment_desc_t * x86d = __get_x86_segment_desc_ptr(gdt, index);
+    struct __x86_segment_desc_t * x86d = __get_x86_entry_ptr(gdt, index);
 
-    // The current entry in the GDT should not be present. We only support
-    // addition for the moment.
+    // The current entry in the GDT should not be present. If the entry is
+    // present then it might be currently used.
     ASSERT(!x86d->present);
 
     // Fill up the descriptor with the info passed through the simplified
@@ -103,26 +157,15 @@ gdt_add_segment(struct gdt_t * const gdt,
     __translate_segment_desc(desc, x86d);
 }
 
-// Compute the size in bytes of a GDT.
-static size_t
-__gdt_size_bytes(struct gdt_t const * const gdt) {
-    return gdt->size * sizeof(struct __x86_segment_desc_t);
-}
-
+// Forward declaration of the lgdt x86 instruction wrapper loading a GDT table
+// from a table descriptor.  The actual implementation of this function can be
+// found in gdt_asm.S.
 void
-gdt_init(struct gdt_t * const gdt) {
-    // memzero the entire GDT. This will take care of setting up the NULL entry.
-    size_t const gdt_size_bytes = __gdt_size_bytes(gdt);
-    memzero((uint8_t*)gdt->entries, gdt_size_bytes);
-}
-
-// Prototype of the lgdt x86 instruction wrapper loading a GDT table from a
-// table descriptor.
-// The actual implementation of this function can be found in gdt_asm.S.
-void __x86_lgdt(struct table_desc_t const * const desc);
+__x86_lgdt(struct table_desc_t const * const desc);
 
 void
 gdt_load(struct gdt_t const * const gdt) {
+    ASSERT(gdt->size);
     size_t const gdt_size_bytes = __gdt_size_bytes(gdt);
 
     // Generate the table descriptor for the GDT. Note that the limit field
@@ -143,12 +186,11 @@ void
 gdt_get_segment(struct gdt_t const * const gdt,
                 uint16_t const index,
                 struct segment_desc_t * const out_desc) {
-    ASSERT(0 < index && index < MAX_GDT_INDEX);
-    ASSERT(index < gdt->size);
+    __check_bounds(gdt, index);
 
     // Get a pointer on the segment selector.
     struct __x86_segment_desc_t const * const entry =
-        __get_x86_segment_desc_ptr(gdt, index);
+        __get_x86_entry_ptr(gdt, index);
 
     // Parse the base address from the multiple parts.
     out_desc->base = entry->base_bits15_to_0 |
@@ -165,11 +207,26 @@ gdt_get_segment(struct gdt_t const * const gdt,
 
 void
 gdt_remove_segment(struct gdt_t * const gdt, uint16_t const index) {
-    ASSERT(0 < index && index < 8192);
-    ASSERT(index < gdt->size);
+    __check_bounds(gdt, index);
+    ASSERT(0 < index);
 
     // Get a pointer on the entry in the actual GDT and zero it. This clears the
     // present bit and therefore removes the segment from the GDT.
-    struct __x86_segment_desc_t * d = __get_x86_segment_desc_ptr(gdt, index);
+    struct __x86_segment_desc_t * d = __get_x86_entry_ptr(gdt, index);
     memzero(d, sizeof(*d));
+}
+
+bool
+gdt_segment_is_present(struct gdt_t const * const gdt, uint16_t const index) {
+    __check_bounds(gdt, index);
+
+    if (!index) {
+        // The NULL segment is always present, even if its present bit tells
+        // otherwise.
+        return true;
+    } else {
+        struct __x86_segment_desc_t const * const d =
+            __get_x86_entry_ptr(gdt, index);
+        return d->present;
+    }
 }
