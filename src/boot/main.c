@@ -65,7 +65,7 @@ initialize_gdt(void) {
     // Create a flat segmentation model.
     struct segment_desc_t flat_seg = {
         .base = 0x0,
-        .size = 0xFFFFFFFF,
+        .size = 0xFFFFF,
         .type = SEGMENT_TYPE_CODE,
         .priv_level = SEGMENT_PRIV_LEVEL_RING0,
     };

@@ -34,7 +34,7 @@ enum segment_priv_level_t {
 struct segment_desc_t {
     // The base virtual address of the segment.
     v_addr base;
-    // The size of the segment in bytes. Valid values from 0 to 0xFFFFFFFF.
+    // The size of the segment in pages. Valid values from 0 to 0xFFFFF.
     size_t size;
     // Type of segment.
     enum segment_type_t type;
@@ -48,7 +48,7 @@ struct gdt_t {
     // that this field should always be >0).
     size_t const size;
     // The actual array of entries. This is a void* to hide implementation
-    // details.
+    // details. This is _not_ an array of segment_desc_t.
     void * const entries;
 };
 

@@ -58,20 +58,9 @@ __translate_segment_desc(struct segment_desc_t const * const from,
     to->is64bits = 0;        // We are not in 64-bit mode.
     to->avl = 0;             // Not used, set to 0.
 
-    // Setup the size. If the size requested is bigger than 1<<20 bytes then we
-    // need to setup the granularity to 4KB pages, as the limit field only has
-    // 20bits.
-    uint32_t limit;
-    if(from->size > (1<<20)) {
-        to->granularity = 1;     // 4KB units for the limit.
-        // The size needs to be a multiple of 4KB.
-        ASSERT(from->size % 4096 == 0);
-        // Get rid of the 12 LSB as they are supposed to be 0.
-        limit = from->size >> 12;
-    } else {
-        to->granularity = 0;
-        limit = from->size;
-    }
+    to->granularity = 1;     // 4KB units for the limit.
+    uint32_t const limit = from->size;
+    ASSERT(limit <= 0xFFFFF);
     to->limit_bits19_to_16 = (0xF0000 & limit) >> 16;
     to->limit_bits15_to_0 = (0x0FFFF & limit) >> 0;
 
