@@ -62,23 +62,31 @@ struct pagetable_entry_t {
 // Page Tables must fit within one page.
 #define PAGETABLE_ENTRIES_COUNT (PAGE_SIZE/sizeof(struct pagetable_entry_t))
 
-// Page Directory and Page Table types.
-typedef struct pagedir_entry_t *pagedir_t;
-typedef struct pagetable_entry_t *pagetable_t;
+struct pagedir_t {
+    struct pagedir_entry_t entry[PAGEDIR_ENTRIES_COUNT];
+} __attribute__((packed));
 
-// This is the kernel's page directory. We use identity mapping.
-extern pagedir_t KERNEL_PAGEDIRECTORY;
+struct pagetable_t {
+    struct pagetable_entry_t entry[PAGETABLE_ENTRIES_COUNT];
+} __attribute__((packed));
+
+extern struct pagedir_t * KERNEL_PAGEDIRECTORY;
 
 // Initialize and enable paging.
 void
 paging_init(void);
 
+// Check if paging is enabled on the processor by reading the PG bit in CR0.
+//   @return True if paging is enabled, false otherwise.
+bool
+paging_enabled(void);
+
 // Map a physical memory region start:start+size to dest:dest+size. All
 // addresses must be PAGE_SIZE aligned. Size must be a multiple of PAGE_SIZE.
 // Uses the page directory and frame allocator specified as arguments.
 void
-paging_map(pagedir_t root_page_dir,
-           struct frame_alloc_t *allocator,
+paging_map(struct pagedir_t * const root_page_dir,
+           struct frame_alloc_t * const allocator,
            p_addr const start,
            size_t const size,
            v_addr const dest);

@@ -62,3 +62,6 @@ inb(uint16_t const port);
 
 uint32_t
 read_cr0(void);
+
+uint32_t
+read_cr3(void);

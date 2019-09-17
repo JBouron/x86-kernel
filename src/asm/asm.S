@@ -134,3 +134,7 @@ ASM_FUNC_DEF(inb):
 ASM_FUNC_DEF(read_cr0):
     mov     %cr0, %eax
     ret
+
+ASM_FUNC_DEF(read_cr3):
+    mov     %cr3, %eax
+    ret
