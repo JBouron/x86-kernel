@@ -7,6 +7,9 @@
 // aligned.
 struct vm KERNEL_PAGEDIRECTORY;
 
+// Kernel wide physical page frame allocator.
+struct frame_alloc_t *FRAME_ALLOCATOR;
+
 // Get the physical address of the page directory currently in use (ie. loaded
 // in cr3).
 //   @return The physical address.

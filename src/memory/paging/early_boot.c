@@ -92,6 +92,9 @@ __early_boot__create_mappings(p_addr * const last_allocated_frame) {
     return page_dir_addr;
 }
 
+// The frame allocator that will be used in virtual addressing mode.
+static struct simple_frame_alloc_t VIRTUAL_FRAME_ALLOCATOR;
+
 void
 __early_boot__setup_paging(void) {
     // This will contain the address of the last allocated frame.
@@ -117,8 +120,10 @@ __early_boot__setup_paging(void) {
     // for frame allocation. The rationale is:
     //  * Below this bound (phy addr <= last_allocated_frame) we have the kernel
     //  * Below the kernel (loaded at phy 1MiB) memory is reserved anyway.
-    struct simple_frame_alloc_t * fa_simple = (struct simple_frame_alloc_t *)
-        &FRAME_ALLOCATOR;
-    fa_simple_alloc_init(fa_simple, last_allocated_frame + PAGE_SIZE);
+    struct simple_frame_alloc_t * const alloc = &VIRTUAL_FRAME_ALLOCATOR;
+    fa_simple_alloc_init(alloc, last_allocated_frame + PAGE_SIZE);
+
+    // Set the kernel wide frame allocator.
+    FRAME_ALLOCATOR = (struct frame_alloc_t*)alloc;
 }
 

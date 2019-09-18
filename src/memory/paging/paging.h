@@ -77,6 +77,9 @@ struct vm {
 };
 extern struct vm KERNEL_PAGEDIRECTORY;
 
+// Kernel wide physical page frame allocator.
+extern struct frame_alloc_t *FRAME_ALLOCATOR;
+
 // Initialize and enable paging.
 void
 paging_init(void);
@@ -102,4 +105,4 @@ paging_dump_pagedir(void);
 
 // Short-cut to avoid boiler-plate.
 #define paging_create_map(start, size, dest) \
-    paging_map(&KERNEL_PAGEDIRECTORY, &FRAME_ALLOCATOR, start, size, dest)
+    paging_map(&KERNEL_PAGEDIRECTORY, FRAME_ALLOCATOR, start, size, dest)

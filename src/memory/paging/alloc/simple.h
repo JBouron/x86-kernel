@@ -7,9 +7,11 @@
 #include <utils/types.h>
 #include <memory/paging/alloc/alloc.h>
 
-// "Subclass" of the frame_alloc_t structure use by the simple frame allocator.
+// "Substruct" of the frame_alloc_t structure.
 struct simple_frame_alloc_t {
-    p_addr (*alloc_frame)(struct frame_alloc_t * const);
+    // This should be the first field so that we can easily convert this
+    // allocator to a struct frame_alloc_t.
+    struct frame_alloc_t super;
     // The address of the next free frame.
     p_addr next_frame_addr;
     // The address of the limit for frame allocation. It is never ok to allocate
@@ -17,12 +19,18 @@ struct simple_frame_alloc_t {
     p_addr max_frame_addr;
 }__attribute__((packed));
 
-// Initialize a simple frame allocator using the specified next_frame_addr.
+// Initialize a simple frame allocator.
+//   @param allocator: Pointer to the simple frame allocator to be initialized.
+//   @parma next_frame_addr: The smallest physical address available for
+//   allocation.
 void
 fa_simple_alloc_init(struct simple_frame_alloc_t * const allocator,
                      p_addr const next_frame_addr);
 
-// This is the allocating function. Append the frame after the kernel in RAM.
+// Allocate a new physical page frame after the kernel.
+//   @param allocator: Backpointer to the simple_frame_alloc_t struct.
+// @return: The physical address of the page.
+// Note: The page is zero'ed upon allocation.
 p_addr
 fa_simple_alloc_frame(struct frame_alloc_t * const allocator);
 

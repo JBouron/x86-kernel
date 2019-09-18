@@ -1,19 +1,14 @@
 #pragma once
 
+// Declaration of the frame allocation structure.
+
 #include <utils/types.h>
 
-// A frame allocator allocates physical page frames in memory. It is defined as
-// a struct containing specific functions pointer carrying out the operations.
+// A frame allocator is an entity implementing an algorithm for physical page
+// frame allocation.
 struct frame_alloc_t {
+    // This is the allocation function. It it expected to return the physical
+    // address of the physical page frame allocated.
+    //   @param : A backpointer to the allocator itself.
     p_addr (*alloc_frame)(struct frame_alloc_t * const);
-    p_addr dummy1;
-    p_addr dummy2;
 }__attribute__((packed));
-
-// This is the main frame allocator used throughout the kernel after paging is
-// setup.
-extern struct frame_alloc_t FRAME_ALLOCATOR;
-
-// A shortcut function to allocate a frame.
-p_addr
-allocate_frame(void);
