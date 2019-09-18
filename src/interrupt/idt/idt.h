@@ -7,7 +7,7 @@
 static uint16_t const INT_CODE_SEGMENT = 0x8;
 
 // The IDT gate descriptor. This is one entry of the IDT.
-struct idt_entry_t {
+struct idt_entry {
     // The offset to the handler.
     uint16_t offset_bits15_to_0 : 16;
     uint16_t segment_selector : 16; 
@@ -28,7 +28,7 @@ struct idt_entry_t {
 
 // The actual IDT of 256 entries.
 #define IDT_SIZE 256
-extern struct idt_entry_t IDT[IDT_SIZE];
+extern struct idt_entry IDT[IDT_SIZE];
 
 // Initialize the IDT on the processor. This will fill the IDT with all the
 // interrupt handlers for all vectors and set the present bit to 1 for all of

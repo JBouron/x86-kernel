@@ -4,7 +4,7 @@
 #include <memory/paging/alloc/alloc.h>
 
 // Entry of a page directory.
-struct pagedir_entry_t {
+struct pagedir_entry {
     // If this bit is 0 then the entry is considered not present and the
     // processor will throw an exception.
     uint8_t present : 1;
@@ -29,7 +29,7 @@ struct pagedir_entry_t {
 } __attribute__((packed));
 
 // Entry of a pagetable.
-struct pagetable_entry_t {
+struct pagetable_entry {
     // If this bit is 0 then the entry is considered not present and the
     // processor will throw an exception.
     uint8_t present : 1;
@@ -58,16 +58,16 @@ struct pagetable_entry_t {
 // Pages are 4KiB.
 #define PAGE_SIZE   (4096)
 // Page Directories must fit within one page.
-#define PAGEDIR_ENTRIES_COUNT (PAGE_SIZE/sizeof(struct pagedir_entry_t))
+#define PAGEDIR_ENTRIES_COUNT (PAGE_SIZE/sizeof(struct pagedir_entry))
 // Page Tables must fit within one page.
-#define PAGETABLE_ENTRIES_COUNT (PAGE_SIZE/sizeof(struct pagetable_entry_t))
+#define PAGETABLE_ENTRIES_COUNT (PAGE_SIZE/sizeof(struct pagetable_entry))
 
-struct pagedir_t {
-    struct pagedir_entry_t entry[PAGEDIR_ENTRIES_COUNT];
+struct pagedir {
+    struct pagedir_entry entry[PAGEDIR_ENTRIES_COUNT];
 } __attribute__((packed));
 
-struct pagetable_t {
-    struct pagetable_entry_t entry[PAGETABLE_ENTRIES_COUNT];
+struct pagetable {
+    struct pagetable_entry entry[PAGETABLE_ENTRIES_COUNT];
 } __attribute__((packed));
 
 
@@ -78,7 +78,7 @@ struct vm {
 extern struct vm KERNEL_PAGEDIRECTORY;
 
 // Kernel wide physical page frame allocator.
-extern struct frame_alloc_t *FRAME_ALLOCATOR;
+extern struct frame_alloc *FRAME_ALLOCATOR;
 
 // Initialize and enable paging.
 void
@@ -94,7 +94,7 @@ paging_enabled(void);
 // Uses the page directory and frame allocator specified as arguments.
 void
 paging_map(struct vm * const vm,
-           struct frame_alloc_t * const allocator,
+           struct frame_alloc * const allocator,
            p_addr const start,
            size_t const size,
            v_addr const dest);

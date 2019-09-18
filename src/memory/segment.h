@@ -16,7 +16,7 @@ extern uint16_t const KERNEL_DATA_SEGMENT_SELECTOR;
 // and the size (in bytes) of the table. A table descriptor is a 6-byte value
 // containing both of these values.
 // Upon calling lgdt or lidt, an address to a table_desc_t is passed.
-struct table_desc_t {
+struct table_desc {
     // The size in bytes of the table. Note that base_addr + limit should point
     // to the last valid bytes, thus in practice, limit = size - 1.
     uint16_t limit;

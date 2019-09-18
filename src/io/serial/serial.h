@@ -4,9 +4,9 @@
 
 // The serial device is a character device and as such shares the same
 // interface.
-struct serial_dev_t {
+struct serial_dev {
     // This is the common device abstraction and must be the first field.
-    struct char_dev_t dev;
+    struct char_dev dev;
     // The port to be used.
     uint16_t port;
     // The baud rate used by this device.
@@ -19,5 +19,5 @@ extern uint16_t const SERIAL_PORT;
 // Initialise the serial device to the correct baud rate with the correct
 // parameters (bits, parity, stop bit(s)).
 void
-serial_init_dev(struct serial_dev_t * const dev, uint16_t const port);
+serial_init_dev(struct serial_dev * const dev, uint16_t const port);
 

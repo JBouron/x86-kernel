@@ -7,10 +7,10 @@
 #define PHYS_ADDR(addr) ((p_addr)(((uint8_t*)(addr)) - KERNEL_VIRT_START_ADDR))
 
 void
-fa_early_boot_init(struct early_boot_frame_alloc_t * const allocator) {
+fa_early_boot_init(struct early_boot_frame_alloc * const allocator) {
     // Setup the function pointer to the allocating function. Note that we need
     // its physical address since at this point paging is still disabled.
-    allocator->super.alloc_frame = (p_addr (*)(struct frame_alloc_t *const))
+    allocator->super.alloc_frame = (p_addr (*)(struct frame_alloc *const))
         PHYS_ADDR(fa_early_boot_alloc_frame);
 
     // The first allocatable address is the first 4KiB aligned address after the
@@ -23,10 +23,10 @@ fa_early_boot_init(struct early_boot_frame_alloc_t * const allocator) {
 }
 
 p_addr
-fa_early_boot_alloc_frame(struct frame_alloc_t * const allocator) {
+fa_early_boot_alloc_frame(struct frame_alloc * const allocator) {
     // Convert the allocator to an early_boot_allocator.
-    struct early_boot_frame_alloc_t * const eb_allocator =
-        (struct early_boot_frame_alloc_t *)allocator;
+    struct early_boot_frame_alloc * const eb_allocator =
+        (struct early_boot_frame_alloc *)allocator;
 
     // The address pointed by next_frame_addr is free, so use it and increase
     // the next_frame_addr pointer by PAGE_SIZE;

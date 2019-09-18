@@ -1,7 +1,7 @@
 #include <boot/cmdline/cmdline.h>
 #include <utils/string.h>
 
-struct cmdline_params_t CMDLINE_PARAMS;
+struct cmdline_params CMDLINE_PARAMS;
 
 // Initializes the values of CMDLINE_PARAMS to their default.
 static void

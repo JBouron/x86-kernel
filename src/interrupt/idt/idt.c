@@ -6,11 +6,11 @@
 #include <asm/asm.h>
 
 // The actual IDT.
-struct idt_entry_t IDT[IDT_SIZE];
+struct idt_entry IDT[IDT_SIZE];
 
 // Fill an idt_entry_t.
 static void
-__generate_idt_entry(struct idt_entry_t * const desc,
+__generate_idt_entry(struct idt_entry * const desc,
                      uint32_t const handler_offset) {
     desc->offset_bits15_to_0 = (handler_offset & 0x0000FFFF);
     desc->offset_bits31to16 = (handler_offset & 0xFFFF0000) >> 16;
@@ -28,7 +28,7 @@ __generate_idt_entry(struct idt_entry_t * const desc,
 // through the exposed interface in interrupt.h
 static void
 __idt_insert_entry(uint8_t const vector,
-                   struct idt_entry_t const * const desc) {
+                   struct idt_entry const * const desc) {
     uint8_t * const dest = (uint8_t*)(IDT + vector);
     uint8_t * const src = (uint8_t*)desc;
     memcpy(dest, src, sizeof(*desc));
@@ -41,7 +41,7 @@ __idt_populate_all(void) {
     // intel interrupts.
     size_t const n_vectors = IDT_SIZE;
     for(size_t i = 0; i < n_vectors; ++i) {
-        struct idt_entry_t desc;
+        struct idt_entry desc;
         uint32_t const handler_offset = (uint32_t)INTERRUPT_HANDLERS[i];
         uint8_t const vector = i;
 
@@ -51,7 +51,7 @@ __idt_populate_all(void) {
 
     // Create the table desc for the IDT and load it.
     uint16_t const byte_size = IDT_SIZE * sizeof(IDT[0]);
-    struct table_desc_t idt_desc = {
+    struct table_desc idt_desc = {
         .base_addr = (uint8_t*)IDT,
         .limit = byte_size-1,
     };

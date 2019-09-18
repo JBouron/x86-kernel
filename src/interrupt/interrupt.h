@@ -9,7 +9,7 @@
 // of the interrupt and the eflags at the time of the interrupt.
 // This structure, alongside the generic interrupt handler allows us to handle
 // *all* interrupts and exception in a similar way.
-struct interrupt_desc_t {
+struct interrupt_desc {
     // The vector of the interrupt.
     uint32_t vector;
     // The error code of the interrupt. If the interrupt does not have an error
@@ -28,7 +28,7 @@ void
 interrupt_init(void);
 
 // This is the type of an interrupt handler.
-typedef void (*interrupt_handler_t)(struct interrupt_desc_t const * const);
+typedef void (*interrupt_handler_t)(struct interrupt_desc const * const);
 
 // Register an interrupt handler for a specific vector.
 void

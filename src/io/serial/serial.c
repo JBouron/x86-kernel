@@ -7,11 +7,11 @@
 #define DEFAULT_BAUD_RATE   (38400)
 
 // A helper to convert a char_dev_t to a serial_dev_t.
-#define SERIAL_DEV(d)   ((struct serial_dev_t *)(d))
+#define SERIAL_DEV(d)   ((struct serial_dev *)(d))
 
 // Writer into the register `reg` in the serial device.
 static void
-__write_serial_register(struct serial_dev_t * const dev,
+__write_serial_register(struct serial_dev * const dev,
                         uint8_t const reg,
                         uint8_t const data) {
     ASSERT(reg < 8);
@@ -21,7 +21,7 @@ __write_serial_register(struct serial_dev_t * const dev,
 
 // Read a special register of the serial device.
 static uint8_t
-__read_serial_register(struct serial_dev_t * const dev, uint8_t const reg) {
+__read_serial_register(struct serial_dev * const dev, uint8_t const reg) {
     ASSERT(reg < 8);
     uint16_t const addr = dev->port + reg;
     return inb(addr);
@@ -29,7 +29,7 @@ __read_serial_register(struct serial_dev_t * const dev, uint8_t const reg) {
 
 // Write the dlab bit for a certain serial device given the port.
 static void
-__set_dlab(struct serial_dev_t * const dev, uint8_t const dlab) {
+__set_dlab(struct serial_dev * const dev, uint8_t const dlab) {
     // DLAB is the most significant bit of the line control register.
     ASSERT(dlab == 1 || dlab == 0);
     uint8_t const line_control_reg = 0x3;
@@ -45,8 +45,8 @@ __set_dlab(struct serial_dev_t * const dev, uint8_t const dlab) {
 
 // This implement a blocking read from the serial device.
 static size_t
-__serial_read(struct char_dev_t * d, uint8_t * const dest, size_t const len) {
-    struct serial_dev_t * const dev = SERIAL_DEV(d);
+__serial_read(struct char_dev * d, uint8_t * const dest, size_t const len) {
+    struct serial_dev * const dev = SERIAL_DEV(d);
 
     for (size_t i = 0; i < len; ++i) {
         uint8_t const c = __read_serial_register(dev, 0x0);
@@ -57,10 +57,10 @@ __serial_read(struct char_dev_t * d, uint8_t * const dest, size_t const len) {
 
 // Write a buffer to the serial device.
 static size_t
-__serial_write(struct char_dev_t * d,
+__serial_write(struct char_dev * d,
                uint8_t const * const buf,
                size_t const len) {
-    struct serial_dev_t * const dev = SERIAL_DEV(d);
+    struct serial_dev * const dev = SERIAL_DEV(d);
 
     for (size_t i = 0; i < len; ++i) {
         uint8_t const c = buf[i];
@@ -73,7 +73,7 @@ __serial_write(struct char_dev_t * d,
 }
 
 void
-serial_init_dev(struct serial_dev_t * const dev, uint16_t const port) {
+serial_init_dev(struct serial_dev * const dev, uint16_t const port) {
     uint32_t const baud_rate = DEFAULT_BAUD_RATE;
     // Set the private state of the device.
     dev->baud_rate = baud_rate;

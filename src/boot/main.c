@@ -17,7 +17,7 @@
 #include <interrupt/apic/ioapic.h>
 
 // This is the global serial device used to log in the kernel.
-static struct serial_dev_t SERIAL_DEVICE;
+static struct serial_dev SERIAL_DEVICE;
 
 // This is the GDT, it only contains 3 entries:
 //  _ The NULL entry, it is mandatory,
@@ -26,10 +26,10 @@ static struct serial_dev_t SERIAL_DEVICE;
 DECLARE_GDT(GDT, 2)
 
 void
-__handle_serial_int(struct interrupt_desc_t const * const desc) {
+__handle_serial_int(struct interrupt_desc const * const desc) {
     // Handle interrupt from serial device.
     ASSERT(desc);
-    struct char_dev_t * dev = &SERIAL_DEVICE.dev;
+    struct char_dev * dev = &SERIAL_DEVICE.dev;
     uint8_t buf[1];
     dev->read(dev,buf,1);
     LOG("%c",buf[0]);
@@ -63,7 +63,7 @@ static uint16_t const DATA_SEGMENT_SELECTOR = DATA_SEGMENT_IDX << 3 | RING_0;
 void
 initialize_gdt(void) {
     // Create a flat segmentation model.
-    struct segment_desc_t flat_seg = {
+    struct segment_desc flat_seg = {
         .base = 0x0,
         .size = 0xFFFFF,
         .type = SEGMENT_TYPE_CODE,
@@ -133,7 +133,7 @@ __print_banner(void) {
 }
 
 void
-kernel_main(struct multiboot_info_t const * const multiboot_info) {
+kernel_main(struct multiboot_info const * const multiboot_info) {
     ASSERT(multiboot_info);
     // TODO: command line parsing is disabled until page fault is handled
     // correctly or a mechanism to read from physical memory is implemented.
@@ -153,7 +153,7 @@ kernel_main(struct multiboot_info_t const * const multiboot_info) {
     // (serial_init_dev and tty_init) should not be a problem.
     uint16_t const serial_port = 0x3F8;
     serial_init_dev(&SERIAL_DEVICE, serial_port);
-    tty_init(((struct char_dev_t *)&SERIAL_DEVICE));
+    tty_init(((struct char_dev *)&SERIAL_DEVICE));
     // Print the banner.
     __print_banner();
 

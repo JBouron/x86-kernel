@@ -1,6 +1,6 @@
 #include <asm/macro.h>
 
-// Definition of __x86_lgdt(struct table_desc_t const * const).
+// Definition of __x86_lgdt(struct table_desc const * const).
 // This function loads the gdt described by the table descriptor passed as
 // argument.
 ASM_FUNC_DEF(__x86_lgdt):

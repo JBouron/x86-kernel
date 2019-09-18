@@ -82,7 +82,7 @@ interrupt_register_ext_vec(uint8_t const ext_vector,
 
 // Handle the end of interrupt protocol.
 static void
-__interrupt_eoi(struct interrupt_desc_t const * const desc) {
+__interrupt_eoi(struct interrupt_desc const * const desc) {
     // Signal the end of interrupt to the local APIC, this can be done before
     // the iret. 
     ASSERT(desc);
@@ -92,7 +92,7 @@ __interrupt_eoi(struct interrupt_desc_t const * const desc) {
 // The generic interrupt handler. This is where interrupt are dispatched to the
 // correct call back function/handler.
 void
-generic_interrupt_handler(struct interrupt_desc_t const * const desc) {
+generic_interrupt_handler(struct interrupt_desc const * const desc) {
     if (callback[desc->vector]) {
         callback[desc->vector](desc);
     } else {

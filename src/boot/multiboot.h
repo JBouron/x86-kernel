@@ -21,7 +21,7 @@
 // IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 /* The symbol table for a.out. */
-struct multiboot_aout_symbol_table_t {
+struct multiboot_aout_symbol_table {
     uint32_t tabsize;
     uint32_t strsize;
     uint32_t addr;
@@ -29,14 +29,14 @@ struct multiboot_aout_symbol_table_t {
 };
 
 /* The section header table for ELF. */
-struct multiboot_elf_section_header_table_t {
+struct multiboot_elf_section_header_table {
     uint32_t num;
     uint32_t size;
     uint32_t addr;
     uint32_t shndx;
 };
 
-struct multiboot_info_t {
+struct multiboot_info {
 	/* Multiboot info version number */
 	uint32_t flags;
 
@@ -56,8 +56,8 @@ struct multiboot_info_t {
 
 	union
 	{
-		struct multiboot_aout_symbol_table_t aout_sym;
-		struct multiboot_elf_section_header_table_t elf_sec;
+		struct multiboot_aout_symbol_table aout_sym;
+		struct multiboot_elf_section_header_table elf_sec;
 	} u;
 
 	/* Memory Mapping buffer */

@@ -49,16 +49,16 @@ __early_boot__create_mappings(p_addr * const last_allocated_frame) {
     // the kernel) we can start directly after the kernel sections.
     // The allocator struct needs to be in the stack, since we can't dynamically
     // allocate things yet !
-    struct early_boot_frame_alloc_t _eb_allocator;
+    struct early_boot_frame_alloc _eb_allocator;
     // Init the allocator.
     fa_early_boot_init(&_eb_allocator);
 
     // Use the frame_alloc_t abstraction from now on.
-    struct frame_alloc_t *alloc = (struct frame_alloc_t*)&_eb_allocator;
+    struct frame_alloc *alloc = (struct frame_alloc*)&_eb_allocator;
 
     // Allocate the page directory.
     p_addr const page_dir_addr = alloc->alloc_frame(alloc);
-    struct pagedir_t * page_dir = (struct pagedir_t*) page_dir_addr;
+    struct pagedir * page_dir = (struct pagedir*) page_dir_addr;
 
     struct vm temp_vm = {
         .pagedir_addr = page_dir_addr,
@@ -76,7 +76,7 @@ __early_boot__create_mappings(p_addr * const last_allocated_frame) {
     // points to the directory itself: 0xFFC00000 -> <Start addr of dir>.
     // Set up this entry here.
     uint16_t last_pde_idx = PAGEDIR_ENTRIES_COUNT - 1;
-    struct pagedir_entry_t * const last_pde = page_dir->entry + last_pde_idx;
+    struct pagedir_entry * const last_pde = page_dir->entry + last_pde_idx;
     memzero((uint8_t*) last_pde, sizeof(*last_pde));
     last_pde->pagetable_addr = page_dir_addr >> 12;
     last_pde->writable = 1;
@@ -93,7 +93,7 @@ __early_boot__create_mappings(p_addr * const last_allocated_frame) {
 }
 
 // The frame allocator that will be used in virtual addressing mode.
-static struct simple_frame_alloc_t VIRTUAL_FRAME_ALLOCATOR;
+static struct simple_frame_alloc VIRTUAL_FRAME_ALLOCATOR;
 
 void
 __early_boot__setup_paging(void) {
@@ -120,10 +120,10 @@ __early_boot__setup_paging(void) {
     // for frame allocation. The rationale is:
     //  * Below this bound (phy addr <= last_allocated_frame) we have the kernel
     //  * Below the kernel (loaded at phy 1MiB) memory is reserved anyway.
-    struct simple_frame_alloc_t * const alloc = &VIRTUAL_FRAME_ALLOCATOR;
+    struct simple_frame_alloc * const alloc = &VIRTUAL_FRAME_ALLOCATOR;
     fa_simple_alloc_init(alloc, last_allocated_frame + PAGE_SIZE);
 
     // Set the kernel wide frame allocator.
-    FRAME_ALLOCATOR = (struct frame_alloc_t*)alloc;
+    FRAME_ALLOCATOR = (struct frame_alloc*)alloc;
 }
 

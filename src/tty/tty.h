@@ -6,17 +6,17 @@
 #include <vga/vga.h>
 #include <devices/char_device.h>
 
-struct tty_t {
+struct tty {
     // The underlying device used by the tty to read from and write to.
-    struct char_dev_t * dev;
+    struct char_dev * dev;
 };
 
 // The global tty.
-extern struct tty_t TTY;
+extern struct tty TTY;
 
 // Initialize the tty with a given char device.
 void
-tty_init(struct char_dev_t * const cdev);
+tty_init(struct char_dev * const cdev);
 
 // Print a char `c` in the tty. Handles line wraps and newline characters.
 void

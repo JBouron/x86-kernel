@@ -18,11 +18,11 @@ pic_disable(void);
 
 // Load the address gdt into the GDTR register.
 void
-load_gdt(struct table_desc_t *table_desc);
+load_gdt(struct table_desc *table_desc);
 
 // Load the address gdt into the IDTR register.
 void
-load_idt(struct table_desc_t *table_desc);
+load_idt(struct table_desc *table_desc);
 
 // Write value `val` in segment registers.
 void

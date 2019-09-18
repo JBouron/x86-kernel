@@ -8,10 +8,10 @@
 #define PAGE_SIZE (4096)
 
 void
-fa_simple_alloc_init(struct simple_frame_alloc_t * const allocator,
+fa_simple_alloc_init(struct simple_frame_alloc * const allocator,
                      p_addr const next_frame_addr) {
     // Setup the function pointer to the allocating function.
-    allocator->super.alloc_frame = (p_addr (*)(struct frame_alloc_t *const))
+    allocator->super.alloc_frame = (p_addr (*)(struct frame_alloc *const))
         (fa_simple_alloc_frame);
 
     // The memory region between KERNEL_END -> 0x00E00000 if free for use (as
@@ -25,10 +25,10 @@ fa_simple_alloc_init(struct simple_frame_alloc_t * const allocator,
     allocator->next_frame_addr = next_frame_addr;
 }
 
-#define SAF(allocator) ((struct simple_frame_alloc_t*)(allocator))
+#define SAF(allocator) ((struct simple_frame_alloc*)(allocator))
 p_addr
-fa_simple_alloc_frame(struct frame_alloc_t * const allocator) {
-    struct simple_frame_alloc_t * const s_allocator = SAF(allocator);
+fa_simple_alloc_frame(struct frame_alloc * const allocator) {
+    struct simple_frame_alloc * const s_allocator = SAF(allocator);
 
     // The allocated frame is the next available frame.
     p_addr const addr = s_allocator->next_frame_addr;
