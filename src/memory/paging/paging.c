@@ -5,26 +5,26 @@
 
 // The page directory used by the kernel. This table must be PAGE_SIZE bytes
 // aligned.
-struct pagedir_t * KERNEL_PAGEDIRECTORY __attribute__((aligned(PAGE_SIZE)));
+struct vm KERNEL_PAGEDIRECTORY;
 
 // Get the physical address of the page directory currently in use (ie. loaded
 // in cr3).
 //   @return The physical address.
-//static p_addr
-//__get_curr_pagedir_addr(void) {
-//    uint32_t const cr3 = read_cr3();
-//    p_addr const pagedir_base = cr3 >> 12;
-//    return pagedir_base;
-//}
+static p_addr
+__get_curr_pagedir_addr(void) {
+    uint32_t const cr3 = read_cr3();
+    return (p_addr)cr3;
+}
 
 // Get a pointer to the page directory entry at index `index`.
 static struct pagedir_entry_t *
-__get_pde(struct pagedir_t * const pd, uint16_t const index) {
+__get_pde(struct vm * const vm, uint16_t const index) {
     ASSERT(index < PAGEDIR_ENTRIES_COUNT);
     if (paging_enabled()) {
-        // TODO: The following code assumes that `pd` is the current page
+        // TODO: The following code assumes that `vm` is the current page
         // directory in use.
-        //
+        ASSERT(__get_curr_pagedir_addr() == vm->pagedir_addr);
+
         // We use the recursive entry of the page_directory. We want to use the
         // page dir as a regular page. Therefore, the pde index and pte index of
         // the constructed virtual address should both be 1024, thus the address
@@ -37,18 +37,19 @@ __get_pde(struct pagedir_t * const pd, uint16_t const index) {
     } else {
         // We are still in early boot, paging is disabled thus we can directly
         // read from the struct.
+        struct pagedir_t * const pd = (struct pagedir_t*) vm->pagedir_addr;
         return pd->entry + index;
     }
 }
 
 // Get a pointer to a PTE.
 static struct pagetable_entry_t *
-__get_pte(struct pagedir_t * const pd, uint16_t const pde_idx, uint16_t const index) {
+__get_pte(struct vm * const vm, uint16_t const pde_idx, uint16_t const index) {
     ASSERT(pde_idx < PAGEDIR_ENTRIES_COUNT);
     ASSERT(index < PAGETABLE_ENTRIES_COUNT);
 
     // We first check that the PDE is actually present.
-    struct pagedir_entry_t const * const pde = __get_pde(pd, pde_idx);
+    struct pagedir_entry_t const * const pde = __get_pde(vm, pde_idx);
     ASSERT(pde->present);
 
     if (paging_enabled()) {
@@ -75,12 +76,12 @@ paging_enabled(void) {
 }
 
 void
-paging_map(struct pagedir_t * const root_page_dir,
+paging_map(struct vm * const vm,
            struct frame_alloc_t * const allocator,
            p_addr const start, 
            size_t const size,
            v_addr const dest) {
-    ASSERT(root_page_dir);
+    ASSERT(vm);
     // Iterate over all addresses that are multiple of PAGE_SIZE.
     uint32_t const inc = PAGE_SIZE;
     for (v_addr v = dest, p = start; v < dest + size; v += inc, p += inc) {
@@ -89,7 +90,7 @@ paging_map(struct pagedir_t * const root_page_dir,
         uint32_t const pte_idx = page_idx % PAGETABLE_ENTRIES_COUNT;
 
         // Check the existance of the PDE.
-        struct pagedir_entry_t * const pde = __get_pde(root_page_dir, pde_idx);
+        struct pagedir_entry_t * const pde = __get_pde(vm, pde_idx);
         if (!pde->present) {
             // The PDE is not present, we need to create a new page table and
             // set this PDE.
@@ -108,7 +109,7 @@ paging_map(struct pagedir_t * const root_page_dir,
 
         // Get a pointer on the PTE so that we can modify it from the virtual
         // address space.
-        struct pagetable_entry_t * const pte = __get_pte(root_page_dir, pde_idx, pte_idx);
+        struct pagetable_entry_t * const pte = __get_pte(vm, pde_idx, pte_idx);
 
         // Reset the PTE.
         memzero((uint8_t*)pte, sizeof(*pte));
@@ -130,25 +131,25 @@ paging_init(void) {
     p_addr const p_kernel_start = (v_addr)KERNEL_START - 0xC0000000;
     uint16_t pde_idx = (p_kernel_start / PAGE_SIZE) / PAGEDIR_ENTRIES_COUNT;
 
-    struct pagedir_entry_t * pde = __get_pde(KERNEL_PAGEDIRECTORY, pde_idx);
+    struct pagedir_entry_t * pde = __get_pde(&KERNEL_PAGEDIRECTORY, pde_idx);
     while(pde->present) {
         pde->present = 0;
         pde_idx ++;
-        pde = __get_pde(KERNEL_PAGEDIRECTORY, pde_idx);
+        pde = __get_pde(&KERNEL_PAGEDIRECTORY, pde_idx);
     }
 }
 
 void
 paging_dump_pagedir(void) {
     for (uint16_t pdi = 0; pdi < PAGEDIR_ENTRIES_COUNT; ++pdi) {
-        struct pagedir_entry_t const * const pde = __get_pde(KERNEL_PAGEDIRECTORY, pdi);
+        struct pagedir_entry_t const * const pde = __get_pde(&KERNEL_PAGEDIRECTORY, pdi);
         if (!pde->present) {
             continue;
         }
 
         LOG("[%d] -> table at %p\n", pdi, pde->pagetable_addr << 12);
         for (uint16_t pti = 0; pti < PAGETABLE_ENTRIES_COUNT; ++pti) {
-            struct pagetable_entry_t const * const pte = __get_pte(KERNEL_PAGEDIRECTORY, pdi, pti);
+            struct pagetable_entry_t const * const pte = __get_pte(&KERNEL_PAGEDIRECTORY, pdi, pti);
             if (!pte->present) {
                 continue;
             }

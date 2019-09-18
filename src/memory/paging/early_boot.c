@@ -60,12 +60,16 @@ __early_boot__create_mappings(p_addr * const last_allocated_frame) {
     p_addr const page_dir_addr = alloc->alloc_frame(alloc);
     struct pagedir_t * page_dir = (struct pagedir_t*) page_dir_addr;
 
+    struct vm temp_vm = {
+        .pagedir_addr = page_dir_addr,
+    };
+
     // Create identity mapping.
-    paging_map(page_dir, alloc, start, size, start);
+    paging_map(&temp_vm, alloc, start, size, start);
 
     // Create higher-half mapping.
     v_addr const higher_half_start = KERNEL_VIRT_START_ADDR + start;
-    paging_map(page_dir, alloc, start, size, higher_half_start);
+    paging_map(&temp_vm, alloc, start, size, higher_half_start);
 
     // In this kernel we use a recursive entry to modify the page tables after
     // paging is enabled. That is, in the page directories, the last entry
@@ -105,7 +109,7 @@ __early_boot__setup_paging(void) {
     // here. Yet we can now access the global variables.
     // Set the KERNEL_PAGEDIRECTORY global to the physical address of the
     // kernel's page directory.
-    KERNEL_PAGEDIRECTORY = (struct pagedir_t*)kernel_page_dir;
+    KERNEL_PAGEDIRECTORY.pagedir_addr = kernel_page_dir;
 
     // We can now setup the frame allocator that will be used in the rest of the
     // kernel.

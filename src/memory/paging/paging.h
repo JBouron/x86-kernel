@@ -70,7 +70,12 @@ struct pagetable_t {
     struct pagetable_entry_t entry[PAGETABLE_ENTRIES_COUNT];
 } __attribute__((packed));
 
-extern struct pagedir_t * KERNEL_PAGEDIRECTORY;
+
+struct vm {
+    // The physical address of the pagedir.
+    p_addr pagedir_addr;
+};
+extern struct vm KERNEL_PAGEDIRECTORY;
 
 // Initialize and enable paging.
 void
@@ -85,7 +90,7 @@ paging_enabled(void);
 // addresses must be PAGE_SIZE aligned. Size must be a multiple of PAGE_SIZE.
 // Uses the page directory and frame allocator specified as arguments.
 void
-paging_map(struct pagedir_t * const root_page_dir,
+paging_map(struct vm * const vm,
            struct frame_alloc_t * const allocator,
            p_addr const start,
            size_t const size,
@@ -97,4 +102,4 @@ paging_dump_pagedir(void);
 
 // Short-cut to avoid boiler-plate.
 #define paging_create_map(start, size, dest) \
-    paging_map(KERNEL_PAGEDIRECTORY, &FRAME_ALLOCATOR, start, size, dest)
+    paging_map(&KERNEL_PAGEDIRECTORY, &FRAME_ALLOCATOR, start, size, dest)
