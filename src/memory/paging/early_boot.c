@@ -21,13 +21,16 @@
 #include <utils/memory.h>
 
 void
-__early_boot__setup_paging(void);
+__early_boot__setup_paging(v_addr const target);
 
 // This function will enable paging with the page_dir as CR3. However it will
 // not jump into the higher half kernel yet, but stay in the identity mapping
 // instead.
 extern void
 __early_boot__enable_paging(p_addr const page_dir);
+
+extern void
+__early_boot__jump_to_higher_half(v_addr const target);
 
 // Create the identity and higher-half mappings and return the physical address
 // of the kernel page directory that needs to be stored in CR3.
@@ -96,7 +99,7 @@ __early_boot__create_mappings(p_addr * const last_allocated_frame) {
 static struct simple_frame_alloc VIRTUAL_FRAME_ALLOCATOR;
 
 void
-__early_boot__setup_paging(void) {
+__early_boot__setup_paging(v_addr const target) {
     // This will contain the address of the last allocated frame.
     p_addr last_allocated_frame = 0x0;
     // Create the two (identity and higher-half) mappings and retrieve the
@@ -125,5 +128,10 @@ __early_boot__setup_paging(void) {
 
     // Set the kernel wide frame allocator.
     FRAME_ALLOCATOR = (struct frame_alloc*)alloc;
+
+
+    int i=0;
+    while(!i);
+    __early_boot__jump_to_higher_half(target);
 }
 

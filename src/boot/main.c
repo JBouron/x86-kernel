@@ -133,21 +133,32 @@ __print_banner(void) {
 }
 
 void
+__early_boot__setup_paging(v_addr const target);
+
+void
 kernel_main(struct multiboot_info const * const multiboot_info) {
-    ASSERT(multiboot_info);
-    // TODO: command line parsing is disabled until page fault is handled
-    // correctly or a mechanism to read from physical memory is implemented.
-    //char const * const cmdline = (char const * const)(multiboot_info->cmdline);
-    //cmdline_parse(cmdline);
+    if(!paging_enabled()) {
+        // Paging not enabled we use physical addressing here.
+        ASSERT(multiboot_info);
+        // TODO: command line parsing is disabled until page fault is handled
+        // correctly or a mechanism to read from physical memory is implemented.
+        //char const * const cmdline = (char const *
+        //const)(multiboot_info->cmdline); cmdline_parse(cmdline);
 
-    // If the kernel has been started with the --wait flag then loop until gdb
-    // attaches to the virtual machine and resumes the execution. This is very
-    // useful since we cannot set a breakpoint on the main before starting the
-    // VM.
-    while(CMDLINE_PARAMS.wait_start) {
-        asm("pause");
+        // If the kernel has been started with the --wait flag then loop until
+        // gdb attaches to the virtual machine and resumes the execution. This
+        // is very useful since we cannot set a breakpoint on the main before
+        // starting the VM.
+        while(CMDLINE_PARAMS.wait_start) {
+            asm("pause");
+        }
+        
+        // Enable paging and jump to the main again.
+        __early_boot__setup_paging((v_addr)kernel_main);
+
+        // The above function does not return.
+        __UNREACHABLE__;
     }
-
     // Initialize the serial console and the tty. We want to do this before
     // anything else so that we can have logs. The following functions
     // (serial_init_dev and tty_init) should not be a problem.

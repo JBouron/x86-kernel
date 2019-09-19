@@ -30,3 +30,6 @@
     } while(0)
 
 #define STATIC_ASSERT(condition, msg)    _Static_assert(condition, msg)
+
+// Mark unreachable code.
+#define __UNREACHABLE__ PANIC("UNREACHABLE")

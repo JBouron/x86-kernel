@@ -138,3 +138,35 @@ ASM_FUNC_DEF(read_cr0):
 ASM_FUNC_DEF(read_cr3):
     mov     %cr3, %eax
     ret
+
+ASM_FUNC_DEF(__early_boot__enable_paging):
+    # Enable paging with the page directory address passed as argument but stay
+    # in the lower memory.
+    mov     4(%esp), %eax
+    # %eax now contains the address (physical) of the page directory to be used.
+    # We have now everything we need to setup paging.
+    # Store page dir address.
+    mov     %eax, %cr3
+    # Enable paging with protection bits.
+    mov     %cr0, %eax
+    or      $0x80000001, %eax
+    mov     %eax, %cr0
+    ret
+
+ASM_FUNC_DEF(__early_boot__jump_to_higher_half):
+    # Paging has been enabled, but we were still using the identity mapping
+    # until now. It is time to get into the higher-half kernel with an absolute
+    # jump.
+    call __get_stack_top
+    mov %eax, %ebx
+    mov 4(%esp), %eax
+    lea (%eax), %eax
+
+    mov %ebx, %esp
+    jmp %eax
+0:
+    # Translate the stack pointer to higher half.
+    add     $0xC0000000, %esp
+    addl     $0xC0000000, (%esp)
+    ret
+

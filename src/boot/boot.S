@@ -1,3 +1,4 @@
+#include <asm/macro.h>
 .set ALIGN,    1 << 0             # align loaded modules on page boundaries
 .set MEMINFO,  1 << 1             # provide memory map
 .set VIDINFO,  1 << 2
@@ -24,31 +25,13 @@ stack_bottom:
 .skip 16384 # 16KiB.
 stack_top:
 
-.section .text
-.global __early_boot__enable_paging
-.type __early_boot__enable_paging, @function
-__early_boot__enable_paging:
-    # Enable paging with the page directory address passed as argument but stay
-    # in the lower memory.
-    mov     4(%esp), %eax
-    # %eax now contains the address (physical) of the page directory to be used.
-    # We have now everything we need to setup paging.
-    # Store page dir address.
-    mov     %eax, %cr3
-    # Enable paging with protection bits.
-    mov     %cr0, %eax
-    or      $0x80000001, %eax
-    mov     %eax, %cr0
+ASM_FUNC_DEF(__get_stack_top):
+    mov $(stack_top), %eax
     ret
-    
-
 
 # Finally define the entry point of the kernel in the .text section, this is
 # where life starts !
-.section .text
-.global _start_kernel
-.type _start_kernel, @function
-_start_kernel:
+ASM_FUNC_DEF(_start_kernel):
     # We setup an early boot stack pointer in physical addressing mode before
     # enabling paging.
 	mov $(stack_top - KERNEL_START), %esp
@@ -57,26 +40,8 @@ _start_kernel:
     # need it later in the kernel_main thus save it into the stack
     push    %ebx
 
-    call __early_boot__setup_paging
-
-    # Get back the saved value of the address of the multiboot header.
-    pop     %ebx
-
-    # Paging has been enabled, but we were still using the identity mapping
-    # until now. It is time to get into the higher-half kernel with an absolute
-    # jump.
-    lea 0f, %eax
-    jmp %eax
-0:
-
-    # We can reset the stack pointer to use a virtual address this time.
-	mov $(stack_top), %esp
-    # Translate the address of the multiboot header to virtual. This is a simple
-    # offset.
-    add     $0xC0000000, %ebx
     # Enter the main of the kernel with the address of the multi boot header as
     # argument.
-    push    %ebx
     call kernel_main
 
     # In case we return from the kernel just loop infinitely.
