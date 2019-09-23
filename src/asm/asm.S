@@ -139,7 +139,7 @@ ASM_FUNC_DEF(read_cr3):
     mov     %cr3, %eax
     ret
 
-ASM_FUNC_DEF(__early_boot__enable_paging):
+ASM_FUNC_DEF(__do_enable_paging):
     # Enable paging with the page directory address passed as argument but stay
     # in the lower memory.
     mov     4(%esp), %eax
@@ -153,7 +153,7 @@ ASM_FUNC_DEF(__early_boot__enable_paging):
     mov     %eax, %cr0
     ret
 
-ASM_FUNC_DEF(__early_boot__jump_to_higher_half):
+ASM_FUNC_DEF(__jump_to_higher_half):
     # Paging has been enabled, but we were still using the identity mapping
     # until now. It is time to get into the higher-half kernel with an absolute
     # jump.

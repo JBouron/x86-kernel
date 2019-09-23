@@ -154,7 +154,7 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
         }
         
         // Enable paging and jump to the main again.
-        __early_boot__setup_paging((v_addr)kernel_main);
+        paging_enable((v_addr)kernel_main);
 
         // The above function does not return.
         __UNREACHABLE__;

@@ -84,6 +84,9 @@ extern struct frame_alloc *FRAME_ALLOCATOR;
 void
 paging_init(void);
 
+void
+paging_enable(v_addr const target);
+
 // Check if paging is enabled on the processor by reading the PG bit in CR0.
 //   @return True if paging is enabled, false otherwise.
 bool

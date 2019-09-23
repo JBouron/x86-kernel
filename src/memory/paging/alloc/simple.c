@@ -6,13 +6,20 @@
 // same algorithm.
 
 #define PAGE_SIZE (4096)
+#define KERNEL_VIRT_START_ADDR  (0xC0000000)
+#define PHYS_ADDR(addr) ((p_addr)(((uint8_t*)(addr)) - KERNEL_VIRT_START_ADDR))
 
 void
 fa_simple_alloc_init(struct simple_frame_alloc * const allocator,
                      p_addr const next_frame_addr) {
     // Setup the function pointer to the allocating function.
-    allocator->super.alloc_frame = (p_addr (*)(struct frame_alloc *const))
-        (fa_simple_alloc_frame);
+    if(paging_enabled()) {
+        allocator->super.alloc_frame = (p_addr (*)(struct frame_alloc *const))
+            (fa_simple_alloc_frame);
+    } else {
+        allocator->super.alloc_frame = (p_addr (*)(struct frame_alloc *const))
+            PHYS_ADDR(fa_simple_alloc_frame);
+    }
 
     // The memory region between KERNEL_END -> 0x00E00000 if free for use (as
     // long as it exists). See https://wiki.osdev.org/Memory_Map_(x86).
