@@ -4,8 +4,8 @@
 CC=/root/opt/cross/bin/i686-elf-gcc
 AS=/root/opt/cross/bin/i686-elf-as
 # The flags used to compile all the source files of the kernel.
-KERNEL_CFLAGS=-O0 -g -Wall -Wextra -Werror -ffreestanding -nostdlib -lgcc \
-	-I./src
+KERNEL_CFLAGS=-O0 -g -Wall -Wextra -Werror -ffreestanding -nostdlib -I./src \
+	-static-libgcc -lgcc
 KERNEL_ASFLAGS=-O0 -g
 # The name of the linker script used to build the kernel image.
 LINKER_SCRIPT=linker.ld
@@ -58,11 +58,12 @@ build_in_cont: $(BUILD_DIR) $(BUILD_DIR)/$(KERNEL_IMG_NAME) $(BUILD_DIR)/$(KERNE
 SUBDIRS_:=$(shell find ./src -type d)
 SUBDIRS:=$(patsubst $(SRC_DIR)/%,$(BUILD_DIR)/%,$(SUBDIRS_))
 $(BUILD_DIR):
+	@mkdir -p $(BUILD_DIR)
 	@mkdir -p $(SUBDIRS)
 
 # Kernel image compilation. The kernel image depends on *all* object files.
 $(BUILD_DIR)/$(KERNEL_IMG_NAME): $(OBJ_FILES)
-	$(CC) -T $(LINKER_SCRIPT) -o $@ $(KERNEL_CFLAGS) $^
+	$(CC) -T $(LINKER_SCRIPT) -o $@ $^ $(KERNEL_CFLAGS)
 
 $(BUILD_DIR)/$(KERNEL_LIB_NAME): $(OBJ_FILES)
 	@# We use a static library that we can link to an arbitrary executable to

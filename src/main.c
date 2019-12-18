@@ -44,7 +44,9 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     vga_init();
     tty_init(NULL, &VGA_STREAM);
     uint64_t const end = read_tsc();
-    uint32_t const delta = end - start;
+    uint64_t const delta = end - start;
+    LOG("Start = %D\n",start);
+    LOG("End   = %D\n",end);
     LOG("Init took %u cycles.", delta);
     lock_up();
 }
