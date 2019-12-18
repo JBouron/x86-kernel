@@ -11,20 +11,10 @@
 // that are checkable at boot time.
 void
 assumptions_check(void) {
-    // We are using the CPUID extensively, as such we only support processor
-    // that have this feature. This is done by checking if we can flip the bit
-    // 21 in EFLAGS.
-    uint32_t const eflags = read_eflags();
-    uint32_t const bit21 = (eflags & (1 << 21)) >> 21;
-    uint32_t const eflags_no_21 = eflags & (~(1<<21));
-    uint32_t const new_eflags = eflags_no_21 | (bit21 ? 0 : 1<<21);
-    write_eflags(new_eflags);
-    ASSERT(read_eflags() & (1<<21));
-
     // For now (or maybe forever), we are supporting Intel processors only. Read
     // the vendorId to make sure.
     char eax[5], ebx[5], ecx[5], edx[5];
-    cpuid(0x0, 0x0,
+    cpuid(0x0,
           (uint32_t*)eax, (uint32_t*)ebx, (uint32_t*)ecx, (uint32_t*)edx);
     eax[4] = 0;
     ebx[4] = 0;
@@ -33,6 +23,7 @@ assumptions_check(void) {
     ASSERT(streq(ebx, "Genu"));
     ASSERT(streq(edx, "ineI"));
     ASSERT(streq(ecx, "ntel"));
+    LOG("%s%s%s\n", ebx, edx, ecx);
 }
 
 void
@@ -54,5 +45,8 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     uint64_t const tsc_ins = read_tsc();
     LOG("TSC from MSR = %U\n", tsc_msr);
     LOG("TSC from INS = %U\n", tsc_ins);
+
+    LOG("CPU has CPUID support: %d\n", has_cpuid());
+    assumptions_check();
     lock_up();
 }
