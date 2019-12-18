@@ -2,7 +2,7 @@
 #include <vga.h>
 #include <tty.h>
 #include <string.h>
-#include <asm.h>
+#include <cpu.h>
 #include <debug.h>
 #include <cpuid.h>
 #include <multiboot.h>
@@ -40,7 +40,11 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     ASSERT(multiboot_info);
     //int i = 0;
     //while(!i);
+    uint64_t const start = read_tsc();
     vga_init();
     tty_init(NULL, &VGA_STREAM);
-    LOG("Hello world.");
+    uint64_t const end = read_tsc();
+    uint32_t const delta = end - start;
+    LOG("Init took %u cycles.", delta);
+    lock_up();
 }

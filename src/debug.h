@@ -3,7 +3,7 @@
 // We are using the tty to print debug messages. The tty (as well as the
 // underlying buffer which should be VGA) should, obviously, never fail.
 #include <tty.h>
-#include <asm.h>
+#include <cpu.h>
 
 // Macros coming from the linux kernel source code.
 #define __stringify_1(x...) #x
