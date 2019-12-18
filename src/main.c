@@ -45,8 +45,14 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     tty_init(NULL, &VGA_STREAM);
     uint64_t const end = read_tsc();
     uint64_t const delta = end - start;
+
     LOG("Start = %D\n",start);
     LOG("End   = %D\n",end);
-    LOG("Init took %u cycles.", delta);
+    LOG("Init took %u cycles.\n", delta);
+
+    uint64_t const tsc_msr = read_msr(0x10);
+    uint64_t const tsc_ins = read_tsc();
+    LOG("TSC from MSR = %U\n", tsc_msr);
+    LOG("TSC from INS = %U\n", tsc_ins);
     lock_up();
 }
