@@ -13,3 +13,6 @@ void vga_init(void);
 // Set the buffer address to be used as the VGA matrix.
 // @param addr: The new address to be used for the VGA matrix.
 void vga_set_buffer_addr(uint16_t * const addr);
+
+// Execute tests on the VGA functions.
+void vga_test(void);

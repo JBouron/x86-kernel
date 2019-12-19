@@ -7,9 +7,10 @@
 // the vga_set_buffer_addr function.
 static uint16_t * MATRIX_ADDR = (uint16_t*)VGA_DEFAULT_MATRIX_ADDR;
 
-// The width and height of the VGA text matrix.
-#define VGA_WIDTH   80
-#define VGA_HEIGHT  25
+// The width and height of the VGA text matrix. Those are not made const so that
+// it is possible to test with custom size.
+static uint8_t VGA_WIDTH = 80;
+static uint8_t VGA_HEIGHT = 25;
 
 // The VGA text mode color codes. These can be used both for foreground and
 // background colors.
@@ -71,6 +72,10 @@ static char_t create_char(unsigned char const chr, color_desc_t const color) {
 // @param y: The y coordinate in the matrix to output the character to.
 // Note: The (0;0) coordinate indicate the top-left corner of the VGA matrix.
 static void put_char_at(char_t const c, uint8_t const x, uint8_t const y) {
+    if (x >= VGA_WIDTH || y >= VGA_HEIGHT) {
+        // Bogus coordinates. Do nothing.
+        return;
+    }
     // The VGA matrix is a single array in the memory, thus we have to compute
     // the linear index corresponding to the position (x, y).
     uint16_t const linear_idx = x + y * VGA_WIDTH;
@@ -85,7 +90,7 @@ static void clear_matrix(void) {
     // Create a VGA character using black for the foreground and background
     // colors.
     color_desc_t const clr = create_color_desc(BLACK, BLACK);
-    char_t const empty_char = create_char(' ', clr);
+    char_t const empty_char = create_char('\0', clr);
 
     // Print the above character in the entire matrix.
     for (uint8_t y = 0; y < VGA_HEIGHT; ++y) {
@@ -113,9 +118,8 @@ static void scroll_up(void) {
 
     // Clear the last line.
     color_desc_t const clr = create_color_desc(BLACK, BLACK);
-    char_t const empty_char = create_char(' ', clr);
+    char_t const empty_char = create_char('\0', clr);
 
-    // Print the above character in the entire matrix.
     for (uint8_t i = 0; i < VGA_WIDTH; ++i) {
         put_char_at(empty_char, i, VGA_HEIGHT - 1);
     }
@@ -163,11 +167,12 @@ static void handle_char(char const chr) {
             // maximum number of character.
             wrap_line();
         }
-        cursor_x ++;
         // The cursor coordinates are now valid. We can output the character.
         color_desc_t const clr = create_color_desc(LIGHT_GREY, BLACK);
         char_t const vga_char = create_char(chr, clr);
         put_char_at(vga_char, cursor_x, cursor_y);
+        // Move the cursor to the right.
+        cursor_x ++;
     }
 }
 
@@ -195,3 +200,12 @@ void vga_init(void) {
     // Clear whatever is left in the VGA matrix from the BIOS/boot sequence.
     clear_matrix();
 }
+
+// Set a custom address to use as a VGA buffer.
+void vga_set_buffer_addr(uint16_t * const addr) {
+    MATRIX_ADDR = addr;
+}
+
+// All tests are written in the vga_test.c file which is included here. That way
+// we can access static functions without polluting the file.
+#include <vga.test>

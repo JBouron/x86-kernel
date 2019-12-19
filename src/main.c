@@ -26,6 +26,12 @@ assumptions_check(void) {
     LOG("%s%s%s\n", ebx, edx, ecx);
 }
 
+// Execute all the tests in the kernel.
+static void test_kernel(void) {
+    LOG("Running tests:\n");
+    vga_test();
+}
+
 void
 kernel_main(struct multiboot_info const * const multiboot_info) {
     ASSERT(multiboot_info);
@@ -34,6 +40,9 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     uint64_t const start = read_tsc();
     vga_init();
     tty_init(NULL, &VGA_STREAM);
+
+    test_kernel();
+
     uint64_t const end = read_tsc();
     uint64_t const delta = end - start;
 
