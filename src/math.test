@@ -1,0 +1,41 @@
+#include <test.h>
+
+static bool min_u32_test(void) {
+    uint32_t const a = 33;
+    uint32_t const b = 24;
+
+    TEST_ASSERT(min_u32( a, a ) == a);
+    TEST_ASSERT(min_u32( a, b ) == b);
+    TEST_ASSERT(min_u32( b, b ) == b);
+    TEST_ASSERT(min_u32( b, a ) == b);
+    SUCCESS;
+}
+
+static bool max_u32_test(void) {
+    uint32_t const a = 33;
+    uint32_t const b = 24;
+
+    // Test min.
+    TEST_ASSERT(max_u32( a, a ) == a);
+    TEST_ASSERT(max_u32( a, b ) == a);
+    TEST_ASSERT(max_u32( b, b ) == b);
+    TEST_ASSERT(max_u32( b, a ) == a);
+    SUCCESS;
+}
+
+static bool ceil_x_over_y_u32_test(void) {
+    uint32_t const a = 3;
+    uint32_t const b = 8;
+
+    TEST_ASSERT(ceil_x_over_y_u32( a, b ) == 1);
+    TEST_ASSERT(ceil_x_over_y_u32( b, a ) == 3);
+    TEST_ASSERT(ceil_x_over_y_u32( a, a ) == 1);
+    TEST_ASSERT(ceil_x_over_y_u32( 0, a ) == 0);
+    SUCCESS;
+}
+
+void math_test(void) {
+    TEST_FWK_RUN(min_u32_test);
+    TEST_FWK_RUN(max_u32_test);
+    TEST_FWK_RUN(ceil_x_over_y_u32_test);
+}
