@@ -6,11 +6,12 @@
 #include <debug.h>
 #include <cpuid.h>
 #include <multiboot.h>
+#include <memory.h>
+#include <math.h>
 
 // Check all the assumptions we are making in this kernel. At least the ones
 // that are checkable at boot time.
-void
-assumptions_check(void) {
+void assumptions_check(void) {
     // For now (or maybe forever), we are supporting Intel processors only. Read
     // the vendorId to make sure.
     char eax[5], ebx[5], ecx[5], edx[5];
@@ -30,6 +31,10 @@ assumptions_check(void) {
 static void test_kernel(void) {
     LOG("Running tests:\n");
     vga_test();
+    mem_test();
+    str_test();
+    math_test();
+    tty_test();
 }
 
 void

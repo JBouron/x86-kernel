@@ -15,3 +15,6 @@ void tty_init(struct i_stream_t const * const input_stream,
 // @param fmt: The format string.
 // @param __VA_ARGS: The values to use in the formatted string.
 void tty_printf(const char * const fmt, ...);
+
+// Testing of the tty.
+void tty_test(void);

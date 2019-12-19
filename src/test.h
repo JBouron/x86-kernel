@@ -14,3 +14,13 @@ void __run_single_test(test_function const func, char const * const name);
 // Short-hand for __run_single_test generating the name from the function name.
 #define TEST_FWK_RUN(func) \
     __run_single_test(func, #func)
+
+#define SUCCESS do { return true; } while (0);
+#define FAILURE do { return false; } while (0);
+
+#define TEST_ASSERT(cond) \
+    do { \
+        if (!(cond)) { \
+            FAILURE \
+        }\
+    } while(0)

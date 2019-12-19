@@ -1,0 +1,180 @@
+#include <test.h>
+#include <math.h>
+
+#define FAKE_BUFFER_SIZE (256)
+static char FAKE_BUFFER[FAKE_BUFFER_SIZE];
+static uint32_t FAKE_BUFFER_CURSOR = 0;
+
+static size_t fake_write(uint8_t const * const buf, size_t const len) {
+    for (size_t i = 0; i < len; ++i) {
+        FAKE_BUFFER[FAKE_BUFFER_CURSOR++] = buf[i];
+    }
+    return len;
+}
+
+static struct o_stream_t FAKE_OUTPUT_STREAM = {
+    .read = NULL,
+    .write = fake_write,
+};
+
+// Since the test might conflict with the state of the actual tty, we need to
+// save it before running a test case and restore it afterward.
+#define TTY_TEST_SETUP()                                        \
+    struct i_stream_t const * const __old_is = INPUT_STREAM;    \
+    struct o_stream_t const * const __old_os = OUTPUT_STREAM;   \
+    OUTPUT_STREAM = &FAKE_OUTPUT_STREAM;                        \
+    FAKE_BUFFER_CURSOR = 0;                                     \
+    memzero(FAKE_BUFFER, FAKE_BUFFER_SIZE);
+
+#define TTY_TEST_TEARDOWN()     \
+    INPUT_STREAM = __old_is;    \
+    OUTPUT_STREAM = __old_os;
+
+static void clear_fake_buffer(void) {
+    FAKE_BUFFER_CURSOR = 0;
+    memzero(FAKE_BUFFER, FAKE_BUFFER_SIZE);
+}
+
+// Test the formatting of unsigned integers in the tty.
+static bool tty_output_uint_test(void) { TTY_TEST_SETUP();
+
+#define test_case(value, expected)              \
+    do {                                        \
+        output_uint((value));                   \
+        if (!streq(FAKE_BUFFER, (expected))) {  \
+            goto fail;                          \
+        }                                       \
+        clear_fake_buffer();                    \
+    } while(0)
+
+    test_case(0, "0");
+    test_case(117, "117");
+    test_case(234117, "234117");
+    test_case(400, "400");
+    test_case(~((uint64_t)0), "18446744073709551615");
+#undef test_case
+
+    TTY_TEST_TEARDOWN();
+    SUCCESS;
+fail:
+    TTY_TEST_TEARDOWN();
+    FAILURE;
+}
+
+// Test the formatting of unsigned integers in the tty.
+static bool tty_output_sint_test(void) {
+    TTY_TEST_SETUP();
+
+#define test_case(value, expected)              \
+    do {                                        \
+        output_sint((value));                   \
+        if (!streq(FAKE_BUFFER, (expected))) {  \
+            goto fail;                          \
+        }                                       \
+        clear_fake_buffer();                    \
+    } while(0)
+
+    test_case(0, "0");
+    test_case(-128, "-128");
+    test_case(-2345600, "-2345600");
+    test_case(117, "117");
+    test_case(234117, "234117");
+    test_case(400, "400");
+    int64_t const s64_min = (int64_t)(((uint64_t)1) << 63);
+    test_case(s64_min, "-9223372036854775808");
+    int64_t const s64_max = (int64_t)((~((uint64_t)0)) >> 1);
+    test_case(s64_max, "9223372036854775807");
+#undef test_case
+
+    TTY_TEST_TEARDOWN();
+    SUCCESS;
+fail:
+    TTY_TEST_TEARDOWN();
+    FAILURE;
+}
+
+static bool tty_output_uint_hex_test(void) {
+    TTY_TEST_SETUP();
+
+#define test_case(value, is64bits, expected)    \
+    do {                                        \
+        output_uint_hex((value),is64bits);      \
+        if (!streq(FAKE_BUFFER, (expected))) {  \
+            goto fail;                          \
+        }                                       \
+        clear_fake_buffer();                    \
+    } while(0)
+
+    test_case(0, false, "0x00000000");
+    test_case(0, true, "0x0000000000000000");
+    test_case(0xABCDEF01UL, false, "0xABCDEF01");
+    test_case(0xABCDEF01UL, true, "0x00000000ABCDEF01");
+    test_case(~((uint64_t)0), true, "0xFFFFFFFFFFFFFFFF");
+#undef test_case
+
+    TTY_TEST_TEARDOWN();
+    SUCCESS;
+fail:
+    TTY_TEST_TEARDOWN();
+    FAILURE;
+}
+
+static bool tty_printf_test(void) {
+    char const c = '%';
+    int8_t const s8 = -12;
+    int16_t const s16 = 4;
+    int32_t const s32 = 345345;
+    int64_t const s64 = (int64_t)(((uint64_t)1) << 63);
+    uint8_t const u8 = 12;
+    uint16_t const u16 = 4;
+    uint32_t const u32 = 345345;
+    uint64_t const u64 = (int64_t)((~((uint64_t)0)) >> 1);
+    char const * const str = "Hello world\n";
+    uint8_t const * const ptr = (uint8_t const *)0xDEADBEEF;
+
+    // The format string, one of each kind.
+    char const * const fmt = "c = %c \
+s8 = %d \
+s16 = %d \
+s32 = %d \
+s64 = %D \
+u8 = %u \
+u16 = %u \
+u32 = %u \
+percent = % \
+u64 = %U \
+str = %s \
+ptr = %p \
+hex = %x \
+hex64 = %X \
+percent = %";
+
+    TTY_TEST_SETUP();
+    tty_printf(fmt, c, s8, s16, s32, s64, u8, u16, u32, u64, str, ptr, s8, u64);
+
+    char const * const expected = "c = % \
+s8 = -12 \
+s16 = 4 \
+s32 = 345345 \
+s64 = -9223372036854775808 \
+u8 = 12 \
+u16 = 4 \
+u32 = 345345 \
+percent = % \
+u64 = 9223372036854775807 \
+str = Hello world\n \
+ptr = 0xDEADBEEF \
+hex = 0xFFFFFFF4 \
+hex64 = 0x7FFFFFFFFFFFFFFF \
+percent = %";
+
+    TTY_TEST_TEARDOWN();
+    return streq(FAKE_BUFFER, expected);
+}
+
+void tty_test(void) {
+    TEST_FWK_RUN(tty_output_uint_test);
+    TEST_FWK_RUN(tty_output_sint_test);
+    TEST_FWK_RUN(tty_output_uint_hex_test);
+    TEST_FWK_RUN(tty_printf_test);
+}

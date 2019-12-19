@@ -13,11 +13,11 @@ static void putc(char const chr) {
 
 // Output an unsigned integer into the output stream in base 10 format.
 // @param n: The unsigned integer to output.
-static void output_uint(uint64_t const n, bool const is_64_bits) {
+static void output_uint(uint64_t const n) {
     // `digits` is an array that will contain the char representation of all
     // digits of `n` in reverse order. For instance if n == 123 then digits will
     // be ['3', '2', '1', '\0', ..., '\0'].
-    uint8_t const max_digits = is_64_bits ? 19 : 9;
+    uint8_t const max_digits = 19;
     char digits[max_digits];
     uint8_t digit_idx = 0;
     // Loop over n, determine each base-10 digits and store them in `digits`.
@@ -40,23 +40,25 @@ static void output_uint(uint64_t const n, bool const is_64_bits) {
 
 // Output a signed integer into the output stream in base 10 format.
 // @param n: The signed integer to output.
-static void output_sint(int64_t const n, bool const is_64_bits) {
+static void output_sint(int64_t const n) {
     if (n < 0) {
         putc('-');
-        output_uint((uint64_t)(-n), is_64_bits);
+        output_uint((uint64_t)(-n));
     } else {
-        output_uint((uint64_t)(n), is_64_bits);
+        output_uint((uint64_t)(n));
     }
 }
 
 // Output an unsigned integer into the output stream in hexadecimal
 // format.
 // @param n: The unsigned integer to output.
-static void output_uint64_t_hex(uint64_t const n, bool const is_64_bits) {
+// @param is64bits: Indicates whether or not the printed hexadecimal word should
+// be 64 bits or not.
+static void output_uint_hex(uint64_t const n, bool const is64bits) {
     putc('0');
     putc('x');
-    for(int8_t i = is_64_bits ? 60 : 28; i >= 0; i -= 4) {
-        uint64_t const mask = 0xF << i;
+    for(int8_t i = is64bits ? 60 : 28; i >= 0; i -= 4) {
+        uint64_t const mask = ((uint64_t)0xF) << i;
         uint8_t const half_byte = (n & mask) >> (i);
         if (half_byte < 0xA) {
             putc('0' + half_byte);
@@ -80,36 +82,36 @@ static void handle_substitution(char const **fmt, va_list *list) {
     // We have the type, simply read the value from the va_list.
     switch (type) {
         case 'd': {
-            int32_t const val = va_arg((*list), int32_t);
-            output_sint(val, false);
+            int64_t const val = va_arg((*list), int32_t);
+            output_sint(val);
             break;
         }
         case 'D': {
             int64_t const val = va_arg((*list), int64_t);
-            output_sint(val, true);
+            output_sint(val);
             break;
         }
         case 'u': {
-            uint32_t const val = va_arg((*list), uint32_t);
-            output_uint(val, false);
+            uint64_t const val = va_arg((*list), uint32_t);
+            output_uint(val);
             break;
         }
         case 'U': {
             uint64_t const val = va_arg((*list), uint64_t);
-            output_uint(val, true);
+            output_uint(val);
             break;
         }
         case 'p': {
             // FALL-THROUGH
         }
         case 'x': {
-            uint32_t const val = va_arg((*list), uint32_t);
-            output_uint64_t_hex(val, false);
+            uint64_t const val = va_arg((*list), uint32_t);
+            output_uint_hex(val, false);
             break;
         }
         case 'X': {
             uint64_t const val = va_arg((*list), uint64_t);
-            output_uint64_t_hex(val, true);
+            output_uint_hex(val, true);
             break;
         }
         case 's': {
@@ -157,7 +159,9 @@ static void do_printf(const char * const fmt, va_list list) {
         curr++;
 
         if (!*curr) {
-            // We reach the end of the string, we can return now.
+            // We reach the end of the string, however the last character was a
+            // % and therefore was not a substitution. Print it now and return.
+            putc('%');
             return;
         }
 
@@ -185,3 +189,5 @@ void tty_printf(const char * const fmt, ...) {
     do_printf(fmt, list);
     va_end(list);
 }
+
+#include <tty.test>
