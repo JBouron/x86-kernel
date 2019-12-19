@@ -1,0 +1,52 @@
+#include <test.h>
+
+// Test memcpy of a simple buffer.
+static bool memcpy_test(void) {
+    uint8_t const buf[] = {16, 12, 1, 11};
+    uint8_t new_buf[sizeof(buf)];
+
+    // Copy buf in new buf and compare them.
+    memcpy(new_buf, buf, sizeof(buf));
+    for (size_t i = 0; i < sizeof(buf); ++i) {
+        if (new_buf[i] != buf[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Test memset on a simple buffer.
+static bool memset_test(void) {
+    uint8_t buf[] = {16, 12, 1, 11};
+
+    // memset the buffer to a specific value.
+    uint8_t const value = 117;
+    memset(buf, value, sizeof(buf));
+    for (size_t i = 0; i < sizeof(buf); ++i) {
+        if (buf[i] != value) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Test memzero on a simple buffer.
+static bool memzero_test(void) {
+    uint8_t buf[] = {16, 12, 1, 11};
+
+    // memzero the buffer.
+    memzero(buf, sizeof(buf));
+    for (size_t i = 0; i < sizeof(buf); ++i) {
+        if (buf[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void mem_test(void) {
+    // Execute all tests.
+    TEST_FWK_RUN(memcpy_test);
+    TEST_FWK_RUN(memset_test);
+    TEST_FWK_RUN(memzero_test);
+}
