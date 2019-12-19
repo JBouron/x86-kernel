@@ -2,13 +2,11 @@
 
 // Setup a fake VGA buffer with a custom width and height.
 #define VGA_TEST_SETUP(bufname, width, height)   \
-    uint16_t bufname[width*height];     \
-    VGA_WIDTH = width;                  \
-    VGA_HEIGHT = height;                \
-    uint8_t const __old_cx = cursor_x;  \
-    uint8_t const __old_cy = cursor_y;  \
-    cursor_x = 0;                       \
-    cursor_y = 0;                       \
+    uint16_t bufname[width*height];              \
+    VGA_WIDTH = width;                           \
+    VGA_HEIGHT = height         ;                \
+    uint16_t const __old_cursor = cursor;        \
+    cursor = 0;                                  \
     vga_set_buffer_addr(bufname);
 
 // Reset the actual VGA matrix to the default address.
@@ -16,8 +14,7 @@
     vga_set_buffer_addr((uint16_t*)VGA_DEFAULT_MATRIX_ADDR);    \
     VGA_WIDTH = 80;                                             \
     VGA_HEIGHT = 25;                                            \
-    cursor_x = __old_cx;                                        \
-    cursor_y = __old_cy;
+    cursor = __old_cursor;
 
 // Basic test checking the encoding of a certain glyph with a combination of
 // foreground and backgroud color.

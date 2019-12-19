@@ -87,65 +87,60 @@ static void put_char_at(char_t const c, uint8_t const x, uint8_t const y) {
 
 // Clear the VGA matrix with a black color.
 static void clear_matrix(void) {
-    // Create a VGA character using black for the foreground and background
-    // colors.
-    color_desc_t const clr = create_color_desc(BLACK, BLACK);
-    char_t const empty_char = create_char('\0', clr);
-
-    // Print the above character in the entire matrix.
-    for (uint8_t y = 0; y < VGA_HEIGHT; ++y) {
-        for (uint8_t x = 0; x < VGA_WIDTH; ++x) {
-            put_char_at(empty_char, x, y);
-        }
-    }
+    // Memseting the matrix to 0 works as it describes a black foreground on a
+    // black background with a \0 char.
+    size_t const matrix_size = VGA_WIDTH * VGA_HEIGHT * 2;
+    memzero((uint8_t*)MATRIX_ADDR, matrix_size);
 }
 
-// The following variable contain the x and y coordinates of the cursor inside
-// the VGA matrix.
-// By default the cursor is located at (0;0).
-static uint8_t cursor_x = 0;
-static uint8_t cursor_y = 0;
+// We use a linear indexing of the VGA matrix. In memory the matrix is
+// represented in a row-major order.
+// By default put the cursor on the top-left corner of the matrix.
+static uint16_t cursor = 0;
+// The maximum cursor position. If the cursor is currently at this value then
+// the cursor is outside of the buffer.
+#define cursor_max (VGA_WIDTH * VGA_HEIGHT)
 
 // Scroll up the content of the VGA matrix.
 static void scroll_up(void) {
-    // Scrolling up.
-    for (uint8_t i = 0; i < VGA_HEIGHT - 1; ++i) {
-        uint16_t const * const src = MATRIX_ADDR + (i + 1) * VGA_WIDTH;
-        uint16_t * const dst = MATRIX_ADDR + i * VGA_WIDTH;
-        // One line is VGA_WIDTH * 2 bytes since a single cell is 16-bits.
-        memcpy(dst, src, VGA_WIDTH * 2);
-    }
+    // Memcpy from the second row to the first row. In total we copy the
+    // entirety of the matrix minus one row.
+    uint16_t * const dst = MATRIX_ADDR;
+    uint16_t const * const src = MATRIX_ADDR + VGA_WIDTH;
+    size_t const cpy_size = VGA_WIDTH * (VGA_HEIGHT - 1) * 2;
+    memcpy(dst, src, cpy_size);
 
-    // Clear the last line.
-    color_desc_t const clr = create_color_desc(BLACK, BLACK);
-    char_t const empty_char = create_char('\0', clr);
-
-    for (uint8_t i = 0; i < VGA_WIDTH; ++i) {
-        put_char_at(empty_char, i, VGA_HEIGHT - 1);
-    }
+    // Clear the last line to avoid leaving garbage behind.
+    uint16_t * const last_row = MATRIX_ADDR + VGA_WIDTH * (VGA_HEIGHT - 1);
+    size_t const row_size = VGA_WIDTH * 2;
+    memzero((uint8_t*)last_row, row_size);
 }
 
 // Handle a new line character coming to the VGA input stream.
 static void handle_newline(void) {
-    // On newline, increment the y coordinate of the cursor. Make sure not to go
-    // over the height limits.
-    if (cursor_y < VGA_HEIGHT - 1) {
-        cursor_y ++;
-    } else {
-        // We are at the bottom of the matrix (last line). Hence we need to
-        // "scroll up" the matrix to make space.
-        scroll_up();
+    // A newline is simply setting the cursor to the next multiple of VGA_WIDTH.
+    if (cursor > 0 && cursor % VGA_WIDTH == 0 && MATRIX_ADDR[cursor-1]) {
+        // The cursor is on the beginning of a new line which hapenned because
+        // of a line wrap. In this case we can silently drop the newline
+        // character as the string printed fits exactly in one row.
+        // For example with a matrix 2x2 and string "AB\n":
+        //  A B
+        //  . .
+        //  ^---- When "printing" \n the cursor is here, but since the line has
+        //  been wrapped already we don't _really_ need to print the newline.
+        // This avoid awkward double-newline if a string has the same size as a
+        // row (minus the new line).
+        return;
     }
-    // A newline also acts as a carriage return, set the x coordinate of the
-    // cursor to 0.
-    cursor_x = 0;
-}
-
-// Wraps the current line of the matrix, that is jump to the beginning of the
-// next line.
-static void wrap_line(void) {
-    // Wrapping a line is essentially the same as having a newline character.
-    handle_newline();
+    uint8_t const line = cursor / VGA_WIDTH;
+    if (line == VGA_HEIGHT - 1) {
+        // The cursor is on the last line. We need to scroll up and set cursor
+        // to the previous multiple of VGA_WIDTH.
+        scroll_up();
+        cursor = line * VGA_WIDTH;
+    } else {
+        cursor = (line + 1) * VGA_WIDTH;
+    }
 }
 
 // Print out a character under the cursor in the VGA matrix.
@@ -155,24 +150,22 @@ static void handle_char(char const chr) {
         // Treat new lines character as a special case.
         handle_newline();
     } else {
-        // This is a regular character.
-        if (cursor_x == VGA_WIDTH) {
-            // Note: A character is printed out under the cursor, and then the
-            // cursor is moved. However it might happen that the cursor is
-            // beyond the end of the matrix row in which case we need to wrap
-            // the line.
-            // The reason the line wrap is triggered when a character is written
-            // beyond the row limits and not a the last valid position in the
-            // row is to avoid useless new lines if the row contains exactly the
-            // maximum number of character.
-            wrap_line();
+        // This is a regular character. Write the character under the cursor and
+        // move the cursor to the next position.
+        if (cursor == cursor_max) {
+            // We reached the end of the last line. The logic is essentially the
+            // same as a new line.
+            scroll_up();
+            // We need the -1 here as the cursor is a the beginning of the first
+            // row that is out of bounds. The -1 helps putting back the cursor
+            // on the last valid row.
+            cursor = ((cursor / VGA_WIDTH) - 1) * VGA_WIDTH;
         }
-        // The cursor coordinates are now valid. We can output the character.
         color_desc_t const clr = create_color_desc(LIGHT_GREY, BLACK);
         char_t const vga_char = create_char(chr, clr);
-        put_char_at(vga_char, cursor_x, cursor_y);
+        MATRIX_ADDR[cursor] = vga_char;
         // Move the cursor to the right.
-        cursor_x ++;
+        cursor ++;
     }
 }
 
