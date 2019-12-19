@@ -1,0 +1,92 @@
+#include <test.h>
+
+// Basic test of streq().
+static bool streq_test(void) {
+    char const * const str1 = "Hello world!";
+    char const * const str2 = "Another string";
+    char const * const str3 = "";
+    char const * const str4 = "Hello world!";
+
+    TEST_ASSERT(streq(str1,str1));
+    TEST_ASSERT(streq(str2,str2));
+    TEST_ASSERT(streq(str3,str3));
+    TEST_ASSERT(streq(str1,str4));
+    TEST_ASSERT(streq(str4,str1));
+
+    TEST_ASSERT(!streq(str1,str2));
+    TEST_ASSERT(!streq(str1,str3));
+    TEST_ASSERT(!streq(str2,str3));
+
+    TEST_ASSERT(!streq(str2,str1));
+    TEST_ASSERT(!streq(str3,str1));
+    TEST_ASSERT(!streq(str3,str2));
+    SUCCESS;
+}
+
+static bool strneq_test(void) {
+    char const * const str1 = "Hello world!";
+    char const * const str2 = "Another string";
+    char const * const str3 = "";
+    char const * const str4 = "Hello world!";
+
+    // Whole comparisons.
+    TEST_ASSERT(strneq(str1,str1,strlen(str1)));
+    TEST_ASSERT(strneq(str2,str2,strlen(str2)));
+    TEST_ASSERT(strneq(str3,str3,strlen(str3)));
+    TEST_ASSERT(strneq(str1,str4,strlen(str1)));
+    TEST_ASSERT(strneq(str4,str1,strlen(str1)));
+
+    // Whole comparisons.
+    TEST_ASSERT(!strneq(str1,str2,strlen(str1)));
+    TEST_ASSERT(strneq(str1,str3,strlen(str3)));
+    TEST_ASSERT(strneq(str2,str3,strlen(str3)));
+
+    // Whole comparisons.
+    TEST_ASSERT(!strneq(str2,str1,strlen(str1)));
+    TEST_ASSERT(strneq(str3,str1,strlen(str3)));
+    TEST_ASSERT(strneq(str3,str2,strlen(str3)));
+
+    // Now check actual substrings.
+    // Check the substring "world!" in str{1,4}.
+    TEST_ASSERT(strneq(str1+6,str4+6,6));
+    // Substring " " in str{1,2}.
+    TEST_ASSERT(strneq(str1+5,str2+7,1));
+    SUCCESS;
+}
+
+static bool strlen_test(void) {
+    char const * const test_string = "Hello world!";
+    if (strlen(test_string) == 12) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static bool str_find_chr_test(void) {
+    char const * const str1 = "ABCDE FGHIJ!";
+
+    for (size_t i = 0; i < strlen(str1); ++i) {
+        // We first test from index 0 and from index i. They should return i.
+        TEST_ASSERT(str_find_chr(str1,str1[i],0) == i);
+        TEST_ASSERT(str_find_chr(str1,str1[i],i) == i);
+    }
+
+    // Now try a real world example.
+    TEST_ASSERT(str_find_chr(str1,' ',3) == 5);
+
+    // Try a char that is not in the string.
+    TEST_ASSERT(str_find_chr(str1,'@',0) == STR_NPOS);
+
+    // Try to find in the string with a begin value that is bigger than the
+    // string itself. This should return STR_NPOS as well.
+    TEST_ASSERT(str_find_chr(str1,'@',strlen(str1)+10) == STR_NPOS);
+    SUCCESS;
+}
+
+void str_test(void) {
+    TEST_FWK_RUN(streq_test);
+    TEST_FWK_RUN(strneq_test);
+    TEST_FWK_RUN(strlen_test);
+    TEST_FWK_RUN(str_find_chr_test);
+}
