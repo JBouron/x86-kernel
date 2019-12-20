@@ -40,7 +40,9 @@ static bool read_tsc_test(void) {
 
     // Check the invariants i and ii.
     // A few experiments showed that two subsequent rdtsc differ by ~30 cycles.
-    uint16_t const max_delta = 100;
+    // Give a nice margin to handle eventual virtualization slowdowns (yields,
+    // ...).
+    uint16_t const max_delta = 500;
     for (uint8_t i = 1; i < rep; ++i) {
         TEST_ASSERT(measurements[i-1] < measurements[i]);
         uint64_t const delta = measurements[i] - measurements[i-1];
