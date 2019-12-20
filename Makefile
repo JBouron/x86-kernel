@@ -4,9 +4,9 @@
 CC=/root/opt/cross/bin/i686-elf-gcc
 AS=/root/opt/cross/bin/i686-elf-as
 # The flags used to compile all the source files of the kernel.
-KERNEL_CFLAGS=-O0 -g -Wall -Wextra -Werror -ffreestanding -nostdlib -I./src \
+KERNEL_CFLAGS=-O2 -g -Wall -Wextra -Werror -ffreestanding -nostdlib -I./src \
 	-static-libgcc -lgcc
-KERNEL_ASFLAGS=-O0 -g
+KERNEL_ASFLAGS=-O2 -g
 # The name of the linker script used to build the kernel image.
 LINKER_SCRIPT=linker.ld
 
