@@ -17,14 +17,6 @@ void write_msr(uint32_t const msr_num, uint64_t const val);
 // @return: The value of the TSC
 uint64_t read_tsc(void);
 
-// Read the value of the EFLAGS register.
-// @return: The value of EFLAGS.
-uint32_t read_eflags(void);
-
-// Write into EFLAGS register.
-// @param eflags: The value to write into EFLAGS.
-void write_eflags(uint32_t eflags);
-
 // Lock up the cpu by disabling the interrupts and halting.
 void lock_up(void);
 
@@ -65,3 +57,6 @@ void cpuid(uint32_t i_eax,
 void cpuid_ecx(uint32_t i_eax, uint32_t i_ecx,
                uint32_t *o_eax, uint32_t *o_ebx, uint32_t *o_ecx,
                uint32_t *o_edx);
+
+// Execute tests on CPU related functions.
+void cpu_test(void);

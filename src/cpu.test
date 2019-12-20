@@ -1,0 +1,92 @@
+#include <test.h>
+#include <string.h>
+#include <debug.h>
+// Note: There is not really a way to test lockup().
+
+// Test that reading an MSR is correctly implemented. Note that there is no real
+// way to test the rdmsr since there is not "magic" value in any of the MSRs.
+// However we can read the TSC through an MSR. Therefore our testing methodology
+// is to read the TSC both from the rdtsc instruction and the MSR and compare
+// the values read. They should be close.
+static bool read_msr_test(void) {
+    // This is the address of the MSR containing the time stamp counter.
+    uint32_t const IA32_TIME_STAMP_COUNTER = 0x10;
+    // A few experiment showed that the difference between the two measurements
+    // when performed back to back is roughly 1000 cycles. Accept up to 2000.
+    uint16_t const max_delta = 2000;
+    // Read the TSC from both sources.
+    uint64_t const rdmsr_tsc = read_msr(IA32_TIME_STAMP_COUNTER);
+    uint64_t const rdtsc_tsc = read_tsc();
+    // Since rdtsc_tsc has been sampled after reading from the MSR it should
+    // be bigger. Panic if this is not the case.
+    ASSERT(rdtsc_tsc > rdmsr_tsc);
+    uint64_t const delta = rdtsc_tsc - rdmsr_tsc;
+    return delta < max_delta;
+}
+
+// Test the read_tsc function.
+static bool read_tsc_test(void) {
+    // One simple way to test (which is not very rigurous but good enough) is to
+    // perform multiple reads and check that:
+    //  i)  Two subsequent reads are "close".
+    //  ii) The nth read > (n-1)th read.
+
+    // Read TSC a few times.
+    uint8_t const rep = 32;
+    uint64_t measurements[rep];
+    for (uint8_t i = 0; i < rep; ++i) {
+        measurements[i] = read_tsc();
+    }
+
+    // Check the invariants i and ii.
+    // A few experiments showed that two subsequent rdtsc differ by ~30 cycles.
+    uint16_t const max_delta = 100;
+    for (uint8_t i = 1; i < rep; ++i) {
+        TEST_ASSERT(measurements[i-1] < measurements[i]);
+        uint64_t const delta = measurements[i] - measurements[i-1];
+        TEST_ASSERT(delta < max_delta);
+    }
+    return true;
+}
+
+// This is more of an assumption check than a test. This kernel expects the CPU
+// to supporte the CPUID instruction.
+static bool has_cpuid_test(void) {
+    return has_cpuid();
+}
+
+// Test the CPUID instruction wrappers. This also serves as an assumption check
+// that the CPU is an Intel CPU, as it is currently the only brand supported by
+// this kernel.
+static bool cpuid_test(void) {
+    // Output destination.
+    char eax[5], ebx[5], ecx[5], edx[5];
+    // Execute the cpuid() wrapper. This sets ECX to 0 for us.
+    cpuid(0x0, (uint32_t*)eax, (uint32_t*)ebx, (uint32_t*)ecx, (uint32_t*)edx);
+    // Make sure the strings are NULL terminated.
+    eax[4] = 0; ebx[4] = 0; ecx[4] = 0; edx[4] = 0;
+    // Check that EBX:EDX:ECX spells out "GenuineIntel" vendor string.
+    TEST_ASSERT(streq(ebx, "Genu"));
+    TEST_ASSERT(streq(edx, "ineI"));
+    TEST_ASSERT(streq(ecx, "ntel"));
+
+    // Do the same as above using the cpuid_ecx wrapper instead.
+    // Reset the strings.
+    eax[0] = 0; ebx[0] = 0; ecx[0] = 0; edx[0] = 0;
+    cpuid_ecx(0x0, 0x0, (uint32_t*)eax, (uint32_t*)ebx, (uint32_t*)ecx,
+        (uint32_t*)edx);
+    // Make sure the strings are NULL terminated.
+    eax[4] = 0; ebx[4] = 0; ecx[4] = 0; edx[4] = 0;
+    // Check that EBX:EDX:ECX spells out "GenuineIntel" vendor string.
+    TEST_ASSERT(streq(ebx, "Genu"));
+    TEST_ASSERT(streq(edx, "ineI"));
+    TEST_ASSERT(streq(ecx, "ntel"));
+    return true;
+}
+
+void cpu_test(void) {
+    TEST_FWK_RUN(read_msr_test);
+    TEST_FWK_RUN(read_tsc_test);
+    TEST_FWK_RUN(has_cpuid_test);
+    TEST_FWK_RUN(cpuid_test);
+}
