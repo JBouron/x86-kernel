@@ -8,6 +8,7 @@
 #include <multiboot.h>
 #include <memory.h>
 #include <math.h>
+#include <test.h>
 
 // Execute all the tests in the kernel.
 static void test_kernel(void) {
@@ -18,6 +19,7 @@ static void test_kernel(void) {
     math_test();
     tty_test();
     cpu_test();
+    print_test_summary();
 }
 
 void
