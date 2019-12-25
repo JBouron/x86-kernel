@@ -9,6 +9,7 @@
 #include <memory.h>
 #include <math.h>
 #include <test.h>
+#include <serial.h>
 
 // Execute all the tests in the kernel.
 static void test_kernel(void) {
@@ -19,7 +20,15 @@ static void test_kernel(void) {
     math_test();
     tty_test();
     cpu_test();
+    serial_test();
     print_test_summary();
+}
+
+// Trigger a shutdown of the virtual machine. This function has an undefined
+// behaviour for bare-metal installations.
+static void virt_shutdown(void) {
+    // With QEMU writing 0x2000 into the port 0x604 triggers the shutdown.
+    cpu_outw(0x604, 0x2000);
 }
 
 void
@@ -29,7 +38,7 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     //while(!i);
     uint64_t const start = read_tsc();
     vga_init();
-    tty_init(NULL, &VGA_STREAM);
+    tty_init(NULL, &SERIAL_STREAM);
 
     test_kernel();
 
@@ -48,5 +57,5 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     LOG("TSC from INS2= %U\n", tsc_ins2);
 
     LOG("CPU has CPUID support: %d\n", has_cpuid());
-    lock_up();
+    virt_shutdown();
 }

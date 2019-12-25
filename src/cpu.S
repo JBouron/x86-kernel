@@ -147,3 +147,26 @@ ASM_FUNC_DEF(cpuid):
     call    cpuid_ecx
     add     $24, %esp
     ret
+
+//void cpu_outb(uint16_t const port, uint8_t const byte);
+ASM_FUNC_DEF(cpu_outb):
+    // Output port must be in DX, while the value in AL.
+    mov     0x4(%esp), %dx
+    mov     0x8(%esp), %al
+    outb    %al, %dx
+    ret
+
+//void cpu_outw(uint16_t const port, uint16_t const byte);
+ASM_FUNC_DEF(cpu_outw):
+    // Output port must be in DX, while the value in AX.
+    mov     0x4(%esp), %dx
+    mov     0x8(%esp), %ax
+    outw    %ax, %dx
+    ret
+
+//uint8_t cpu_inb(uint16_t const port);
+ASM_FUNC_DEF(cpu_inb):
+    // Port addr must be in DX.
+    mov     0x4(%esp), %dx
+    inb     %dx, %al
+    ret

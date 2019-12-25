@@ -1,3 +1,5 @@
+#pragma once
+#include <types.h>
 // This file describes the basic iostream structure abstracting basic I/O stream
 // devices (eg. no peek).
 

@@ -1,0 +1,299 @@
+#include <test.h>
+#include <memory.h>
+#include <debug.h>
+#include <string.h>
+
+// This is a mock version of the serial controller containing each register as
+// the real serial controller.
+struct fake_com_t {
+    uint8_t data;
+    uint8_t interrupt_enable;
+    uint8_t interrupt_id_fifo_ctrl;
+    uint8_t line_control;
+    uint8_t modem_control;
+    uint8_t line_status;
+    uint8_t modem_status;
+    uint8_t scratch;
+};
+static struct fake_com_t FAKE_COM;
+
+// Mock the outb instruction/function so that writes actually go to the fake
+// serial controller.
+static void fake_write_byte(uint16_t const port, uint8_t const byte) {
+    uint16_t const translated_port = port - COM;
+    uint8_t * const addr = (uint8_t *)&FAKE_COM + translated_port;
+    *addr = byte;
+}
+
+// Mock the inb instruction/function to that reads actually read the fake serial
+// controller.
+static uint8_t fake_read_byte(uint16_t const port) {
+    uint16_t const translated_port = port - COM;
+    uint8_t * const addr = (uint8_t *)&FAKE_COM + translated_port;
+    return *addr;
+}
+
+// Prepare to use the fake serial controller for the duration of the test.
+#define SERIAL_TEST_SETUP()                                     \
+    void (*__old_write_byte)(uint16_t, uint8_t) = WRITE_BYTE;   \
+    uint8_t (*__old_read_byte)(uint16_t) = READ_BYTE;           \
+    memzero(&FAKE_COM, sizeof(FAKE_COM));                       \
+    WRITE_BYTE = fake_write_byte;                               \
+    READ_BYTE = fake_read_byte;                                 \
+
+// Reset the state of the _real_ serial controller as it was before the
+// execution of the test.
+#define SERIAL_TEST_TEARDOWN()     \
+    WRITE_BYTE = __old_write_byte; \
+    READ_BYTE = __old_read_byte;
+
+// Test the basic functionality of reading from and writing to the serial
+// controller's register.
+static bool serial_read_write_registers_test(void) {
+    SERIAL_TEST_SETUP();
+    // Write each register with a specific/unique value.
+    write_register(DATA, 0x1);
+    write_register(INT_ENABLE, 0x2);
+    write_register(INT_ID, 0x3);
+    write_register(LINE_CTRL, 0x4);
+    write_register(MODEM_CTRL, 0x4);
+    write_register(LINE_STATUS, 0x5);
+    write_register(MODEM_STATUS, 0x6);
+    write_register(SCRATCH, 0x7);
+
+    // Read the registers and check that the values we just wrote are in the
+    // right place.
+    bool res = true;
+    res = res && (read_register(DATA) == 0x1);
+    res = res && (read_register(INT_ENABLE) == 0x2);
+    res = res && (read_register(INT_ID) == 0x3);
+    res = res && (read_register(LINE_CTRL) == 0x4);
+    res = res && (read_register(MODEM_CTRL) == 0x4);
+    res = res && (read_register(LINE_STATUS) == 0x5);
+    res = res && (read_register(MODEM_STATUS) == 0x6);
+    res = res && (read_register(SCRATCH) == 0x7);
+
+    SERIAL_TEST_TEARDOWN();
+    return res;
+}
+
+// Test that get_status returns correct information.
+static bool serial_get_status_test(void) {
+    SERIAL_TEST_SETUP();
+    // Set a pattern for the line status register.
+    FAKE_COM.line_status = 0b10110101U;
+
+    // Read the status.
+    struct status_t const status = get_status();
+
+    // We can already teardown the state as no further read are going to be
+    // performed
+    SERIAL_TEST_TEARDOWN();
+
+    TEST_ASSERT(status.data_ready);
+    TEST_ASSERT(!status.overrun_error);
+    TEST_ASSERT(status.parity_error);
+    TEST_ASSERT(!status.framing_error);
+    TEST_ASSERT(status.break_indicator);
+    TEST_ASSERT(status.trans_buf_empty);
+    TEST_ASSERT(!status.transmitter_empty);
+    TEST_ASSERT(status.impending_error);
+    return true;
+}
+
+// Test for the dlab_is function.
+static bool serial_dlab_set(void) {
+    SERIAL_TEST_SETUP();
+    // DLAB is the most significant bit of the line control register.
+    
+    // Set the DLAB and read the line control register.
+    dlab_is(true);
+    bool res = true;
+    // DLAB should be set.
+    res = res && (FAKE_COM.line_control & 0x80);
+
+    // Disable DLAB.
+    dlab_is(false);
+    res = res && (FAKE_COM.line_control == 0x0);
+
+    SERIAL_TEST_TEARDOWN();
+
+    return res;
+}
+
+// Test set_baud_rate.
+static bool serial_baud_rate_test(void) {
+    SERIAL_TEST_SETUP();
+    // Setting the baud rate is done by setting the divisor.
+    // The most significant byte is writtent to INT_ENABLE. The least
+    // significant byte to DATA.
+    bool res = true;
+
+    set_baud_rate(2);
+    uint8_t msb = FAKE_COM.interrupt_enable;
+    uint8_t lsb = FAKE_COM.data;
+    res = res && (msb == 0xFF);
+    res = res && (lsb == 0xFF);
+
+    memzero(&FAKE_COM, sizeof(FAKE_COM));
+    set_baud_rate(MAX_BAUD);
+    msb = FAKE_COM.interrupt_enable;
+    lsb = FAKE_COM.data;
+    res = res && (msb == 0xFF);
+    res = res && (lsb == 0xFF);
+
+    SERIAL_TEST_TEARDOWN();
+    return true;
+}
+
+// Test char length settings.
+static bool serial_set_char_length_test(void) {
+    SERIAL_TEST_SETUP();
+    // Char length is encoded in the 2 LSb of the line control reg.
+    // Char length is between 5 and 8.
+    for (uint8_t i = 5; i <= 8; ++i) {
+        set_char_length(i);
+        uint8_t const lsbs = FAKE_COM.line_control & 3;
+        if (lsbs != i - 5) {
+            goto fail;
+        }
+    }
+    SERIAL_TEST_TEARDOWN();
+    return true;
+fail:
+    SERIAL_TEST_TEARDOWN();
+    return false;
+}
+
+// Test stop bit(s) setting.
+static bool serial_set_stop_bits_test(void) {
+    SERIAL_TEST_SETUP();
+    // Stop bit setting is by writting bit 2 of line control.
+    //  bit 2 == 0 => 1 stop bit.
+    //  bit 2 == 1 => 2 stop bits.
+    set_stop_bits(1);
+    if (FAKE_COM.line_control & 4) {
+        goto fail;
+    }
+    set_stop_bits(2);
+    if (!(FAKE_COM.line_control & 4)) {
+        goto fail;
+    }
+
+    SERIAL_TEST_TEARDOWN();
+    return true;
+fail:
+    SERIAL_TEST_TEARDOWN();
+    return false;
+}
+
+static bool serial_set_parity_test(void) {
+    SERIAL_TEST_SETUP();
+    // Parity is set by writting to bits 3, 4 and 5 of line control.
+
+    set_parity(NONE);
+    if (((FAKE_COM.line_control >> 3) & 7) != NONE) {
+        goto fail;
+    }
+    set_parity(ODD);
+    if (((FAKE_COM.line_control >> 3) & 7) != ODD) {
+        goto fail;
+    }
+    set_parity(EVEN);
+    if (((FAKE_COM.line_control >> 3) & 7) != EVEN) {
+        goto fail;
+    }
+    set_parity(MARK);
+    if (((FAKE_COM.line_control >> 3) & 7) != MARK) {
+        goto fail;
+    }
+    set_parity(SPACE);
+    if (((FAKE_COM.line_control >> 3) & 7) != SPACE) {
+        goto fail;
+    }
+
+    SERIAL_TEST_TEARDOWN();
+    return true;
+fail:
+    SERIAL_TEST_TEARDOWN();
+    return false;
+}
+
+#define BUFFER_SIZE 32
+char BUFFER[BUFFER_SIZE];
+uint8_t buffer_cursor = 0;
+
+static void serial_out_stream_write_byte(uint16_t port, uint8_t byte) {
+    if (port == COM + DATA) {
+        BUFFER[buffer_cursor++] = byte;
+    }
+}
+
+#define SERIAL_OUT_TEST_SETUP()                 \
+    memzero(BUFFER, BUFFER_SIZE);               \
+    buffer_cursor = 0;                          \
+    WRITE_BYTE = serial_out_stream_write_byte;
+
+// Test writing a full string into the serial controller.
+static bool serial_out_stream_write_simple_test(void) {
+    SERIAL_TEST_SETUP();
+    SERIAL_OUT_TEST_SETUP();
+
+    // Make sure the fake controller always indicate that the transmitter is
+    // ready. We explicitely set the trans_buf_empty in the status.
+    FAKE_COM.line_status = 1 << 5;
+
+    // Write a string into the fake serial controller.
+    char const * const str = "Hello World";
+    size_t const len = strlen(str);
+    size_t res = serial_write((uint8_t const*)str, len);
+
+    SERIAL_TEST_TEARDOWN();
+    // We should have written the entire string.
+    return res == len && streq(BUFFER, str);
+}
+
+// Test writing a full string with new lines into the serial controller.
+static bool serial_out_stream_write_newline_test(void) {
+    SERIAL_TEST_SETUP();
+    SERIAL_OUT_TEST_SETUP();
+
+    // Make sure the fake controller always indicate that the transmitter is
+    // ready. We explicitely set the trans_buf_empty in the status.
+    FAKE_COM.line_status = 1 << 5;
+
+    // Write a string into the fake serial controller.
+    char const * const str = "Hello\nWorld";
+    size_t const len = strlen(str);
+    size_t res = serial_write((uint8_t const*)str, len);
+
+    SERIAL_TEST_TEARDOWN();
+
+    // Compare the buffer with the string. With newlines, the serial controller
+    // should also recieve carriage returns.
+    if (res != len) {
+        // The carriage return should not be counted in the number of bytes sent
+        // (for now).
+        return false;
+    } else if (strlen(BUFFER) != strlen(str) + 1) {
+        // Missing carriage return.
+        return false;
+    } else {
+        bool const same_suffix = strneq(BUFFER, str, 6);
+        bool const carriage_return = BUFFER[6] == '\r';
+        bool const same_prefix = strneq(BUFFER+7, str+6, 5);
+        return same_suffix && carriage_return && same_prefix;
+    }
+}
+
+void serial_test(void) {
+    TEST_FWK_RUN(serial_read_write_registers_test);
+    TEST_FWK_RUN(serial_get_status_test);
+    TEST_FWK_RUN(serial_dlab_set);
+    TEST_FWK_RUN(serial_baud_rate_test);
+    TEST_FWK_RUN(serial_set_char_length_test);
+    TEST_FWK_RUN(serial_set_stop_bits_test);
+    TEST_FWK_RUN(serial_set_parity_test);
+    TEST_FWK_RUN(serial_out_stream_write_simple_test);
+    TEST_FWK_RUN(serial_out_stream_write_newline_test);
+}

@@ -58,5 +58,19 @@ void cpuid_ecx(uint32_t i_eax, uint32_t i_ecx,
                uint32_t *o_eax, uint32_t *o_ebx, uint32_t *o_ecx,
                uint32_t *o_edx);
 
+// Write a byte to an I/O port.
+// @param port: The port to write the byte to.
+// @param byte: The value of the byte to write to the port.
+void cpu_outb(uint16_t const port, uint8_t const byte);
+
+// Write a word to an I/O port.
+// @param port: The port to write the word to.
+// @param byte: The value of the word to write to the port.
+void cpu_outw(uint16_t const port, uint16_t const word);
+
+// Read a byte from an I/O port.
+// @param port: The port to read a byte from.
+uint8_t cpu_inb(uint16_t const port);
+
 // Execute tests on CPU related functions.
 void cpu_test(void);
