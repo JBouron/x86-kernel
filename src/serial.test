@@ -286,6 +286,25 @@ static bool serial_out_stream_write_newline_test(void) {
     }
 }
 
+// Check that nothing is sent if the trans_buf_empty status bit is not set.
+static bool serial_out_stream_write_transmitter_not_ready(void) {
+    SERIAL_TEST_SETUP();
+    SERIAL_OUT_TEST_SETUP();
+
+    // Make sure the fake controller indicate that the transmitter is not ready.
+    FAKE_COM.line_status = 0;
+
+    // Write a string into the fake serial controller.
+    char const * const str = "Hello World";
+    size_t const len = strlen(str);
+    size_t res = serial_write((uint8_t const*)str, len);
+
+    SERIAL_TEST_TEARDOWN();
+    // We should have written nothing in the BUFFER since the transmition buffer
+    // is marked as non empty.
+    return res == 0 && strlen(BUFFER) == 0;
+}
+
 void serial_test(void) {
     TEST_FWK_RUN(serial_read_write_registers_test);
     TEST_FWK_RUN(serial_get_status_test);
@@ -296,4 +315,5 @@ void serial_test(void) {
     TEST_FWK_RUN(serial_set_parity_test);
     TEST_FWK_RUN(serial_out_stream_write_simple_test);
     TEST_FWK_RUN(serial_out_stream_write_newline_test);
+    TEST_FWK_RUN(serial_out_stream_write_transmitter_not_ready);
 }
