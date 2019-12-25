@@ -84,7 +84,7 @@ static bool serial_get_status_test(void) {
     FAKE_COM.line_status = 0b10110101U;
 
     // Read the status.
-    struct status_t const status = get_status();
+    union status_t const status = get_status();
 
     // We can already teardown the state as no further read are going to be
     // performed

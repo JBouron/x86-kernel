@@ -44,35 +44,39 @@ static uint8_t read_register(enum register_t const reg) {
 }
 
 // This summarize the status of the serial controller.
-struct status_t {
-    // Set if there is data that can be read.
-    uint8_t data_ready : 1;
-    // Set if there has been data lost.
-    uint8_t overrun_error : 1;
-    // Set if a parity error has been detected during transmission.
-    uint8_t parity_error : 1;
-    // Set if a stop bit was missing.
-    uint8_t framing_error : 1;
-    // Set if ther is a break in data input.
-    uint8_t break_indicator : 1;
-    // Set if the transmission buffer is empty (eg. data can be sent).
-    uint8_t trans_buf_empty : 1;
-    // Set if the transmitter is not doing anything.
-    uint8_t transmitter_empty : 1;
-    // Set if there is an error with a word in the input buffer.
-    uint8_t impending_error : 1;
+union status_t {
+    uint8_t value;
+    struct {
+        // Set if there is data that can be read.
+        uint8_t data_ready : 1;
+        // Set if there has been data lost.
+        uint8_t overrun_error : 1;
+        // Set if a parity error has been detected during transmission.
+        uint8_t parity_error : 1;
+        // Set if a stop bit was missing.
+        uint8_t framing_error : 1;
+        // Set if ther is a break in data input.
+        uint8_t break_indicator : 1;
+        // Set if the transmission buffer is empty (eg. data can be sent).
+        uint8_t trans_buf_empty : 1;
+        // Set if the transmitter is not doing anything.
+        uint8_t transmitter_empty : 1;
+        // Set if there is an error with a word in the input buffer.
+        uint8_t impending_error : 1;
+    };
 } __attribute__((packed));
 // The status struct should be a single byte so that casting from/to uint8_t is
 // easy.
-STATIC_ASSERT(sizeof(struct status_t) == 1, "struct status_t should be 1 byte");
+STATIC_ASSERT(sizeof(union status_t) == 1, "struct status_t should be 1 byte");
 
 // Get the status of the serial controller.
 // @return: Current status in a struct status_t format.
-static struct status_t get_status(void) {
+static union status_t get_status(void) {
     uint8_t const line_status_reg = read_register(LINE_STATUS);
-    // Dirty way to cast the uint8_t into a packed struct status_t.
-    struct status_t const * status = (struct status_t const *)&line_status_reg;
-    return *status;
+    union status_t const status = {
+        .value = line_status_reg
+    };
+    return status;
 }
 
 // Modify the DLAB bit.
