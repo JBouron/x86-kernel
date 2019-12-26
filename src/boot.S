@@ -34,6 +34,11 @@ ASM_FUNC_DEF(_start_kernel):
     # need it later in the kernel_main thus save it into the stack
     push    %ebx
 
+    # Even though the multiboot compliant bootloader has created flat segments
+    # for us, it is recommended that the OS sets up its own GDT. Do that now
+    # before entering the kernel.
+    call init_segmentation
+
     # Enter the main of the kernel with the address of the multi boot header as
     # argument.
     call kernel_main

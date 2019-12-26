@@ -1,0 +1,161 @@
+#include <test.h>
+
+// Read a byte from the segment selected by GS.
+// @param offset: Offset of the byte to read from the segment.
+// @return: The byte at offset `offset` in the segment.
+extern uint8_t read_byte_gs(uint16_t const offset);
+
+// Test that initializing a segment puts the right values in the right places.
+static bool segmentation_init_segment_test(void) {
+    union segment_descriptor_t seg;
+    uint32_t const base = 0x12345678;
+    uint32_t const limit = 0xABCDE;
+    bool const is_code = true;
+    uint8_t const priv_level = 2;
+
+    init_desc(&seg, base, limit, is_code, priv_level);
+
+    uint32_t encoded_base = seg.base_15_0 | seg.base_23_16 << 16 |
+        seg.base_31_24 << 24;
+    TEST_ASSERT(encoded_base == base);
+    uint32_t encoded_limit = seg.limit_15_0 | seg.limit_19_16 << 16;
+    TEST_ASSERT(encoded_limit == limit);
+    TEST_ASSERT(seg.type == 10);
+    TEST_ASSERT(seg.system == 1);
+    TEST_ASSERT(seg.privilege_level == 2);
+    TEST_ASSERT(seg.present == 1);
+    TEST_ASSERT(seg.is_64_bit_segment == 0);
+    TEST_ASSERT(seg.operation_size == 1);
+    TEST_ASSERT(seg.granularity == 1);
+
+    // Now test with a data segment.
+    init_desc(&seg, base, limit, false, priv_level);
+    encoded_base = seg.base_15_0 | seg.base_23_16 << 16 | seg.base_31_24 << 24;
+    TEST_ASSERT(encoded_base == base);
+    encoded_limit = seg.limit_15_0 | seg.limit_19_16 << 16;
+    TEST_ASSERT(encoded_limit == limit);
+    TEST_ASSERT(seg.type == 2);
+    TEST_ASSERT(seg.system == 1);
+    TEST_ASSERT(seg.privilege_level == 2);
+    TEST_ASSERT(seg.present == 1);
+    TEST_ASSERT(seg.is_64_bit_segment == 0);
+    TEST_ASSERT(seg.operation_size == 1);
+    TEST_ASSERT(seg.granularity == 1);
+    return true;
+}
+
+// Test setting up a small data segment covering a buffer in the stack and
+// making %gs "point" to it. The goal is to use %gs to read the segment, and
+// compare with the original buffer.
+static bool segmentation_data_segment_test(void) {
+    // Since this test is modifying the GDTR we need to save it and restore it
+    // later on.
+    struct gdt_desc_t orig_gdtr;
+    cpu_sgdt(&orig_gdtr);
+    
+    // The buffer that will be covered by the segment.
+    uint8_t buffer[32];
+    // The fake GDT, note that we need the NULL entry at the beginning.
+    union segment_descriptor_t fake_gdt[2];
+    // Make sure the first entry is NULL.
+    memzero(fake_gdt, sizeof(fake_gdt));
+    // Initialize the second entry, which describes a data segment starting at
+    // the address of buffer, of length 1 (=4KB), accessible with privilege 0.
+    // Note: Since we enforce a granularity of pages, the segment is 4KB even
+    // though the buffer is smaller than that.
+    init_desc(fake_gdt + 1, (uint32_t)buffer, 1, false, 0);
+    // Load the GDT. Note that since we are only changing gs in this test, the
+    // other segments are still using the old GDT coming from the boot loader.
+    struct gdt_desc_t const table_desc = {
+        .limit = (sizeof(union segment_descriptor_t) * 2) - 1,
+        .base = fake_gdt,
+    };
+    cpu_lgdt(&table_desc);
+
+    // Load gs with the segment selector selecting the previously declared
+    // segment.
+    union segment_selector_t gs = {
+        .value = 1 << 3,
+    };
+    cpu_set_gs(&gs);
+
+    // Once GS is loaded, we can already restore the original GDTR as the shadow
+    // registers will not change.
+    cpu_lgdt(&orig_gdtr);
+
+    // Now fill the buffer directly.
+    for (uint16_t i = 0; i < 32; ++i) {
+        buffer[i] = i;
+    }
+
+    // Now read the buffer indirectly by reading from the segment. We should see
+    // the same values.
+    for (uint16_t i = 0; i < 32; ++i) {
+        TEST_ASSERT(read_byte_gs(i) == i);
+    }
+    return true;
+}
+
+// This is more a check that an actual test. The goal here is to verify that the
+// flat-memory model has been correclty initialized.
+static bool segmentation_flat_model_initialized_test(void) {
+    struct gdt_desc_t gdtr;
+    cpu_sgdt(&gdtr);
+
+    // We expect 2 segments (for we do not have a userspace):
+    //     _ A kernel code segment.
+    //     _ and a kernel data segment.
+    // Both segments should span the entire linear address space from 0 to 4GiB.
+    union segment_descriptor_t const * const code_seg =
+        (union segment_descriptor_t *)gdtr.base + KERNEL_CODE_INDEX;
+    union segment_descriptor_t const * const data_seg =
+        (union segment_descriptor_t *)gdtr.base + KERNEL_DATA_INDEX;
+
+    uint32_t encoded_base = code_seg->base_15_0 | code_seg->base_23_16 << 16 |
+        code_seg->base_31_24 << 24;
+    TEST_ASSERT(encoded_base == 0);
+    uint32_t encoded_limit = code_seg->limit_15_0 | code_seg->limit_19_16 << 16;
+    TEST_ASSERT(encoded_limit == 0xFFFFF);
+    // The type is the expected type + 1 since the segment has been accessed
+    // since being set up.
+    TEST_ASSERT(code_seg->type == 11);
+    TEST_ASSERT(code_seg->system == 1);
+    TEST_ASSERT(code_seg->privilege_level == 0);
+    TEST_ASSERT(code_seg->present == 1);
+    TEST_ASSERT(code_seg->is_64_bit_segment == 0);
+    TEST_ASSERT(code_seg->operation_size == 1);
+    TEST_ASSERT(code_seg->granularity == 1);
+
+    encoded_base = data_seg->base_15_0 | data_seg->base_23_16 << 16 |
+        data_seg->base_31_24 << 24;
+    TEST_ASSERT(encoded_base == 0);
+    encoded_limit = data_seg->limit_15_0 | data_seg->limit_19_16 << 16;
+    TEST_ASSERT(encoded_limit == 0xFFFFF);
+    // The type is the expected type + 1 since the segment has been accessed
+    // since being set up.
+    TEST_ASSERT(data_seg->type == 3);
+    TEST_ASSERT(data_seg->system == 1);
+    TEST_ASSERT(data_seg->privilege_level == 0);
+    TEST_ASSERT(data_seg->present == 1);
+    TEST_ASSERT(data_seg->is_64_bit_segment == 0);
+    TEST_ASSERT(data_seg->operation_size == 1);
+    TEST_ASSERT(data_seg->granularity == 1);
+
+    // Now check that the segment registers are loaded with the correct segment
+    // selectors.
+    union segment_selector_t const exp_data_sel = kernel_data_selector();
+    union segment_selector_t const exp_code_sel = kernel_code_selector();
+    TEST_ASSERT(cpu_read_cs().value == exp_code_sel.value);
+    TEST_ASSERT(cpu_read_ds().value == exp_data_sel.value);
+    TEST_ASSERT(cpu_read_es().value == exp_data_sel.value);
+    TEST_ASSERT(cpu_read_fs().value == exp_data_sel.value);
+    TEST_ASSERT(cpu_read_gs().value == exp_data_sel.value);
+    TEST_ASSERT(cpu_read_ss().value == exp_data_sel.value);
+    return true;
+}
+
+void segmentation_test(void) {
+    TEST_FWK_RUN(segmentation_init_segment_test);
+    TEST_FWK_RUN(segmentation_data_segment_test);
+    TEST_FWK_RUN(segmentation_flat_model_initialized_test);
+}

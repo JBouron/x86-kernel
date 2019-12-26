@@ -34,8 +34,8 @@
 #define __UNREACHABLE__ PANIC("UNREACHABLE")
 
 // Break in the code until the debugger manually sets i to != 0.
-#define BREAK()     \
-    do {            \
-        int i = 0;  \
-        while(!i);  \
+#define BREAK()              \
+    do {                     \
+        volatile int i = 0;  \
+        while(!i);           \
     } while (0);

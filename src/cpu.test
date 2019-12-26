@@ -86,9 +86,38 @@ static bool cpuid_test(void) {
     return true;
 }
 
+// Test the LGDT and SGDT wrappers.
+static bool cpu_lgdt_sgdt_test(void) {
+    // Save the current GDTR.
+    struct gdt_desc_t orig_gdt;
+    cpu_sgdt(&orig_gdt);
+
+    // The table does not have to be legit. As long as we don't change the
+    // segment register their shadow values will still be used.
+    struct gdt_desc_t const fake_gdt = {
+        .limit = 8 * 12 - 1,
+        .base = (void*)0xDEADBEEF,
+    };
+
+    // Load the fake GDT into the GDTR.
+    cpu_lgdt(&fake_gdt);
+    // Read the GDTR using SGDT.
+    struct gdt_desc_t gdtr;
+    cpu_sgdt(&gdtr);
+
+    // Restore the original GDTR.
+    cpu_lgdt(&orig_gdt);
+
+    // Check that the values are the same.
+    TEST_ASSERT(fake_gdt.limit == gdtr.limit);
+    TEST_ASSERT(fake_gdt.base == gdtr.base);
+    return true;
+}
+
 void cpu_test(void) {
     TEST_FWK_RUN(read_msr_test);
     TEST_FWK_RUN(read_tsc_test);
     TEST_FWK_RUN(has_cpuid_test);
     TEST_FWK_RUN(cpuid_test);
+    TEST_FWK_RUN(cpu_lgdt_sgdt_test);
 }

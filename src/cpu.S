@@ -170,3 +170,88 @@ ASM_FUNC_DEF(cpu_inb):
     mov     0x4(%esp), %dx
     inb     %dx, %al
     ret
+
+//void cpu_lgdt(struct gdt_desc_t const * const table_desc);
+ASM_FUNC_DEF(cpu_lgdt):
+    mov     0x4(%esp), %eax
+    // The following is not really clear. LGDT should take a memory address as
+    // operand, but we need to dereference this address (otherwise AS
+    // complains).
+    lgdt    (%eax)
+    ret
+
+//void cpu_sgdt(struct gdt_desc_t * const dest);
+ASM_FUNC_DEF(cpu_sgdt):
+    mov     0x4(%esp), %eax
+    sgdt    (%eax)
+    ret
+
+//void cpu_set_cs(union segment_selector_t const * const sel);
+ASM_FUNC_DEF(cpu_set_cs):
+    mov     0x4(%esp), %eax
+    // Read the value of the segment selector into EAX.
+    mov     (%eax), %ax
+    push    %eax
+    push    $target 
+    // Now make a far jump, this will trigger a change in CS. Note that the big
+    // assumption here is that we are using a flat model and therefore the
+    // offset of $target must be the same in both segments.
+    ljmp    *(%esp)
+target:
+    add     $0x8, %esp
+    ret
+
+// Macro for the cpu_set_{d, e, f, g, s}c().
+#define set_segment_register(reg)   ;\
+    mov     0x4(%esp), %eax         ;\
+    mov     (%eax), %ax             ;\
+    mov     %ax, reg                ;\
+    ret
+
+//void cpu_set_ds(union segment_selector_t const * const sel);
+ASM_FUNC_DEF(cpu_set_ds):
+    set_segment_register(%ds)
+
+//void cpu_set_es(union segment_selector_t const * const sel);
+ASM_FUNC_DEF(cpu_set_es):
+    set_segment_register(%es)
+
+//void cpu_set_fs(union segment_selector_t const * const sel);
+ASM_FUNC_DEF(cpu_set_fs):
+    set_segment_register(%fs)
+
+//void cpu_set_gs(union segment_selector_t const * const sel);
+ASM_FUNC_DEF(cpu_set_gs):
+    set_segment_register(%gs)
+
+//void cpu_set_ss(union segment_selector_t const * const sel);
+ASM_FUNC_DEF(cpu_set_ss):
+    set_segment_register(%ss)
+
+#define read_segment_register(reg) ;\
+    mov reg, %eax                  ;\
+    ret
+
+//uint16_t __cpu_read_cs(void);
+ASM_FUNC_DEF(__cpu_read_cs):
+    read_segment_register(%cs)
+
+//uint16_t __cpu_read_ds(void);
+ASM_FUNC_DEF(__cpu_read_ds):
+    read_segment_register(%ds)
+
+//uint16_t __cpu_read_es(void);
+ASM_FUNC_DEF(__cpu_read_es):
+    read_segment_register(%es)
+
+//uint16_t __cpu_read_fs(void);
+ASM_FUNC_DEF(__cpu_read_fs):
+    read_segment_register(%fs)
+
+//uint16_t __cpu_read_gs(void);
+ASM_FUNC_DEF(__cpu_read_gs):
+    read_segment_register(%gs)
+
+//uint16_t __cpu_read_ss(void);
+ASM_FUNC_DEF(__cpu_read_ss):
+    read_segment_register(%ss)

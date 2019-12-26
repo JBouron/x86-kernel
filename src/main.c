@@ -10,6 +10,7 @@
 #include <math.h>
 #include <test.h>
 #include <serial.h>
+#include <segmentation.h>
 
 // Execute all the tests in the kernel.
 static void test_kernel(void) {
@@ -21,6 +22,7 @@ static void test_kernel(void) {
     tty_test();
     cpu_test();
     serial_test();
+    segmentation_test();
     print_test_summary();
 }
 
@@ -39,6 +41,12 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     uint64_t const start = read_tsc();
     vga_init();
     tty_init(NULL, &SERIAL_STREAM);
+
+    struct gdt_desc_t gdtr;
+    cpu_sgdt(&gdtr);
+    LOG("GDTR =\n");
+    LOG("    .limit = %x\n", gdtr.limit);
+    LOG("    .base  = %x\n", gdtr.base);
 
     test_kernel();
 
