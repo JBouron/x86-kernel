@@ -114,10 +114,39 @@ static bool cpu_lgdt_sgdt_test(void) {
     return true;
 }
 
+// Test the LIDT and SIDT wrappers.
+static bool cpu_lidt_sidt_test(void) {
+    // Save the current IDTR.
+    struct idt_desc_t orig_idt;
+    cpu_sidt(&orig_idt);
+
+    // The table does not have to be legit. As long as we don't enable the
+    // interrupts when running the test we should be fine.
+    struct idt_desc_t const fake_idt = {
+        .limit = 8 * 12 - 1,
+        .base = (void*)0xDEADBEEF,
+    };
+
+    // Load the fake GDT into the IDTR.
+    cpu_lidt(&fake_idt);
+    // Read the IDTR using SIDT.
+    struct idt_desc_t idtr;
+    cpu_sidt(&idtr);
+
+    // Restore the original IDTR.
+    cpu_lidt(&orig_idt);
+
+    // Check that the values are the same.
+    TEST_ASSERT(fake_idt.limit == idtr.limit);
+    TEST_ASSERT(fake_idt.base == idtr.base);
+    return true;
+}
+
 void cpu_test(void) {
     TEST_FWK_RUN(read_msr_test);
     TEST_FWK_RUN(read_tsc_test);
     TEST_FWK_RUN(has_cpuid_test);
     TEST_FWK_RUN(cpuid_test);
     TEST_FWK_RUN(cpu_lgdt_sgdt_test);
+    TEST_FWK_RUN(cpu_lidt_sidt_test);
 }

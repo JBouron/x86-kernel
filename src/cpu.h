@@ -153,5 +153,27 @@ union segment_selector_t cpu_read_gs(void);
 // @return: Current value of SS.
 union segment_selector_t cpu_read_ss(void);
 
+// Set or unset the interrupt flag.
+// @param enable: If true interrupts are enabled, otherwise they are disabled.
+void cpu_set_interrupt_flag(bool const enable);
+
+// Desciptor for an IDT containing the size and base address of the IDT.
+struct idt_desc_t {
+    // Limit is such that base+limit points to the latest valid byte of the IDT.
+    // Therefore limit should have the form 8N - 1, for N being the number of
+    // elements in the IDT.
+    uint16_t limit;
+    // The base address of the IDT.
+    void* base;
+} __attribute__((packed));
+
+// Write the LDTR register.
+// @param idt_desc: Descriptor for the IDT to use.
+void cpu_lidt(struct idt_desc_t const * const idt_desc);
+
+// Read the current LDTR value.
+// @param dest: The destination to write LDTR into.
+void cpu_sidt(struct idt_desc_t * const dest);
+
 // Execute tests on CPU related functions.
 void cpu_test(void);

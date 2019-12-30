@@ -7,4 +7,3 @@
     .global name ;\
     .type name, @function ;\
     name
-

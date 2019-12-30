@@ -11,6 +11,7 @@
 #include <test.h>
 #include <serial.h>
 #include <segmentation.h>
+#include <interrupt.h>
 
 // Execute all the tests in the kernel.
 static void test_kernel(void) {
@@ -23,6 +24,7 @@ static void test_kernel(void) {
     cpu_test();
     serial_test();
     segmentation_test();
+    interrupt_test();
     print_test_summary();
 }
 
@@ -65,5 +67,7 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     LOG("TSC from INS2= %U\n", tsc_ins2);
 
     LOG("CPU has CPUID support: %d\n", has_cpuid());
+    interrupt_init();
+    cpu_set_interrupt_flag(true);
     virt_shutdown();
 }

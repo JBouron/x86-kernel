@@ -1,0 +1,96 @@
+#include <test.h>
+
+// Test the init_desc function.
+static bool interrupt_test_init_desc(void) {
+    union interrupt_descriptor_t desc;
+    uint32_t const offset = 0xDEADBEEF;
+    union segment_selector_t const sel = { .value = 0xBABE };
+    uint8_t const priv_level = 2;
+
+    init_desc(&desc, offset, sel, priv_level);
+    
+    uint32_t const encoded_offset = (desc.offset_31_16 << 16) |
+        desc.offset_15_0;
+    TEST_ASSERT(encoded_offset == offset);
+    TEST_ASSERT(desc.segment_selector == sel.value);
+    TEST_ASSERT(desc.reserved == 0);
+    TEST_ASSERT(desc.zero == 0);
+    TEST_ASSERT(desc.six == 6);
+    TEST_ASSERT(desc.size == 1);
+    TEST_ASSERT(desc.zero2 == 0);
+    TEST_ASSERT(desc.privilege_level == priv_level);
+    TEST_ASSERT(desc.present == 1);
+
+    return true;
+}
+
+// Make sure that the get_interrupt_handler helper function returns the correct
+// offset for a given vector.
+extern uint8_t interrupt_handler_0;
+extern uint8_t interrupt_handler_5;
+extern uint8_t interrupt_handler_13;
+static bool get_interrupt_handler_test(void) {
+    uint32_t const handler_0_offset = get_interrupt_handler(0);
+    uint32_t const handler_5_offset = get_interrupt_handler(5);
+    uint32_t const handler_13_offset = get_interrupt_handler(13);
+    TEST_ASSERT(handler_0_offset ==
+        (uint32_t)&interrupt_handler_0);
+    TEST_ASSERT(handler_5_offset ==
+        (uint32_t)&interrupt_handler_5);
+    TEST_ASSERT(handler_13_offset == 
+        (uint32_t)&interrupt_handler_13);
+    return true;
+}
+
+// The following test is an end-to-end interrupt test. The goal here is to
+// register an interrupt handler, trigger the corresponding interrupt, and check
+// that the interrupt handler has been called.
+// To this end we choose to use interrupt 0. We register the handler
+// basic_interrupt_test_handler for it. This handler will mutate the
+// basic_interrupt_test_target global (initially 0) to a specific value (0xAA).
+// The test runs as follows:
+//   1. Register the interrupt handler for int 0 by using a fake IDT.
+//   2. Trigger the interrupt 0.
+//   3. Check that basic_interrupt_test_target is 0xAA.
+
+// Helper function to trigger the interrupt.
+extern void basic_interrupt_test_int(void);
+// Interrupt handler to be used for interrupt 0.
+extern void basic_interrupt_test_handler(void);
+// The target that the interrupt handler will mutate to indicate success.
+uint8_t basic_interrupt_test_target = 0;
+
+// The actual test.
+static bool basic_interrupt_test(void) {
+    // Create a fake IDT.
+    union interrupt_descriptor_t fake_idt[1];
+    // Make the first offset in the IDT point to basic_interrupt_test_handler.
+    uint32_t const offset = (uint32_t)&basic_interrupt_test_handler;
+    init_desc(fake_idt, offset, kernel_code_selector(), 0);
+    // Load the fake IDT.
+    struct idt_desc_t const desc = {
+        .base = fake_idt,
+        .limit = (sizeof(fake_idt) - 1),
+    };
+
+    // Make sure to disable the interrupts when loading the new IDT.
+    cpu_set_interrupt_flag(false);
+    cpu_lidt(&desc);
+
+    // Make sure to reset the target.
+    basic_interrupt_test_target = 0;
+
+    // We do not need to enable the interrupts as we are using a software
+    // interrupt.
+
+    // Trigger the interrupt.
+    basic_interrupt_test_int();
+    // Make sure that the handler has been called.
+    return basic_interrupt_test_target == 0xAA;
+}
+
+void interrupt_test(void) {
+    TEST_FWK_RUN(interrupt_test_init_desc);
+    TEST_FWK_RUN(get_interrupt_handler_test);
+    TEST_FWK_RUN(basic_interrupt_test);
+}

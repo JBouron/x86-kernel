@@ -255,3 +255,29 @@ ASM_FUNC_DEF(__cpu_read_gs):
 //uint16_t __cpu_read_ss(void);
 ASM_FUNC_DEF(__cpu_read_ss):
     read_segment_register(%ss)
+
+//void cpu_set_interrupt_flag(bool const enable);
+ASM_FUNC_DEF(cpu_set_interrupt_flag):
+    mov     0x4(%esp), %eax
+    cmp     $0x1, %eax
+    jne     disable
+    sti
+    ret
+disable:
+    cli
+    ret
+
+//void cpu_lidt(struct idt_desc_t const * const idt_desc);
+ASM_FUNC_DEF(cpu_lidt):
+    mov     0x4(%esp), %eax
+    // The following is not really clear. LIDT should take a memory address as
+    // operand, but we need to dereference this address (otherwise AS
+    // complains).
+    lidt    (%eax)
+    ret
+
+//void cpu_sidt(struct idt_desc_t * const dest);
+ASM_FUNC_DEF(cpu_sidt):
+    mov     0x4(%esp), %eax
+    sidt    (%eax)
+    ret
