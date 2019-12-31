@@ -1,0 +1,35 @@
+#include <test.h>
+
+// Test/Check that the processor supports LAPIC.
+static bool has_lapic(void) {
+    // From Intel's manual chapter 10.4.2 Presence of the Local APIC: 
+    // "Beginning with the P6 family processors, the presence or absence of an
+    // on-chip local APIC can be detected using the CPUID instruction. When the
+    // CPUID instruction is executed with a source operand of 1 in the EAX
+    // register, bit 9 of the CPUID feature flags returned in the EDX register
+    // indicates the presence (set) or absence (clear) of a local APIC."
+    uint32_t const eax = 1;
+    uint32_t edx = 0;
+    cpuid(eax, NULL, NULL, NULL, &edx);
+    return (1 << 9) & edx;
+}
+
+// Test get_lapic_base_addr_test.
+static bool get_lapic_base_addr_test(void) {
+    return get_lapic_base_addr() == (void*)0xFEE00000;
+}
+
+// Test enable_apic.
+static bool enable_apic_test(void) {
+    uint64_t const apic_base_msr = read_msr(IA32_APIC_BASE_MSR);
+    enable_apic();
+    uint64_t const new_msr = read_msr(IA32_APIC_BASE_MSR);
+    uint64_t const expected = apic_base_msr | (1 << 11);
+    return new_msr == expected;
+}
+
+void lapic_test(void) {
+    TEST_FWK_RUN(has_lapic);
+    TEST_FWK_RUN(get_lapic_base_addr_test);
+    TEST_FWK_RUN(enable_apic_test);
+}

@@ -3,6 +3,7 @@
 #include <debug.h>
 #include <memory.h>
 #include <segmentation.h>
+#include <lapic.h>
 
 // Interrupt gate descriptor.
 union interrupt_descriptor_t {
@@ -60,7 +61,7 @@ static void init_desc(union interrupt_descriptor_t * const desc,
 
 // This is the IDT. For now it only contains the architectural
 // exception/interrupt handlers.
-#define IDT_SIZE 21
+#define IDT_SIZE 33
 union interrupt_descriptor_t IDT[IDT_SIZE] __attribute__((aligned (8)));
 
 // Get the address/offset of the interrupt handler for a given vector.
@@ -92,6 +93,7 @@ __attribute__((unused)) void generic_interrupt_handler(
     LOG("eip = %x\n", frame->eip);
     LOG("cs = %x\n", frame->cs);
     LOG("eflags = %x\n", frame->eflags);
+    lapic_eoi();
 }
 
 // Disable the legacy Programable Interrupt Controller. This is important as it

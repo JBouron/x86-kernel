@@ -12,6 +12,7 @@
 #include <serial.h>
 #include <segmentation.h>
 #include <interrupt.h>
+#include <lapic.h>
 
 // Execute all the tests in the kernel.
 static void test_kernel(void) {
@@ -25,6 +26,7 @@ static void test_kernel(void) {
     serial_test();
     segmentation_test();
     interrupt_test();
+    lapic_test();
     print_test_summary();
 }
 
@@ -69,5 +71,7 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     LOG("CPU has CPUID support: %d\n", has_cpuid());
     interrupt_init();
     cpu_set_interrupt_flag(true);
+
+    init_lapic();
     virt_shutdown();
 }
