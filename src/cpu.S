@@ -281,3 +281,8 @@ ASM_FUNC_DEF(cpu_sidt):
     mov     0x4(%esp), %eax
     sidt    (%eax)
     ret
+
+// void cpu_mfence(void);
+ASM_FUNC_DEF(cpu_mfence):
+    mfence
+    ret

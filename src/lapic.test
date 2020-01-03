@@ -1,4 +1,6 @@
 #include <test.h>
+#include <interrupt.h>
+#include <cpu.h>
 
 // Test/Check that the processor supports LAPIC.
 static bool has_lapic(void) {
@@ -28,8 +30,70 @@ static bool enable_apic_test(void) {
     return new_msr == expected;
 }
 
+// This test sets up a LAPIC timer in one shot mode and makes sure that the
+// interrupt get generated onces the timer reaches 0.
+// The vector to use once the timer reaches 0.
+static uint8_t const timer_vector = 32;
+static uint32_t const timer_init_count = 5000000;
+static bool is_periodic = false;
+// How many periods of the timers ?
+static uint8_t timer_periods = 0;
+// The flag variable indicating success.
+static bool volatile timer_success = false;
+// The callback to associate with the interrupt.
+static void timer_interrupt_callback(struct interrupt_frame_t const * const f) {
+    // Just so f is used.
+    ASSERT(f);
+
+    timer_periods ++;
+    if (is_periodic) {
+        if (timer_periods == 4) {
+            // This is the periodic test. We expect 4 periods before success.
+            timer_success = true;
+            lapic_stop_timer();
+        }
+    } else {
+        // In one-shot mode we expect the current count of the timer to be 0.
+        timer_success = LAPIC->current_count.val == 0;
+        lapic_stop_timer();
+    }
+}
+static bool one_shot_lapic_timer_test(void) {
+    is_periodic = false;
+    timer_success = false;
+    // Init and start a one shot timer.
+    lapic_start_timer(timer_init_count,
+        false, timer_vector, timer_interrupt_callback);
+
+    while (!timer_success) {
+        // Nothing to do;
+    }
+    // Timer was a success.
+
+    interrupt_delete_callback(timer_vector);
+    return true;
+}
+static bool periodic_lapic_timer_test(void) {
+    is_periodic = true;
+    timer_success = false;
+    timer_periods = 0;
+    // Init and start a one shot timer.
+    lapic_start_timer(timer_init_count,
+        true, timer_vector, timer_interrupt_callback);
+
+    while (!timer_success) {
+        // Nothing to do;
+    }
+    // Timer was a success.
+
+    interrupt_delete_callback(timer_vector);
+    return timer_periods == 4;
+}
+
 void lapic_test(void) {
     TEST_FWK_RUN(has_lapic);
     TEST_FWK_RUN(get_lapic_base_addr_test);
     TEST_FWK_RUN(enable_apic_test);
+    TEST_FWK_RUN(one_shot_lapic_timer_test);
+    TEST_FWK_RUN(periodic_lapic_timer_test);
 }

@@ -175,5 +175,8 @@ void cpu_lidt(struct idt_desc_t const * const idt_desc);
 // @param dest: The destination to write LDTR into.
 void cpu_sidt(struct idt_desc_t * const dest);
 
+// Insert an MFENCE instruction.
+void cpu_mfence(void);
+
 // Execute tests on CPU related functions.
 void cpu_test(void);
