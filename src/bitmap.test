@@ -1,0 +1,282 @@
+#include <test.h>
+#include <debug.h>
+
+// Simple test creating a bitmap and checking the initial state.
+static bool bitmap_create_test(void) {
+    DECLARE_BITMAP(bitmap, 100);
+    return sizeof(_bitmap_bitmap_data) == 4 * 4 &&
+        bitmap.size == 100 &&
+        bitmap.free == 100 &&
+        bitmap.data == _bitmap_bitmap_data;
+}
+
+// Test reseting a bitmap.
+static bool bitmap_reset_test(void) {
+    DECLARE_BITMAP(bitmap, 100);
+    _bitmap_bitmap_data[0] = 0xDEAD;
+    _bitmap_bitmap_data[1] = 0xCAFE;
+    _bitmap_bitmap_data[2] = 0xBEEF;
+    _bitmap_bitmap_data[3] = 0xBABE;
+    bitmap.free = 0x32;
+    bitmap_reset(&bitmap);
+    return _bitmap_bitmap_data[0] == ~((uint32_t)0) &&
+        _bitmap_bitmap_data[1] == ~((uint32_t)0) &&
+        _bitmap_bitmap_data[2] == ~((uint32_t)0) &&
+        _bitmap_bitmap_data[3] == ~((uint32_t)0) &&
+        bitmap.size == 100 &&
+        bitmap.free == 100;
+}
+
+// Test setting bits in a bitmap.
+static bool bitmap_set_test(void) {
+    DECLARE_BITMAP(bitmap, 100);
+    bitmap_reset(&bitmap);
+    // Set bits in first word.
+    bitmap_set(&bitmap, 0);
+    bitmap_set(&bitmap, 4);
+    bitmap_set(&bitmap, 19);
+    bitmap_set(&bitmap, 23);
+
+    // Set bits in second word.
+    bitmap_set(&bitmap, 34);
+    bitmap_set(&bitmap, 45);
+    bitmap_set(&bitmap, 43);
+    bitmap_set(&bitmap, 63);
+
+    // Set the same bit over and over, this should be idempotent.
+    bitmap_set(&bitmap, 63);
+    bitmap_set(&bitmap, 63);
+    bitmap_set(&bitmap, 63);
+    bitmap_set(&bitmap, 63);
+
+    TEST_ASSERT(_bitmap_bitmap_data[0] ==
+        ~(uint32_t)((1 << 0) | (1 << 4) | (1 << 19) | (1 << 23)));
+    TEST_ASSERT(_bitmap_bitmap_data[1] ==
+            ~(uint32_t)((1UL << (34-32)) | (1UL << (45-32)) | (1UL << (43-32)) |
+            (1UL << (63-32))));
+
+    TEST_ASSERT(bitmap.free == 100 - 8);
+    return true;
+}
+
+// Test unsetting bits in a bitmap.
+static bool bitmap_unset_test(void) {
+    DECLARE_BITMAP(bitmap, 100);
+    bitmap_reset(&bitmap);
+
+    // Set bits in first word.
+    bitmap_set(&bitmap, 0);
+    bitmap_set(&bitmap, 4);
+    bitmap_set(&bitmap, 19);
+    bitmap_set(&bitmap, 23);
+
+    // Set bits in second word.
+    bitmap_set(&bitmap, 34);
+    bitmap_set(&bitmap, 45);
+    bitmap_set(&bitmap, 43);
+    bitmap_set(&bitmap, 63);
+
+    // Set the same bit over and over, this should be idempotent.
+    bitmap_set(&bitmap, 63);
+    bitmap_set(&bitmap, 63);
+    bitmap_set(&bitmap, 63);
+    bitmap_set(&bitmap, 63);
+
+    TEST_ASSERT(_bitmap_bitmap_data[0] ==
+        ~((uint32_t)(1 << 0) | (1 << 4) | (1 << 19) | (1 << 23)));
+    TEST_ASSERT(_bitmap_bitmap_data[1] ==
+            ~((uint32_t)(1UL << (34-32)) | (1UL << (45-32)) | (1UL << (43-32)) |
+            (1UL << (63-32))));
+
+    TEST_ASSERT(bitmap.free == 100 - 8);
+
+    // Now unset some bits.
+    bitmap_unset(&bitmap, 19);
+    bitmap_unset(&bitmap, 23);
+    bitmap_unset(&bitmap, 43);
+    bitmap_unset(&bitmap, 34);
+
+    TEST_ASSERT(_bitmap_bitmap_data[0] ==
+        ~(uint32_t)((1 << 0) | (1 << 4) | (0 << 19) | (0 << 23)));
+    TEST_ASSERT(_bitmap_bitmap_data[1] ==
+            ~(uint32_t)((0UL << (34-32)) | (1UL << (45-32)) | (0UL << (43-32)) |
+            (1UL << (63-32))));
+
+    TEST_ASSERT(bitmap.free == 100 - 4);
+
+    // So some idempotent unsets.
+    bitmap_unset(&bitmap, 34);
+    bitmap_unset(&bitmap, 34);
+    bitmap_unset(&bitmap, 34);
+
+    TEST_ASSERT(_bitmap_bitmap_data[0] ==
+        ~((uint32_t)(1 << 0) | (1 << 4) | (0 << 19) | (0 << 23)));
+    TEST_ASSERT(_bitmap_bitmap_data[1] ==
+            ~((uint32_t)(0UL << (34-32)) | (1UL << (45-32)) | (0UL << (43-32)) |
+            (1UL << (63-32))));
+
+    TEST_ASSERT(bitmap.free == 100 - 4);
+    return true;
+}
+
+// Test setting all the bits one-by-one and then unsetting them.
+static bool bitmap_full_set_unset_test(void) {
+    DECLARE_BITMAP(bitmap, 100);
+    bitmap_reset(&bitmap);
+
+    // Set all the bits one by one.
+    for (uint8_t i = 0; i < 100; ++i) {
+        TEST_ASSERT(bitmap.size == 100);
+        TEST_ASSERT(bitmap.free == 100UL - i);
+        bitmap_set(&bitmap, i);
+        TEST_ASSERT(bitmap.size == 100);
+        TEST_ASSERT(bitmap.free == (100UL - i) - 1);
+    }
+
+    // Bitmap is full by now.
+    TEST_ASSERT(bitmap.size == 100);
+    TEST_ASSERT(bitmap.free == 0);
+
+    // Unset all the bits one by one.
+    for (uint8_t i = 0; i < 100; ++i) {
+        TEST_ASSERT(bitmap.size == 100);
+        TEST_ASSERT(bitmap.free == i);
+        bitmap_unset(&bitmap, i);
+        TEST_ASSERT(bitmap.size == 100);
+        TEST_ASSERT(bitmap.free == i + 1UL);
+    }
+
+    // Bitmap is empty by now.
+    TEST_ASSERT(bitmap.size == 100);
+    TEST_ASSERT(bitmap.free == 100);
+    return true;
+}
+
+// Test getting one bit from bitmap.
+static bool bitmap_get_bit_test(void) {
+    DECLARE_BITMAP(bitmap, 100);
+    bitmap_reset(&bitmap);
+
+    for (uint8_t i = 0; i < 100; ++i) {
+        TEST_ASSERT(!bitmap_get_bit(&bitmap, i));
+        bitmap_set(&bitmap, i);
+        TEST_ASSERT(bitmap_get_bit(&bitmap, i));
+    }
+
+    for (uint8_t i = 0; i < 100; ++i) {
+        TEST_ASSERT(bitmap_get_bit(&bitmap, i));
+        bitmap_unset(&bitmap, i);
+        TEST_ASSERT(!bitmap_get_bit(&bitmap, i));
+    }
+    return true;
+}
+
+// Test for set_next_bit.
+static bool bitmap_set_next_bit_test(void) {
+    DECLARE_BITMAP(bitmap, 100);
+    bitmap_reset(&bitmap);
+
+    // Fill up the five first bits.
+    for (uint8_t i = 0; i < 5; ++i) {
+        bitmap_set(&bitmap, i);
+    }
+
+    // Bit 5 is the next free bit.
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 5));
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap) == 5);
+    TEST_ASSERT(bitmap_get_bit(&bitmap, 5));
+
+    // Fill up the entire first word.
+    for (uint8_t i = 6; i < 35; ++i) {
+        bitmap_set(&bitmap, i);
+    }
+
+    // Bit 35 is the next free bit.
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 35));
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap) == 35);
+    TEST_ASSERT(bitmap_get_bit(&bitmap, 35));
+
+    // Fill up until last bit.
+    for (uint8_t i = 36; i < 99; ++i) {
+        bitmap_set(&bitmap, i);
+    }
+
+    // Bit 99 is the next free bit.
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 99));
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap) == 99);
+    TEST_ASSERT(bitmap_get_bit(&bitmap, 99));
+
+    // A this point the bitmap should be full.
+    TEST_ASSERT(bitmap.free == 0);
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap) == ~((uint32_t)0));
+    return true;
+}
+
+// Test for bitmap_is_full.
+static bool bitmap_is_full_test(void) {
+    DECLARE_BITMAP(bitmap, 100);
+    bitmap_reset(&bitmap);
+
+    for (uint8_t i = 0; i < 100; ++i) {
+        TEST_ASSERT(!bitmap_is_full(&bitmap));
+        bitmap_set(&bitmap, i);
+    }
+    return (bitmap_is_full(&bitmap));
+}
+
+// Test for bitmap_set_all.
+static bool bitmap_set_all_test(void) {
+    DECLARE_BITMAP(bitmap, 100);
+    bitmap_reset(&bitmap);
+
+    bitmap_set_all(&bitmap);
+    TEST_ASSERT(!_bitmap_bitmap_data[0]);
+    TEST_ASSERT(!_bitmap_bitmap_data[1]);
+    TEST_ASSERT(!_bitmap_bitmap_data[2]);
+    TEST_ASSERT(!_bitmap_bitmap_data[3]);
+    TEST_ASSERT(!bitmap.free);
+    TEST_ASSERT(bitmap_is_full(&bitmap));
+    return true;
+}
+
+// Test that creating a bitmap with a size that is a multiple of 32 bits yeilds
+// the expected result.
+static bool bitmap_edge_size_case(void) {
+    DECLARE_BITMAP(bitmap32, 32);
+    // We should use only a single word for this bitmap.
+    TEST_ASSERT(sizeof(_bitmap_bitmap32_data) == 4);
+    TEST_ASSERT(bitmap32.size == 32);
+    TEST_ASSERT(bitmap32.free == 32);
+    TEST_ASSERT(bitmap32.data == _bitmap_bitmap32_data);
+
+    DECLARE_BITMAP(bitmap64, 64);
+    TEST_ASSERT(sizeof(_bitmap_bitmap64_data) == 8);
+    TEST_ASSERT(bitmap64.size == 64);
+    TEST_ASSERT(bitmap64.free == 64);
+    TEST_ASSERT(bitmap64.data == _bitmap_bitmap64_data);
+    return true;
+}
+
+static bool bitmap_zero_size(void) {
+    DECLARE_BITMAP(bitmap0, 0);
+    TEST_ASSERT(sizeof(_bitmap_bitmap0_data) == 0);
+    TEST_ASSERT(bitmap0.size == 0);
+    TEST_ASSERT(bitmap0.free == 0);
+    TEST_ASSERT(bitmap0.data == _bitmap_bitmap0_data);
+    TEST_ASSERT(bitmap_is_full(&bitmap0));
+    return true;
+}
+
+void bitmap_test(void) {
+    TEST_FWK_RUN(bitmap_create_test);
+    TEST_FWK_RUN(bitmap_reset_test);
+    TEST_FWK_RUN(bitmap_set_test);
+    TEST_FWK_RUN(bitmap_unset_test);
+    TEST_FWK_RUN(bitmap_full_set_unset_test);
+    TEST_FWK_RUN(bitmap_get_bit_test);
+    TEST_FWK_RUN(bitmap_set_next_bit_test);
+    TEST_FWK_RUN(bitmap_is_full_test);
+    TEST_FWK_RUN(bitmap_set_all_test);
+    TEST_FWK_RUN(bitmap_edge_size_case);
+    TEST_FWK_RUN(bitmap_zero_size);
+}

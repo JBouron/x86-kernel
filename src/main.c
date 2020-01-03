@@ -13,6 +13,7 @@
 #include <segmentation.h>
 #include <interrupt.h>
 #include <lapic.h>
+#include <bitmap.h>
 
 // Execute all the tests in the kernel.
 static void test_kernel(void) {
@@ -27,6 +28,7 @@ static void test_kernel(void) {
     segmentation_test();
     interrupt_test();
     lapic_test();
+    bitmap_test();
     print_test_summary();
 }
 

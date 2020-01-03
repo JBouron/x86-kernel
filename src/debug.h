@@ -21,6 +21,10 @@
         lock_up(); \
     } while(0)
 
+inline void PANIC_ASM(void) {
+    PANIC("Panic in asm file.");
+}
+
 #define ASSERT(condition) \
     do { \
         if(!(condition)) { \
