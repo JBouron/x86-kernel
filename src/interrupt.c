@@ -1,5 +1,4 @@
 #include <interrupt.h>
-#include <types.h>
 #include <debug.h>
 #include <memory.h>
 #include <segmentation.h>
@@ -64,35 +63,34 @@ static void init_desc(union interrupt_descriptor_t * const desc,
 #define IDT_SIZE 33
 union interrupt_descriptor_t IDT[IDT_SIZE] __attribute__((aligned (8)));
 
+// All the code backs per interrupt vector. Ideally this should be a linked list
+// but as we don't have a way to dynamically allocate memory for now a static
+// array with one entry per vector should be enough.
+int_callback_t CALLBACKS[IDT_SIZE];
+
 // Get the address/offset of the interrupt handler for a given vector.
 extern uint32_t get_interrupt_handler(uint8_t const vector);
-
-// This contain information about the interrupt that triggered the call to the
-// generic handler.
-struct interrupt_frame_t {
-    // The value of EFLAGS at the time of the interrupt.
-    uint32_t eflags;
-    // The value of CS at the time of the interrupt.
-    uint32_t cs;
-    // The value of EIP at the time of the interrupt.
-    uint32_t eip;
-    // The error code pushed onto the stack by the interrupt. If the interrupt
-    // does not possess an error code this field is 0.
-    uint32_t error_code;
-    // The vector of the interrupt.
-    uint32_t vector;
-} __attribute__((packed));
 
 // The generic interrupt handler. Eventually all the interrupts call the generic
 // handler.
 // @param frame: Information about the interrupt.
 __attribute__((unused)) void generic_interrupt_handler(
     struct interrupt_frame_t const * const frame) {
+    ASSERT(frame->vector <= 255);
+    // A sanity check that the low level interrupt handler did not send garbage
+    // to us.
+
+    // Log some info about the interrupt.
     LOG("Interrupt with vector %d\n", frame->vector);
     LOG("error code = %x\n", frame->error_code);
     LOG("eip = %x\n", frame->eip);
     LOG("cs = %x\n", frame->cs);
     LOG("eflags = %x\n", frame->eflags);
+
+    if (frame->vector < IDT_SIZE && CALLBACKS[frame->vector]) {
+        // A callback has been registered for this interrupt vector, call it.
+        CALLBACKS[frame->vector](frame);
+    }
     lapic_eoi();
 }
 
@@ -114,7 +112,6 @@ void interrupt_init(void) {
     // Fill each entry in the IDT with the corresponding interrupt_handler.
     for (uint8_t vector = 0; vector < IDT_SIZE; ++vector) {
         uint32_t const handler_offset = get_interrupt_handler(vector);
-        LOG("Handler for vector %u at %x\n", vector, handler_offset);
         ASSERT(handler_offset);
         init_desc(IDT + vector, handler_offset, kernel_code_selector(), 0);
     }
@@ -131,6 +128,22 @@ void interrupt_init(void) {
     disable_pic();
 
     // From now on, it is safe to enable interrupts.
+
+    // Zero the callback array. This has to be done before enabling interrupts
+    // to avoid race conditions.
+    memzero(CALLBACKS, sizeof(CALLBACKS));
+}
+
+void interrupt_register_callback(uint8_t const vector,
+                                 int_callback_t const callback) {
+    ASSERT(vector < IDT_SIZE);
+    // For now there can only be one callback per interrupt vector.
+    ASSERT(!CALLBACKS[vector]);
+    CALLBACKS[vector] = callback;
+}
+
+void interrupt_delete_callback(uint8_t const vector) {
+    CALLBACKS[vector] = NULL;
 }
 
 #include <interrupt.test>

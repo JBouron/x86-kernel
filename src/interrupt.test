@@ -62,6 +62,10 @@ uint8_t basic_interrupt_test_target = 0;
 
 // The actual test.
 static bool basic_interrupt_test(void) {
+    // Save original IDTR.
+    struct idt_desc_t orig_idtr;
+    cpu_sidt(&orig_idtr);
+
     // Create a fake IDT.
     union interrupt_descriptor_t fake_idt[1];
     // Make the first offset in the IDT point to basic_interrupt_test_handler.
@@ -85,12 +89,43 @@ static bool basic_interrupt_test(void) {
 
     // Trigger the interrupt.
     basic_interrupt_test_int();
+
+    // Restore IDTR.
+    cpu_lidt(&orig_idtr);
+
     // Make sure that the handler has been called.
     return basic_interrupt_test_target == 0xAA;
+}
+
+// Test the callback mechanism of interrupts.
+// Register a callback for the vector 0. This callback sets `callback_target` to
+// 0xBB.
+// The test runs as follows:
+// 1. Register the callback.
+// 2. Raise a software interrupt with vector 0.
+// 3. Check that callback_target is 0xBB.
+static uint8_t callback_target = 0x0;
+// callback_cond holds the following truth statment from the callback:
+//   vector == 0 AND cs == kernel cs.
+static bool callback_conds = false;
+static void test_callback(struct interrupt_frame_t const * const frame) {
+    callback_conds = frame->vector == 0 &&
+        frame->cs == kernel_code_selector().value;
+    callback_target = 0xBB;
+}
+
+static bool interrupt_register_callback_test(void) {
+    interrupt_register_callback(0, test_callback);
+    basic_interrupt_test_int();
+
+    // remove the callback from the callback array.
+    CALLBACKS[0] = NULL;
+    return callback_target == 0xBB && callback_conds;
 }
 
 void interrupt_test(void) {
     TEST_FWK_RUN(interrupt_test_init_desc);
     TEST_FWK_RUN(get_interrupt_handler_test);
     TEST_FWK_RUN(basic_interrupt_test);
+    TEST_FWK_RUN(interrupt_register_callback_test);
 }
