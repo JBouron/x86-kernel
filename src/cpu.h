@@ -178,5 +178,25 @@ void cpu_sidt(struct idt_desc_t * const dest);
 // Insert an MFENCE instruction.
 void cpu_mfence(void);
 
+// Check if paging is enabled on the CPU.
+// @return: True if paging is enabled (PG bit of CR0 set), false otherwise.
+bool cpu_paging_enabled(void);
+
+// Load the page directory physical address into CR3.
+// @param page_dir_addr: The _physical_ address of the page directory to load
+// into CR3.
+// TODO: Might want to provide way to specify PCD and PWT bits.
+void cpu_set_cr3(void const * const page_dir_addr);
+
+// Read the current value of CR3.
+// @return: Value of CR3 for the current core.
+uint32_t cpu_read_cr3(void);
+
+// Enable paging on the current core.
+void cpu_enable_paging(void);
+
+// Flush/invalidate the TLB on the current core.
+void cpu_invalidate_tlb(void);
+
 // Execute tests on CPU related functions.
 void cpu_test(void);

@@ -9,6 +9,7 @@ assert_bounds:
     cmp     (%eax), %ecx
     jb      in_range
     # Index is outside of range. 
+    # TODO: Call kernel panic from ASM.
     int     $3
     # Not reachable
 in_range:

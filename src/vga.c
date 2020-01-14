@@ -1,5 +1,6 @@
 #include <vga.h>
 #include <memory.h>
+#include <kernel_map.h>
 
 #define VGA_DEFAULT_MATRIX_ADDR 0xB8000
 
@@ -190,6 +191,9 @@ struct io_stream_t VGA_STREAM = {
 
 // Initialize the VGA matrix.
 void vga_init(void) {
+    // The <1MiB physical memory is mapped in the higher half with the kernel.
+    MATRIX_ADDR = to_virt(MATRIX_ADDR);
+
     // Clear whatever is left in the VGA matrix from the BIOS/boot sequence.
     clear_matrix();
 }

@@ -1,3 +1,4 @@
+#pragma once
 // Some useful macros for assembly files
 
 // Define a function in an assembly file. Make sure that the function is in the

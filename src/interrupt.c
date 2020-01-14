@@ -90,6 +90,8 @@ __attribute__((unused)) void generic_interrupt_handler(
     if (frame->vector < IDT_SIZE && CALLBACKS[frame->vector]) {
         // A callback has been registered for this interrupt vector, call it.
         CALLBACKS[frame->vector](frame);
+    } else {
+        PANIC("Unexpected interrupt in kernel\n");
     }
     lapic_eoi();
 }

@@ -7,11 +7,12 @@
     VGA_HEIGHT = height         ;                \
     uint16_t const __old_cursor = cursor;        \
     cursor = 0;                                  \
+    uint16_t *const __old_buf = MATRIX_ADDR;     \
     vga_set_buffer_addr(bufname);
 
 // Reset the actual VGA matrix to the default address.
 #define VGA_TEST_TEARDOWN()                                     \
-    vga_set_buffer_addr((uint16_t*)VGA_DEFAULT_MATRIX_ADDR);    \
+    vga_set_buffer_addr(__old_buf);                             \
     VGA_WIDTH = 80;                                             \
     VGA_HEIGHT = 25;                                            \
     cursor = __old_cursor;

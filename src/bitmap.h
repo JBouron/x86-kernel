@@ -10,7 +10,7 @@ struct bitmap_t {
     // The number of free / available bits in the bitmap.
     uint32_t free;
     // The uint32_t array storing the actual bitmap.
-    uint32_t * const data;
+    uint32_t * data;
 };
 
 // Computes the number of uint32_t words necessary to hold a bitmap.

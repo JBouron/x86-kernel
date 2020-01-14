@@ -2,6 +2,7 @@
 #include <types.h>
 #include <debug.h>
 #include <memory.h>
+#include <kernel_map.h>
 
 union segment_descriptor_t {
     uint64_t value;
@@ -71,15 +72,25 @@ static uint16_t const KERNEL_DATA_INDEX = 1;
 static uint16_t const KERNEL_CODE_INDEX = 2;
 
 void init_segmentation(void) {
-    memzero(GDT, sizeof(GDT));
+    // The segmentation is initialized very early during boot _before_ paging.
+    // Therefore we need to fix up the pointer to global variables as they are
+    // virtual. to_phys defined in boot.S does exactly this.
+    // Get the physical address (which is also the linear address since paging
+    // is not yet enabled) of the GDT.
+    union segment_descriptor_t *gdt_phy = to_phys(&GDT);
+
+    // Now that we have a linear/physical pointer on the GDT we can start its
+    // initialization.
+
+    memzero(gdt_phy, sizeof(union segment_descriptor_t) * GDT_SIZE);
     // Create flat data segment for ring 0.
-    init_desc(GDT + KERNEL_DATA_INDEX, 0, 0xFFFFF, false, 0);
+    init_desc(gdt_phy + KERNEL_DATA_INDEX, 0, 0xFFFFF, false, 0);
     // Create flat code segment for ring 0.
-    init_desc(GDT + KERNEL_CODE_INDEX, 0, 0xFFFFF, true, 0);
+    init_desc(gdt_phy + KERNEL_CODE_INDEX, 0, 0xFFFFF, true, 0);
 
     // Load the GDTR.
     struct gdt_desc_t const table_desc = {
-        .base = GDT,
+        .base = gdt_phy,
         .limit = (sizeof(union segment_descriptor_t) * GDT_SIZE) - 1,
     };
     cpu_lgdt(&table_desc);

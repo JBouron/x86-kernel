@@ -1,4 +1,5 @@
 #include <lapic.h>
+#include <paging.h>
 
 // lapic_def.c contains the definition of the struct lapic_t.
 #include <lapic_def.c>
@@ -28,6 +29,9 @@ static void enable_apic(void) {
 
 void init_lapic(void) {
     LAPIC = (struct lapic_t *)get_lapic_base_addr();
+    // Identity maps the LAPIC registers.
+    uint32_t const flags = VM_WRITE | VM_WRITE_THROUGH | VM_CACHE_DISABLE;
+    paging_map((void*)LAPIC, (void*)LAPIC, sizeof(*LAPIC), flags);
     enable_apic();
 }
 

@@ -6,47 +6,52 @@ ENTRY(_start_kernel)
    kernel image. */
 SECTIONS
 {
-	/* Begin putting sections at 1 MiB, a conventional place for kernels to be
-	   loaded at by the bootloader. */
-	. = 0x100000;
+    /* The kernel is a higher-half kernel. Starting at >3GiB. */
+	. = 0xC0000000;
+    KERNEL_PHY_OFFSET = .;
+
+    /* Start 1MB above the 3GiB mark, the reason is to make the sections
+     * placement easier as we will only need to substract 0xC0000000 to get
+     * above the 1MB mark. */
+	. = . + 0x100000;
  
 	/* First put the multiboot header, as it is required to be put very early
 	   early in the image or the bootloader won't recognize the file format.
 	   Next we'll put the .text section. */
-    __KERNEL_START = .;
-	.text ALIGN(4K) : AT(ADDR(.text))
+    KERNEL_START = .;
+	.text ALIGN(4K) : AT(ADDR(.text) - KERNEL_PHY_OFFSET)
 	{
-        __SECTION_TEXT_START = .;
+        SECTION_TEXT_START = .;
 		*(.multiboot)
 		*(.text)
-        __SECTION_TEXT_END = .;
+        SECTION_TEXT_END = .;
 	}
  
 	/* Read-only data. */
-	.rodata ALIGN(4K) : AT(ADDR(.rodata))
+	.rodata ALIGN(4K) : AT(ADDR(.rodata) - KERNEL_PHY_OFFSET)
 	{
-        __SECTION_RODATA_START = .;
+        SECTION_RODATA_START = .;
 		*(.rodata)
-        __SECTION_RODATA_END = .;
+        SECTION_RODATA_END = .;
 	}
  
 	/* Read-write data (initialized) */
-	.data ALIGN(4K) : AT(ADDR(.data))
+	.data ALIGN(4K) : AT(ADDR(.data) - KERNEL_PHY_OFFSET)
 	{
-        __SECTION_DATA_START = .;
+        SECTION_DATA_START = .;
 		*(.data)
-        __SECTION_DATA_END = .;
+        SECTION_DATA_END = .;
 	}
  
 	/* Read-write data (uninitialized) and stack */
-	.bss ALIGN(4K) : AT(ADDR(.bss))
+	.bss ALIGN(4K) : AT(ADDR(.bss) - KERNEL_PHY_OFFSET)
 	{
-        __SECTION_BSS_START = .;
+        SECTION_BSS_START = .;
 		*(COMMON)
 		*(.bss)
-        __SECTION_BSS_END = .;
+        SECTION_BSS_END = .;
 	}
-    __KERNEL_END = .;
+    KERNEL_END = .;
  
 	/* The compiler may produce other sections, by default it will put them
 	 * in a segment with the same name. Simply add stuff here as needed. */

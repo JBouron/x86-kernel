@@ -117,8 +117,6 @@ skip_null:
     cmp     %eax, %ecx
     jne     loop_start
 
-    movl     $0, 54(,%eax,4)
-
     // And we are done.
     // Restore EBX.
     pop     %ebx
@@ -188,15 +186,39 @@ ASM_FUNC_DEF(cpu_sgdt):
 
 //void cpu_set_cs(union segment_selector_t const * const sel);
 ASM_FUNC_DEF(cpu_set_cs):
-    mov     0x4(%esp), %eax
+    // We need to prepare a long jump. For this we need to push onto the stack
+    // the code segment selector followed by the target address.
+    // Let EAX be the code segment and ECX the target.
+
     // Read the value of the segment selector into EAX.
+    mov     0x4(%esp), %eax
     mov     (%eax), %ax
+    // We can already push EAX.
     push    %eax
-    push    $target 
-    // Now make a far jump, this will trigger a change in CS. Note that the big
-    // assumption here is that we are using a flat model and therefore the
-    // offset of $target must be the same in both segments.
+
+    // The target address will change depending on whether or not paging has
+    // been enabled already.
+    call    cpu_paging_enabled
+    cmp     $0x0, %eax
+    je      target_needs_fixup
+    
+    // Here paging has been enabled. No fixup is required for the target.
+    mov     $target, %ecx
+    jmp     do_long_jump
+
+target_needs_fixup:
+    // Paging has not been enabled hence we need to translate the virtual
+    // address of the target into a linear address. We use to_phys for that.
+    push    $target
+    call    to_phys
+    add     $0x4, %esp
+    mov     %eax, %ecx
+
+do_long_jump:
+    // We can finally do the long jump, push the target first.
+    push    %ecx
     ljmp    *(%esp)
+
 target:
     add     $0x8, %esp
     ret
@@ -285,4 +307,58 @@ ASM_FUNC_DEF(cpu_sidt):
 // void cpu_mfence(void);
 ASM_FUNC_DEF(cpu_mfence):
     mfence
+    ret
+
+//bool cpu_paging_enabled(void);
+ASM_FUNC_DEF(cpu_paging_enabled):
+    # PG bit (bit 31) of CR0 indicates whether or not paging is enabled.
+    mov     %cr0, %eax
+    shr     $31, %eax
+    ret
+
+//void cpu_set_cr3(void const * const page_dir_addr);
+ASM_FUNC_DEF(cpu_set_cr3):
+    mov     0x4(%esp), %eax
+    mov     %eax, %ecx
+    shl     $20, %ecx
+    jz      addr_is_aligned
+    # The address passed as arg is not 4KiB aligned. Panic.
+    # TODO: PANIC here.
+    int     $3
+addr_is_aligned:
+    # Load the 20 MSb of the addr in the 20 MSb of CR3.
+    mov     $0x00000FFF, %ecx
+    mov     %cr3, %edx
+    and     %edx, %ecx
+    or      %ecx, %eax
+    mov     %eax, %cr3
+    ret
+
+//uint32_t cpu_read_cr3(void);
+ASM_FUNC_DEF(cpu_read_cr3):
+    mov     %cr3, %eax
+    ret
+
+//void cpu_enable_paging(void);
+ASM_FUNC_DEF(cpu_enable_paging):
+    # Enable PG and WP bits.
+    mov     $0x80010000, %eax
+    mov     %cr0, %ecx
+    or      %ecx, %eax
+    mov     %eax, %cr0
+    # Now perform an absolute jump.
+    lea     paging_enable_target, %eax
+    jmp     *%eax
+paging_enable_target:
+    # EIP is now in the higher-half mapping. However, the return address in the
+    # stack is still a physical address, we need to do some fixup on it before
+    # `ret`.
+    call    to_virt
+    mov     %eax, (%esp)
+    ret
+
+//void cpu_invalidate_tlb(void);
+ASM_FUNC_DEF(cpu_invalidate_tlb):
+    mov     %cr3, %eax
+    mov     %eax, %cr3
     ret
