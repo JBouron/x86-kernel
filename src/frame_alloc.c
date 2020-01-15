@@ -15,11 +15,14 @@
 #define FRAME_ALLOC_SIZE    (0x00E00000 / 0x1000)
 DECLARE_BITMAP(FRAME_BITMAP, FRAME_ALLOC_SIZE);
 
-static struct bitmap_t *get_bitmap_addr(struct bitmap_t * const ptr) {
+// Get a pointer on the bitmap of the frame allocator.
+// @return: Either a physical or virtual pointer whether or not paging has been
+// enabled already.
+static struct bitmap_t *get_bitmap_addr(void) {
     if (cpu_paging_enabled()) {
-        return ptr;
+        return &FRAME_BITMAP;
     } else {
-        return to_phys(ptr);
+        return to_phys(&FRAME_BITMAP);
     }
 }
 
@@ -28,7 +31,7 @@ void init_frame_alloc(void) {
     // Assert will probably not work here as the output might not be
     // initialized.
     ASSERT(!cpu_paging_enabled());
-    struct bitmap_t * const bitmap = get_bitmap_addr(&FRAME_BITMAP);
+    struct bitmap_t * const bitmap = get_bitmap_addr();
     // Since the frame allocator is initialized before paging we need to set the
     // `data` pointer to a physical address before manipulating the bitmap. Once
     // paging is enabled it will be reverted to its virtual address.
@@ -47,13 +50,21 @@ void init_frame_alloc(void) {
 }
 
 void fixup_frame_alloc_to_virt(void) {
-    struct bitmap_t * const bitmap = get_bitmap_addr(&FRAME_BITMAP);
+    // Paging has been enabled, we can now use a virtual pointer for the `data`
+    // field of the bitmap.
+    struct bitmap_t * const bitmap = get_bitmap_addr();
     bitmap->data = to_virt(bitmap->data);
 }
 
 void *alloc_frame(void) {
-    struct bitmap_t * const bitmap = get_bitmap_addr(&FRAME_BITMAP);
+    struct bitmap_t * const bitmap = get_bitmap_addr();
+    // Try to find the next free frame (that is the next free bit in the
+    // bitmap). If no frame is available, panic, there is nothing to do.
     uint32_t const frame_idx = bitmap_set_next_bit(bitmap);
+    if (frame_idx == BM_NPOS) {
+        PANIC("No physical frame available.");
+    }
+    // A frame is available, its address is the bit position * PAGE_SIZE.
     void * const frame_addr = (void*)(frame_idx * 0x1000);
     return frame_addr;
 }
