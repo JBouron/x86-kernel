@@ -68,3 +68,41 @@ void *alloc_frame(void) {
     void * const frame_addr = (void*)(frame_idx * 0x1000);
     return frame_addr;
 }
+
+// Compute the index of the bit in the bitmap corresponding to a physical frame
+// address.
+// @param ptr: The physical address of the frame of which the function should
+// return the index. Note: this address _must_ be 4KiB aligned.
+// @return: The index in the bitmap of the frame pointed by `ptr`.
+static uint32_t frame_index(void const * const ptr) {
+    ASSERT(is_4kib_aligned(ptr));
+    return ((uint32_t)ptr) / 0x1000;
+}
+
+void free_frame(void const * const ptr) {
+    struct bitmap_t * const bitmap = get_bitmap_addr();
+
+    // The pointer is supposed to describe a physical frame and therefore should
+    // be 4KiB aligned.
+    ASSERT(is_4kib_aligned(ptr));
+
+    // First check that the frame is currently in use.
+    uint32_t const idx = frame_index(ptr);
+    bool const in_use = bitmap_get_bit(bitmap, idx);
+
+    if (!in_use) {
+        // Even though it wouldn't break anything we should panic on a double
+        // free as it might be helpful to find a bug in the caller.
+        PANIC("Double free");
+    }
+
+    // The frame is currently in use, free the bit up.
+    bitmap_unset(bitmap, idx);
+}
+
+uint32_t frames_allocated(void) {
+    struct bitmap_t * const bitmap = get_bitmap_addr();
+    return bitmap->size - bitmap->free;
+}
+
+#include <frame_alloc.test>

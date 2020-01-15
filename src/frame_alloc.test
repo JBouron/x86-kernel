@@ -1,0 +1,72 @@
+#include <test.h>
+
+// Test allocation a few frames, freeing some and reallocating new ones. We
+// should see the same addresses.
+static bool frame_allocator_alloc_and_free_frame_test(void) {
+    uint32_t const n_allocs = 32;
+    void const * frames[n_allocs];
+
+    for (uint32_t i = 0; i < n_allocs; ++i) {
+        // Allocate a new frame, we should see the addresses monotically
+        // increasing. Moreover since we allocate frames one after the other,
+        // they should be continuous.
+        void const * const f = alloc_frame();
+        frames[i] = f;
+        if (i) {
+            TEST_ASSERT(f > frames[i-1]);
+            TEST_ASSERT(f - frames[i-1] == 0x1000);
+        }
+    }
+
+    // Free up all even frames.
+    for (uint32_t i = 0; i < n_allocs; ++i) {
+        if (i % 2 == 0) {
+            free_frame(frames[i]);
+            // Note that we do not remove the pointer from the frames array. We
+            // will reuse them later.
+        }
+    }
+
+    // Reallocate all even indices. Check that we get the same frames as before.
+    for (uint32_t i = 0; i < n_allocs; ++i) {
+        if (i % 2 == 0) {
+            void const * const f = alloc_frame();
+            TEST_ASSERT(frames[i] == f);
+        }
+    }
+
+    // Test is over, free up all the frames.
+    for (uint32_t i = 0; i < n_allocs; ++i) {
+        free_frame(frames[i]);
+    }
+    return true;
+}
+
+// Check that the frame allocator reports the correct number of frames being
+// currently allocated.
+static bool frame_allocator_frames_allocated_test(void) {
+    uint32_t const start = frames_allocated();
+    uint32_t const n_allocs = 32;
+    void const * frames[n_allocs];
+
+    // Allocate frames.
+    for (uint32_t i = 0; i < n_allocs; ++i) {
+        TEST_ASSERT(frames_allocated() == start + i);
+        frames[i] = alloc_frame();
+        TEST_ASSERT(frames_allocated() == start + i + 1);
+    }
+
+    // Deallocate frames.
+    for (int32_t i = n_allocs - 1; i >= 0; --i) {
+        TEST_ASSERT(frames_allocated() == start + (uint32_t)i + 1);
+        free_frame(frames[i]);
+        TEST_ASSERT(frames_allocated() == start + (uint32_t)i);
+    }
+
+    return true;
+}
+
+void frame_alloc_test(void) {
+    TEST_FWK_RUN(frame_allocator_alloc_and_free_frame_test);
+    TEST_FWK_RUN(frame_allocator_frames_allocated_test);
+}

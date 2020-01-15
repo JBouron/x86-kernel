@@ -14,6 +14,7 @@
 #include <interrupt.h>
 #include <lapic.h>
 #include <bitmap.h>
+#include <frame_alloc.h>
 #include <paging.h>
 
 // Execute all the tests in the kernel.
@@ -30,6 +31,7 @@ static void test_kernel(void) {
     interrupt_test();
     lapic_test();
     bitmap_test();
+    frame_alloc_test();
     paging_test();
     print_test_summary();
 }
