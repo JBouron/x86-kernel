@@ -1,5 +1,6 @@
 #pragma once
 #include <types.h>
+#include <debug.h>
 
 // A testing function is simply a function retuning a boolean indicating
 // success/failure.
@@ -25,6 +26,8 @@ void print_test_summary(void);
 #define TEST_ASSERT(cond) \
     do { \
         if (!(cond)) { \
+            LOG(#cond); \
+            LOG("\n"); \
             FAILURE \
         }\
     } while(0)

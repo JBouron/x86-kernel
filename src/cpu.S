@@ -362,3 +362,8 @@ ASM_FUNC_DEF(cpu_invalidate_tlb):
     mov     %cr3, %eax
     mov     %eax, %cr3
     ret
+
+//void *cpu_read_cr2(void);
+ASM_FUNC_DEF(cpu_read_cr2):
+    mov     %cr2, %eax
+    ret

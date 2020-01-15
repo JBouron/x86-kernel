@@ -95,8 +95,6 @@ static struct page_dir_t * KERNEL_PAGE_DIR = 0x0;
 static void create_recursive_entry(struct page_dir_t * const page_dir) {
     // For now this function will not work if paging has already been enabled.
     // TODO :#:
-    ASSERT(!cpu_paging_enabled());
-
     union pde_t recursive_entry;
     // This is a must as the goal of the recursive entry is to write to the
     // dir/table.
@@ -204,6 +202,8 @@ static void map_page(struct page_dir_t * const page_dir,
         pde.writable = 1;
         pde.write_through = 0;
         pde.cache_disable = 0;
+        // Reset accessed bit.
+        pde.accessed = 0;
 
         // For now we are mapping the kernel which should not be accessible to
         // the user.
@@ -228,11 +228,18 @@ static void map_page(struct page_dir_t * const page_dir,
     }
 
     union pte_t pte;
-    pte.writable = flags & VM_WRITE;
-    pte.write_through = flags & VM_WRITE_THROUGH;
-    pte.cache_disable = flags & VM_CACHE_DISABLE;
-    pte.global = 1;
-    pte.user_accessible = flags & VM_USER;
+    // Need to be extremely careful with the bitwise op here. The value stored
+    // in the attributes of the PTE need to be 0 or 1, anything higher might not
+    // map to what it seems (eg. pte.write_through = 2 will write 0 instead).
+    // This is because of the bitfields with size 1 bit.
+    pte.writable = (bool)(flags & VM_WRITE);
+    pte.write_through = (bool)(flags & VM_WRITE_THROUGH);
+    pte.cache_disable = (bool)(flags & VM_CACHE_DISABLE);
+    pte.global = (bool)!(flags & VM_NON_GLOBAL);
+    pte.user_accessible = (bool)(flags & VM_USER);
+    // Reset accessed and dirty bits.
+    pte.accessed = 0;
+    pte.dirty = 0;
     pte.zero = 0;
     pte.present = 1;
     pte.frame_addr = ((uint32_t)paddr) >> 12;
@@ -267,7 +274,6 @@ static void create_identity_and_higher_half_mappings(struct page_dir_t * pd) {
             // Any other addresses are read/write.
             flags = VM_WRITE;
         }
-        flags |= VM_GLOBAL;
 
         void const * const paddr = to_phys(ptr);
         void const * const vaddr = ptr;
@@ -411,3 +417,5 @@ void paging_unmap(void const * const vaddr,
     }
     cpu_invalidate_tlb();
 }
+
+#include <paging.test>

@@ -105,3 +105,8 @@ static inline bool is_4kib_aligned(void const * const p) {
     uint32_t const offset = (uint32_t)p;
     return !(offset & 0xFFF);
 }
+
+// Get the (virtual) address of the virtual page containing an address.
+// @param ptr: The address to get its page address from.
+// @return: A 4KiB aligned address corresponding to the page containing `ptr`.
+void * get_page_addr(void const * const ptr);

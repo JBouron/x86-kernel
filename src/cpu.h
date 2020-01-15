@@ -198,5 +198,9 @@ void cpu_enable_paging(void);
 // Flush/invalidate the TLB on the current core.
 void cpu_invalidate_tlb(void);
 
+// Read the address reported into the CR2 register.
+// @return: The current value of the CR2 register.
+void *cpu_read_cr2(void);
+
 // Execute tests on CPU related functions.
 void cpu_test(void);

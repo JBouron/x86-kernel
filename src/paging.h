@@ -10,7 +10,7 @@ void init_paging(void const * const esp);
 #define VM_WRITE_THROUGH    (1 << 1)
 #define VM_CACHE_DISABLE    (1 << 2)
 #define VM_USER             (1 << 3)
-#define VM_GLOBAL           (1 << 4)
+#define VM_NON_GLOBAL       (1 << 4)
 
 void paging_map(void const * const paddr,
                 void const * const vaddr,

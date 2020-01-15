@@ -16,3 +16,9 @@ ASM_FUNC_DEF(to_virt):
     add     $KERNEL_PHY_OFFSET, %eax
     ret
 
+#void * get_page_addr(void const * const ptr);
+ASM_FUNC_DEF(get_page_addr):
+    mov     $0xFFF, %eax
+    not     %eax
+    and     0x4(%esp), %eax
+    ret

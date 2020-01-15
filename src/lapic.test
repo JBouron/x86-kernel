@@ -86,6 +86,7 @@ static bool periodic_lapic_timer_test(void) {
     }
     // Timer was a success.
 
+    cpu_set_interrupt_flag(false);
     interrupt_delete_callback(timer_vector);
     return timer_periods == 4;
 }
