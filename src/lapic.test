@@ -34,7 +34,7 @@ static bool enable_apic_test(void) {
 // interrupt get generated onces the timer reaches 0.
 // The vector to use once the timer reaches 0.
 static uint8_t const timer_vector = 32;
-static uint32_t const timer_init_count = 5000000;
+static uint32_t const timer_init_count = 10000000;
 static bool is_periodic = false;
 // How many periods of the timers ?
 static uint8_t timer_periods = 0;
