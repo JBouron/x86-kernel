@@ -59,6 +59,7 @@ static bool _paging_map_page_page_table_test_runner(uint32_t const flags) {
     union pte_t const pte = get_page_table_vaddr(pde_idx)->entry[pte_idx];
 
     unmap_page(vaddr);
+    cpu_invalidate_tlb();
 
 
     TEST_ASSERT(pde.present == 1);
@@ -258,6 +259,35 @@ static bool paging_unmap_page_test(void) {
     return true;
 }
 
+// Tests that when unmapping a virtual address, the paging_unmap function will
+// free any frames that contains a page table that is not required anymore.
+static bool paging_unmap_frees_frames_test(void) {
+    // The number of pages allocated at the start of this test.
+    uint32_t const allocated_at_start = frames_allocated();
+
+    // Map a huge memory area, the goal here is to force paging_map to allocate
+    // as many frames for new page tables as possible.
+    void const * const paddr = (void*)NULL;
+    void const * const vaddr = (void*)NULL;
+    // 16MiB map.
+    size_t const len = 16 * (1 << 20);
+
+    // The flags don't matter at all.
+    paging_map(paddr, vaddr, len, 0);
+
+    // Compute the number of new frames allocated by paging_map. Each allocated
+    // frame should correspond to a new page table.
+    uint32_t const delta_allocs = frames_allocated() - allocated_at_start;
+
+    // Unmap.
+    paging_unmap(vaddr, len);
+    // We expect one page table per 4MiB mapped, hence the same amount for
+    // allocation.
+    uint32_t const expected_delta = ceil_x_over_y_u32(len, 4 << 20);
+    return expected_delta == delta_allocs &&
+        frames_allocated() == allocated_at_start;
+}
+
 void paging_test(void) {
     TEST_FWK_RUN(paging_create_recursive_entry_test);
     TEST_FWK_RUN(paging_get_curr_page_dir_vaddr_test);
@@ -267,4 +297,5 @@ void paging_test(void) {
     TEST_FWK_RUN(paging_map_test);
     TEST_FWK_RUN(paging_pagefault_test);
     TEST_FWK_RUN(paging_unmap_page_test);
+    TEST_FWK_RUN(paging_unmap_frees_frames_test);
 }

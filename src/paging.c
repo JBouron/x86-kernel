@@ -358,6 +358,19 @@ void init_paging(void const * const esp) {
     *ret_addr = (uint32_t)to_virt((void const*)*ret_addr);
 }
 
+// Check if a page table is empty, that is all of its entry have the present bit
+// set to 0.
+// @param table: The page table to test.
+// @return: true if the page table is empty, false otherwise.
+static bool page_table_is_empty(struct page_table_t const * const table) {
+    for (uint16_t i = 0; i < 1024; ++i) {
+        if (table->entry[i].present) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Unmap a virtual page.
 // @param vaddr: The address of the virtual page. Must be 4Kib aligned.
 static void unmap_page(void const * const vaddr) {
@@ -378,6 +391,18 @@ static void unmap_page(void const * const vaddr) {
     }
 
     memzero(&page_table->entry[pte_idx], sizeof(*page_table->entry));
+
+    // Check if the current page table became empty when removing the entry
+    // above. If this is the case then the frame used by this table should be
+    // freed.
+    if (page_table_is_empty(page_table)) {
+        // This was the last page in the page table. Free the frame used by the
+        // page table and mark the corresponding PDE as not present.
+        page_dir->entry[pde_idx].present = 0;
+        void const * const frame_addr =
+            (void*)(page_dir->entry[pde_idx].page_table_addr << 12);
+        free_frame(frame_addr);
+    }
 }
 
 // Map a virtual memory region to a physical one.
