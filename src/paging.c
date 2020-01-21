@@ -192,10 +192,12 @@ static void map_page(struct page_dir_t * const page_dir,
     }
 
     uint32_t const pde_idx = pde_index(vaddr);
+    bool page_table_allocated = false;
     if (!page_dir->entry[pde_idx].present) {
         // The table for this index is not present, we need to allocate it and
         // set it up.
         struct page_table_t * const new_table = alloc_page_table();
+        page_table_allocated = true;
         union pde_t pde;
         // Try to be as inclusive as possible for the PDE. The PTEs will
         // enforced the actual attributes.
@@ -219,6 +221,12 @@ static void map_page(struct page_dir_t * const page_dir,
     struct page_table_t * const page_table = cpu_paging_enabled() ?
         get_page_table_vaddr(pde_idx) :
         (struct page_table_t*)(page_dir->entry[pde_idx].page_table_addr << 12);
+
+    if (page_table_allocated) {
+        // If the page table has been freshly allocated zero it, this is to
+        // avoid garbage.
+        memzero(page_table, sizeof(*page_table));
+    }
 
     uint32_t const pte_idx = pte_index(vaddr);
 
