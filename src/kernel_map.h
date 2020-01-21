@@ -30,7 +30,7 @@ extern uint8_t KERNEL_END;
 #define SECTION_DATA_END_ADDR        (&SECTION_DATA_END)
 #define SECTION_BSS_START_ADDR       (&SECTION_BSS_START)
 #define SECTION_BSS_END_ADDR         (&SECTION_BSS_END)
-#define KERNEL_END_ADDR              (&KERNEL_END)
+#define KERNEL_END_ADDR              (&KERNEL_END - 1)
 
 // The size of the kernel's sections and the kernel itself.
 #define KERNEL_SIZE         (KERNEL_END_ADDR - KERNEL_START_ADDR)

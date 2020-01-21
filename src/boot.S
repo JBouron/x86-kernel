@@ -2,7 +2,8 @@
 .set ALIGN,    1 << 0             # align loaded modules on page boundaries
 .set MEMINFO,  1 << 1             # provide memory map
 .set VIDINFO,  1 << 2
-.set FLAGS,    ALIGN | VIDINFO | MEMINFO  # this is the Multiboot 'flag' field
+.set MEMMAP,   1 << 6  # Detailled map of available memory.
+.set FLAGS,    ALIGN | VIDINFO | MEMINFO | MEMMAP # Multiboot 'flag' field.
 .set MAGIC,    0x1BADB002       # 'magic num' lets bootloader find the header
 .set CHECKSUM, -(MAGIC + FLAGS) # checksum of above, to prove we are multiboot
 
@@ -35,11 +36,13 @@ ASM_FUNC_DEF(_start_kernel):
     # We setup an early boot stack pointer in physical addressing mode before
     # enabling paging.
     mov     $(stack_top), %esp
-    sub     $KERNEL_START, %esp
+    sub     $KERNEL_PHY_OFFSET, %esp
 
     # Note: %ebx contains the physical address of the multiboot header. We will
     # need it later in the kernel_main thus save it into the stack
     push    %ebx
+
+    call    init_multiboot
 
     # Even though the multiboot compliant bootloader has created flat segments
     # for us, it is recommended that the OS sets up its own GDT. Do that now
@@ -54,6 +57,11 @@ ASM_FUNC_DEF(_start_kernel):
     # We can now initialize paging.
     push    %esp
     call    init_paging
+
+    # Get rid of the pushed ESP, the top of the stack now contains the old value
+    # of EBX which is the address of the multiboot header. This is required by
+    # the main.
+    add     $0x4, %esp
 
     # Enter the main of the kernel with the address of the multi boot header as
     # argument.

@@ -4,8 +4,10 @@
 CC=/root/opt/cross/bin/i686-elf-gcc
 AS=/root/opt/cross/bin/i686-elf-as
 # The flags used to compile all the source files of the kernel.
+# Note: The -Wno-array-bounds is necessary as some physical pointer arithmetic
+# would trigger warning messages about an out-of-bounds access.
 KERNEL_CFLAGS=-O2 -g -Wall -Wextra -Werror -ffreestanding -nostdlib -I./src \
-	-static-libgcc -lgcc
+	-static-libgcc -lgcc -Wno-array-bounds
 KERNEL_ASFLAGS=-O2 -g
 # The name of the linker script used to build the kernel image.
 LINKER_SCRIPT=linker.ld

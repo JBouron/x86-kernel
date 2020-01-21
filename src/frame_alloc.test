@@ -3,18 +3,17 @@
 // Test allocation a few frames, freeing some and reallocating new ones. We
 // should see the same addresses.
 static bool frame_allocator_alloc_and_free_frame_test(void) {
-    uint32_t const n_allocs = 32;
+    uint32_t const n_allocs = min_u32(32, FRAME_BITMAP.free);
     void const * frames[n_allocs];
 
     for (uint32_t i = 0; i < n_allocs; ++i) {
         // Allocate a new frame, we should see the addresses monotically
-        // increasing. Moreover since we allocate frames one after the other,
-        // they should be continuous.
+        // increasing.
         void const * const f = alloc_frame();
+        LOG("Allocated frame at %p\n", f);
         frames[i] = f;
         if (i) {
             TEST_ASSERT(f > frames[i-1]);
-            TEST_ASSERT(f - frames[i-1] == 0x1000);
         }
     }
 

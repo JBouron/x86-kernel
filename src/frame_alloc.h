@@ -1,5 +1,6 @@
 #pragma once
 #include <types.h>
+#include <multiboot.h>
 
 // This file contains the public interface of the physical frame allocator used
 // in this kernel.
