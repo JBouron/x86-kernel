@@ -6,7 +6,7 @@
 // This structure holds all of the state for a bitmap.
 struct bitmap_t {
     // The size (in number of bits) that the bitmap can hold.
-    uint32_t const size;
+    uint32_t size;
     // The number of free / available bits in the bitmap.
     uint32_t free;
     // The uint32_t array storing the actual bitmap.
@@ -28,6 +28,19 @@ struct bitmap_t {
         .free = _size,                                              \
         .data = _bitmap_ ## _name ## _data,                         \
     };
+
+// Initialize a bitmap with a given size and data array.
+// @param bitmap: The bitmap to initialize.
+// @param size: The size of the bitmap in bits.
+// @param data: A pointer to the array to use as the bitmap's data.
+// @param default_val: The default value to reset _all_ the bits of the bitmap
+// to.
+// Note: There is no way to check that the data array is big enough to hold size
+// bits. It is the responsibility of the caller to ensure that it is the case.
+void bitmap_init(struct bitmap_t * const bitmap,
+                 uint32_t const size,
+                 uint32_t * const data,
+                 bool const default_val);
 
 // Reset a bitmap. That is unset all the bits, making the bitmap empty.
 // @param bitmap: The bitmap to reset.
