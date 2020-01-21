@@ -1,0 +1,431 @@
+#include <test.h>
+
+#define MB_INFO_TEST_SETUP()                                        \
+    struct multiboot_info const * const __old_mi = MULTIBOOT_INFO;  \
+    struct multiboot_info FAKE_MI;                                  \
+    MULTIBOOT_INFO = to_phys(&FAKE_MI);
+
+#define MB_INFO_TEST_TEARDOWN() \
+    MULTIBOOT_INFO = __old_mi;
+
+static struct multiboot_mmap_entry FAKE_ENTRIES[5];
+
+// Test for get_max_addr_for_entry.
+static bool get_max_addr_for_entry_test(void) {
+    // This entry indicate that a frame at address 0x1000 is available with the
+    // length == frame length. Therefore we should be able to address the
+    // entire frame but not after the frame. The expected max addr is therefore
+    // the address of the last byte of the frame, that is 0x1FFF. The byte after
+    // that belongs to the next frame.
+    struct multiboot_mmap_entry entry = {
+        .size = 0x14,
+        .base_addr = 0x1000,
+        .length = 0x1000,
+        .type = 1,
+    };
+    return get_max_addr_for_entry(&entry) == 0x1FFF;
+}
+
+static bool get_max_addr_simple_test(void) {
+    MB_INFO_TEST_SETUP();
+
+    FAKE_MI.mmap_addr = (uint32_t)FAKE_ENTRIES;
+    FAKE_MI.mmap_length = 3 * sizeof(struct multiboot_mmap_entry);
+
+    struct multiboot_mmap_entry const ent0 = {
+        .size = 0x14,
+        .base_addr = 0x0,
+        .length = 0x9af3,
+        .type = 1,
+    };
+    FAKE_ENTRIES[0] = ent0;
+
+    // This is the last available area.
+    struct multiboot_mmap_entry const ent1 = {
+        .size = 0x14,
+        .base_addr = 0x100000,
+        .length = 0x1000,
+        .type = 1,
+    };
+    FAKE_ENTRIES[1] = ent1;
+    // The max address is then expected to be 0x100000 + 0x1000 - 1.
+
+    struct multiboot_mmap_entry const ent2 = {
+        .size = 0x14,
+        .base_addr = 0x101000,
+        .length = 0x9af3,
+        .type = 2,
+    };
+    FAKE_ENTRIES[2] = ent2;
+
+    void const * const max_addr = get_max_addr();
+    MB_INFO_TEST_TEARDOWN();
+    return max_addr == (void*)(0x101000 - 1);
+}
+
+// Test in which the last available entry goes over the 4GiB limit, but its base
+// addr is still under 4GiB.
+static bool get_max_addr_more_than_4GiB_test(void) {
+    MB_INFO_TEST_SETUP();
+
+    FAKE_MI.mmap_addr = (uint32_t)FAKE_ENTRIES;
+    FAKE_MI.mmap_length = 2 * sizeof(struct multiboot_mmap_entry);
+
+    struct multiboot_mmap_entry const ent0 = {
+        .size = 0x14,
+        .base_addr = 0x0,
+        .length = 0x9af3,
+        .type = 2,
+    };
+    FAKE_ENTRIES[0] = ent0;
+
+    // This is the last available area.
+    struct multiboot_mmap_entry const ent1 = {
+        .size = 0x14,
+        .base_addr = 0xF0000000,
+        .length = 0x40000000,
+        .type = 1,
+    };
+    FAKE_ENTRIES[1] = ent1;
+    // The max address is then expected to be 0xF0000000 + 0x40000000 which is
+    // above the 4GiB limit. Hence we expect get_max_addr to return 0xFFFFFFFF.
+
+    void const * const max_addr = get_max_addr();
+    MB_INFO_TEST_TEARDOWN();
+    return max_addr == (void*)(0xFFFFFFFF);
+}
+
+// As before we have more than 4GiB, but this time the last available entry is
+// completely above 4GiB.
+static bool get_max_addr_more_than_4GiB_test_2(void) {
+    MB_INFO_TEST_SETUP();
+
+    FAKE_MI.mmap_addr = (uint32_t)FAKE_ENTRIES;
+    FAKE_MI.mmap_length = 2 * sizeof(struct multiboot_mmap_entry);
+
+    // Since the entry 1 is fully above 4GiB, this entry is considered the last
+    // available entry and hence the max addr should be 0x0 + 0x9af3 - 1.
+    struct multiboot_mmap_entry const ent0 = {
+        .size = 0x14,
+        .base_addr = 0x0,
+        .length = 0x9af3,
+        .type = 1,
+    };
+    FAKE_ENTRIES[0] = ent0;
+
+    struct multiboot_mmap_entry const ent1 = {
+        .size = 0x14,
+        .base_addr = 0xF00000000UL,
+        .length = 0x40000000,
+        .type = 1,
+    };
+    FAKE_ENTRIES[1] = ent1;
+
+    void const * const max_addr = get_max_addr();
+    MB_INFO_TEST_TEARDOWN();
+    return max_addr == (void*)(0x9af3 - 1);
+}
+
+// The last available entry starts at 0xFFFFFFFF.
+static bool get_max_addr_more_than_4GiB_test_3(void) {
+    MB_INFO_TEST_SETUP();
+
+    FAKE_MI.mmap_addr = (uint32_t)FAKE_ENTRIES;
+    FAKE_MI.mmap_length = 2 * sizeof(struct multiboot_mmap_entry);
+
+    struct multiboot_mmap_entry const ent0 = {
+        .size = 0x14,
+        .base_addr = 0x0,
+        .length = 0x9af3,
+        .type = 1,
+    };
+    FAKE_ENTRIES[0] = ent0;
+
+    struct multiboot_mmap_entry const ent1 = {
+        .size = 0x14,
+        .base_addr = 0xFFFFFFFF,
+        .length = 0x40000000,
+        .type = 1,
+    };
+    FAKE_ENTRIES[1] = ent1;
+
+    void const * const max_addr = get_max_addr();
+    MB_INFO_TEST_TEARDOWN();
+    return max_addr == (void*)(0xFFFFFFFF);
+}
+
+// Test that get_max_addr supports memory maps that are out of order.
+static bool get_max_addr_out_of_order_test(void) {
+    MB_INFO_TEST_SETUP();
+
+    FAKE_MI.mmap_addr = (uint32_t)FAKE_ENTRIES;
+    FAKE_MI.mmap_length = 3 * sizeof(struct multiboot_mmap_entry);
+
+    struct multiboot_mmap_entry const ent0 = {
+        .size = 0x14,
+        .base_addr = 0x0,
+        .length = 0x9af3,
+        .type = 1,
+    };
+
+    // This is the last available area.
+    struct multiboot_mmap_entry const ent1 = {
+        .size = 0x14,
+        .base_addr = 0x100000,
+        .length = 0x1000,
+        .type = 1,
+    };
+    // The max address is then expected to be 0x100000 + 0x1000 - 1.
+
+    struct multiboot_mmap_entry const ent2 = {
+        .size = 0x14,
+        .base_addr = 0x101000,
+        .length = 0x9af3,
+        .type = 2,
+    };
+    FAKE_ENTRIES[0] = ent1;
+    FAKE_ENTRIES[1] = ent2;
+    FAKE_ENTRIES[2] = ent0;
+
+    void const * const max_addr = get_max_addr();
+    MB_INFO_TEST_TEARDOWN();
+    return max_addr == (void*)(0x101000 - 1);
+}
+
+static bool contains_kernel_test(void) {
+    // An entry spanning from the byte _before_ the kernel to the byte _after_
+    // the kernel.
+    struct multiboot_mmap_entry entry = {
+        .size = 0x14,
+        .base_addr = (uint32_t)to_phys(KERNEL_START_ADDR) - 1,
+        .length = KERNEL_SIZE + 1,
+        .type = 1,
+    };
+
+    TEST_ASSERT(contains_kernel(&entry));
+
+    // The entry is now exactly the kernel.
+    entry.base_addr = (uint32_t)to_phys(KERNEL_START_ADDR);
+    entry.length = KERNEL_SIZE;
+    TEST_ASSERT(contains_kernel(&entry));
+
+    // The entry is now a subset of the kernel.
+    entry.base_addr = (uint32_t)to_phys(KERNEL_START_ADDR) + 1;
+    entry.length = KERNEL_SIZE - 1;
+    TEST_ASSERT(contains_kernel(&entry));
+
+    entry.base_addr = (uint32_t)to_phys(KERNEL_START_ADDR) - 50;
+    entry.length = 100;
+    TEST_ASSERT(contains_kernel(&entry));
+
+    entry.base_addr = (uint32_t)to_phys(KERNEL_END_ADDR) - 50;
+    entry.length = 100;
+    TEST_ASSERT(contains_kernel(&entry));
+
+    entry.base_addr = (uint32_t)to_phys(KERNEL_START_ADDR) - 50;
+    entry.length = 50;
+    TEST_ASSERT(!contains_kernel(&entry));
+
+    entry.base_addr = (uint32_t)to_phys(KERNEL_END_ADDR) + 1;
+    entry.length = 50;
+    TEST_ASSERT(!contains_kernel(&entry));
+    return true;
+}
+
+static bool find_in_entry_test_simple(void) {
+    struct multiboot_mmap_entry entry = {
+        .size = 0x14,
+        .base_addr = 0x0,
+        .length = 0x4000,
+        .type = 1,
+    };
+    void * start = (void*)0xFFFFFFFF;
+    bool found = find_in_entry(&entry, 0x4000, &start);
+    TEST_ASSERT(found && !start);
+
+    // The base address does not start on a 4KiB boundary. Therefore we can't
+    // fit 4 pages into this entry.
+    entry.base_addr = 1;
+    start = (void*)0xFFFFFFFF;
+    TEST_ASSERT(!find_in_entry(&entry, 0x4000, &start));
+
+    // Should be possible to alloc 3 frames though: From  0x1000 to 0x3FFF.
+    entry.base_addr = 1;
+    start = (void*)0xFFFFFFFF;
+    TEST_ASSERT(find_in_entry(&entry, 0x3000, &start));
+    TEST_ASSERT(start == (void*)0x1000);
+
+    return true;
+}
+
+// Test to find frames in an entry covering the kernel entirely, that is:
+//      [ ... ... ... { ... ... ... } ... ... ... ]
+//      ^             ^             ^             ^
+//      |             |             |             |
+//      entry start   kernel start  kernel end    entry end
+static bool find_in_entry_test_with_kernel_1(void) {
+    ASSERT(is_4kib_aligned(KERNEL_START_ADDR));
+
+    uint64_t const kernel_start = (uint32_t)to_phys(KERNEL_START_ADDR);
+    ASSERT(kernel_start >= 0x1000);
+    struct multiboot_mmap_entry entry = {
+        .size = 0x14,
+        .base_addr = kernel_start - 0x1000,
+        // We have 1 frame before the kernel and 12 KiB after the kernel, which
+        // means at least 2 frames when 4KiB aligned.
+        .length = 0x1000 + KERNEL_SIZE + 0x3000,
+        .type = 1,
+    };
+
+    // We have 1 frame between the start of this entry to the kernel, hence way
+    // more than enough to fit 50 bytes.
+    void * start = (void*)0xFFFFFFFF;
+    bool found = find_in_entry(&entry, 50, &start);
+    TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
+
+    // Asking for a full frame should also be feasible.
+    start = (void*)0xFFFFFFFF;
+    found = find_in_entry(&entry, 0x1000, &start);
+    TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
+
+    // We should be able to fit two frames after the kernel.
+    start = (void*)0xFFFFFFFF;
+    found = find_in_entry(&entry, 0x2000, &start);
+    TEST_ASSERT(found);
+    // The start address should be the next 4KiB after the kernel.
+    TEST_ASSERT(is_4kib_aligned(start));
+    TEST_ASSERT(start >= to_phys(KERNEL_END_ADDR));
+    TEST_ASSERT((uint32_t)(start - to_phys(KERNEL_END_ADDR)) < 0x1000);
+
+    start = (void*)0xFFFFFFFF;
+    found = find_in_entry(&entry, 0x3000, &start);
+    TEST_ASSERT(!found);
+
+    return true;
+}
+
+// Test to find frames in an entry partially covering the kernel, that is:
+//      { ... ... ... [ ... ... ... } ... ... ... ]
+//      ^             ^             ^             ^
+//      |             |             |             |
+//      kernel start  entry start   kernel end    entry end
+static bool find_in_entry_test_with_kernel_2(void) {
+    ASSERT(is_4kib_aligned(KERNEL_START_ADDR));
+
+    uint64_t const kernel_start = (uint32_t)to_phys(KERNEL_START_ADDR);
+    ASSERT(kernel_start >= 0x1000);
+    struct multiboot_mmap_entry entry = {
+        .size = 0x14,
+        .base_addr = kernel_start + 0x1000,
+        // We have 12 KiB after the kernel, which means at least 2 frames when
+        // 4KiB aligned.
+        .length = KERNEL_SIZE + 0x2000,
+        .type = 1,
+    };
+
+    void const * const first_free_frame =
+        get_page_addr(to_phys(KERNEL_END_ADDR)) + 0x1000;
+
+    void * start = (void*)0xFFFFFFFF;
+    bool found = find_in_entry(&entry, 50, &start);
+    TEST_ASSERT(found && start == first_free_frame);
+
+    // Asking for a full frame should also be feasible.
+    start = (void*)0xFFFFFFFF;
+    found = find_in_entry(&entry, 0x1000, &start);
+    TEST_ASSERT(found && start == first_free_frame);
+
+    // We should be able to fit two frames after the kernel.
+    start = (void*)0xFFFFFFFF;
+    found = find_in_entry(&entry, 0x2000, &start);
+    TEST_ASSERT(found);
+    TEST_ASSERT(found && start == first_free_frame);
+
+    start = (void*)0xFFFFFFFF;
+    found = find_in_entry(&entry, 0x3000, &start);
+    TEST_ASSERT(!found);
+
+    return true;
+}
+
+// Test to find frames in an entry partially covering the kernel, that is:
+//      [ ... ... ... { ... ... ... ] ... ... ... }
+//      ^             ^             ^             ^
+//      |             |             |             |
+//      entry start   kernel start  entry end     kernel end
+static bool find_in_entry_test_with_kernel_3(void) {
+    ASSERT(is_4kib_aligned(KERNEL_START_ADDR));
+
+    uint64_t const kernel_start = (uint32_t)to_phys(KERNEL_START_ADDR);
+    ASSERT(kernel_start >= 0x1000);
+    struct multiboot_mmap_entry entry = {
+        .size = 0x14,
+        .base_addr = kernel_start - 0x1000,
+        .length = 0x2000,
+        .type = 1,
+    };
+
+    // We have 1 frame between the start of this entry to the kernel, hence way
+    // more than enough to fit 50 bytes.
+    void * start = (void*)0xFFFFFFFF;
+    bool found = find_in_entry(&entry, 50, &start);
+    TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
+
+    // Asking for a full frame should also be feasible.
+    start = (void*)0xFFFFFFFF;
+    found = find_in_entry(&entry, 0x1000, &start);
+    TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
+
+    // Two frames:
+    start = (void*)0xFFFFFFFF;
+    found = find_in_entry(&entry, 0x2000, &start);
+    TEST_ASSERT(!found);
+
+    return true;
+}
+
+static bool find_in_entry_test_with_kernel_4(void) {
+    ASSERT(is_4kib_aligned(KERNEL_START_ADDR));
+
+    uint64_t const kernel_start = (uint32_t)to_phys(KERNEL_START_ADDR);
+    ASSERT(kernel_start >= 0x1000);
+    struct multiboot_mmap_entry entry = {
+        .size = 0x14,
+        .base_addr = kernel_start - 0x1000,
+        .length = 0x3000,
+        .type = 1,
+    };
+
+    // We have 1 frame between the start of this entry to the kernel, hence way
+    // more than enough to fit 50 bytes.
+    void * start = (void*)0xFFFFFFFF;
+    bool found = find_in_entry(&entry, 50, &start);
+    TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
+
+    // Asking for a full frame should also be feasible.
+    start = (void*)0xFFFFFFFF;
+    found = find_in_entry(&entry, 0x1000, &start);
+    TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
+
+    // Asking for two frame should not be possible.
+    start = (void*)0xFFFFFFFF;
+    found = find_in_entry(&entry, 0x2000, &start);
+    TEST_ASSERT(!found);
+
+    return true;
+}
+
+void multiboot_test(void) {
+    TEST_FWK_RUN(get_max_addr_for_entry_test);
+    TEST_FWK_RUN(get_max_addr_simple_test);
+    TEST_FWK_RUN(get_max_addr_more_than_4GiB_test);
+    TEST_FWK_RUN(get_max_addr_more_than_4GiB_test_2);
+    TEST_FWK_RUN(get_max_addr_more_than_4GiB_test_3);
+    TEST_FWK_RUN(get_max_addr_out_of_order_test);
+    TEST_FWK_RUN(contains_kernel_test);
+    TEST_FWK_RUN(find_in_entry_test_simple);
+    TEST_FWK_RUN(find_in_entry_test_with_kernel_1);
+    TEST_FWK_RUN(find_in_entry_test_with_kernel_2);
+    TEST_FWK_RUN(find_in_entry_test_with_kernel_3);
+    TEST_FWK_RUN(find_in_entry_test_with_kernel_4);
+}

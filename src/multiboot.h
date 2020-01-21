@@ -1,5 +1,6 @@
 // Define the Multiboot information datastructure passed by the boot-loader.
 #pragma once
+#include <types.h>
 
 // Copyright (C) 1999,2003,2007,2008,2009,2010  Free Software Foundation, Inc.
 //
@@ -26,7 +27,7 @@ struct multiboot_aout_symbol_table {
     uint32_t strsize;
     uint32_t addr;
     uint32_t reserved;
-};
+}__attribute__((packed));
 
 /* The section header table for ELF. */
 struct multiboot_elf_section_header_table {
@@ -34,7 +35,7 @@ struct multiboot_elf_section_header_table {
     uint32_t size;
     uint32_t addr;
     uint32_t shndx;
-};
+}__attribute__((packed));
 
 struct multiboot_info {
 	/* Multiboot info version number */
@@ -111,4 +112,57 @@ struct multiboot_info {
 			uint8_t framebuffer_blue_mask_size;
 		};
 	};
-};
+}__attribute__((packed));
+
+struct multiboot_mmap_entry {
+	uint32_t size;
+	uint64_t base_addr;
+    uint64_t length;
+	uint32_t type;
+}__attribute__((packed));
+
+// Initialize the multiboot helper functions. Note: This function _must_ be
+// called before paging is enabled.
+// @param ptr: A physical pointer on the multiboot info struct.
+void init_multiboot(struct multiboot_info const * const ptr);
+
+// Get a pointer to the multiboot structure.
+// @return: A virtual or physcial pointer to the multiboot structure in RAM,
+// depending on whether or not paging has been enabled already.
+struct multiboot_info const *get_multiboot_info_struct(void);
+
+// Get a pointer on the first entry of the mmap buffer in the multiboot info
+// structure.
+// @return: A pointer on the first entry of mmap.
+struct multiboot_mmap_entry const *get_mmap_entry_ptr(void);
+
+// Get the number of entries in the memory map buffer of the multiboot
+// structure.
+// @param: The number of entries.
+uint32_t multiboot_mmap_entries_count(void);
+
+// Check if an entry in the mmap buffer is available for use.
+// @param entry: The entry to check.
+// @return: true if the entry indicates a memory region that is available for
+// use, false otherwise.
+bool mmap_entry_is_available(struct multiboot_mmap_entry const * const entry);
+
+// Check if a memory map entry describes a memory region that is within the
+// first 4GiB of physical memory, that is the base address is below 4GiB.
+// @param entry: The entry to test.
+// @return: true if the memory is within 4GiB, false otherwise.
+bool mmap_entry_within_4GiB(struct multiboot_mmap_entry const * const entry);
+
+// The the maximum physical address available in RAM. That is the address of the
+// very last available byte in RAM.
+// @return: The address of the last byte in RAM.
+void *get_max_addr(void);
+
+// Find a contiguous memory area in physical RAM.
+// @param len: The length in bytes of the memory area to find.
+// @return: A physical pointer that is guaranteed to have `len` available,
+// contiguous bytes.
+void * find_memory_area(size_t const len);
+
+// Execute tests related to the mutliboot struct manipulation functions.
+void multiboot_test(void);
