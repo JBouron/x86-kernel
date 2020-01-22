@@ -53,6 +53,15 @@ void * to_phys(void const * const ptr);
 // @return: The corresponding virtual pointer.
 void * to_virt(void const * const ptr);
 
+// Get the pointer in the current address space for a variable. This functions
+// is useful for code that can operate with paging both enabled and disabled.
+// @param var: The name of the variable to get a pointer to.
+// @evaluate: If paging is enabled, the macro/expression evaluates to the
+// virtual address of the variable `var`, otherwise it evaluates to the physical
+// address.
+#define PTR(var) \
+    ((typeof(&var))(cpu_paging_enabled() ? &var : to_phys(&var)))
+
 // Check if a pointer in a given range.
 // @param ptr: The pointer to test.
 // @param start: The lower bound of the range.
