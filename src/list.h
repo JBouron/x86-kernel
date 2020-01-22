@@ -1,4 +1,5 @@
 #pragma once
+#include <types.h>
 
 // This file defines an easy way to handle double linked lists.
 
@@ -37,6 +38,26 @@ void list_add_tail(struct list_node * const head, struct list_node * const n);
 // @param node: The element to remove.
 // Note: The node is re-initialized upon deletion.
 void list_del(struct list_node * const node);
+
+// Test if a list is empty.
+// @param head: The list to test.
+// @return: true if the list pointed by head is empty, false otherwise.
+bool list_empty(struct list_node const * const head);
+
+// Iterate over a list.
+// @param cursor: The struct list_node * to use as an iterator.
+// @param head: The list to iterate over.
+#define list_for_each(cursor, head) \
+    for (cursor = (head)->next; cursor != (head); cursor = cursor->next)
+
+// Iterate over the entries of a list.
+// @param entry: The type* to use as an iterator.
+// @param head: The list to iterate over.
+// @param member: The name of the list_node member in the entry to follow.
+#define list_for_each_entry(entry, head, member)                            \
+    for (entry = list_entry((head)->next, typeof(*entry), member);          \
+         &entry->member != (head);                                          \
+         entry = list_entry(entry->member.next, typeof(*entry), member))
 
 // Execute tests related to list manipulation.
 void list_test(void);

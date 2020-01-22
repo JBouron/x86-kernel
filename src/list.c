@@ -29,4 +29,8 @@ void list_del(struct list_node * const node) {
     list_init(node);
 }
 
+bool list_empty(struct list_node const * const head) {
+    return head->next == head;
+}
+
 #include <list.test>

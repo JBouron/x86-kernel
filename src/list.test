@@ -108,9 +108,101 @@ static bool list_del_test(void) {
     return true;
 }
 
+static bool list_for_each_test(void) {
+    struct list_node head;
+    struct list_node node0;
+    struct list_node node1;
+    struct list_node node2;
+
+    list_init(&head);
+    list_init(&node0);
+    list_init(&node1);
+    list_init(&node2);
+
+    list_add_tail(&head, &node0);
+    list_add_tail(&head, &node1);
+    list_add_tail(&head, &node2);
+
+    TEST_ASSERT(head.prev == &node2);
+    TEST_ASSERT(head.next == &node0);
+    TEST_ASSERT(node0.prev == &head);
+    TEST_ASSERT(node0.next == &node1);
+    TEST_ASSERT(node1.prev == &node0);
+    TEST_ASSERT(node1.next == &node2);
+    TEST_ASSERT(node2.prev == &node1);
+    TEST_ASSERT(node2.next == &head);
+
+    struct list_node *order[3] = {
+        &node0,
+        &node1,
+        &node2,
+    };
+
+    uint32_t i = 0;
+    struct list_node * ite;
+    list_for_each(ite, &head) {
+        TEST_ASSERT(ite == order[i]);
+        i ++;
+    }
+    return true;
+}
+
+static bool list_for_each_entry_test(void) {
+    struct list_node head;
+
+    struct list_entry_test_type elem0 = {
+        .a = 0,
+    };
+    struct list_entry_test_type elem1 = {
+        .a = 1,
+    };
+    struct list_entry_test_type elem2 = {
+        .a = 2,
+    };
+
+    struct list_node * const node0 = &elem0.head;
+    struct list_node * const node1 = &elem1.head;
+    struct list_node * const node2 = &elem2.head;
+
+    list_init(&head);
+    list_init(node0);
+    list_init(node1);
+    list_init(node2);
+
+    list_add_tail(&head, node0);
+    list_add_tail(&head, node1);
+    list_add_tail(&head, node2);
+
+    TEST_ASSERT(head.prev == node2);
+    TEST_ASSERT(head.next == node0);
+    TEST_ASSERT(node0->prev == &head);
+    TEST_ASSERT(node0->next == node1);
+    TEST_ASSERT(node1->prev == node0);
+    TEST_ASSERT(node1->next == node2);
+    TEST_ASSERT(node2->prev == node1);
+    TEST_ASSERT(node2->next == &head);
+
+    struct list_node *order[3] = {
+        node0,
+        node1,
+        node2,
+    };
+
+    uint32_t i = 0;
+    struct list_entry_test_type * entry;
+    list_for_each_entry(entry, &head, head) {
+        TEST_ASSERT(&entry->head == order[i]);
+        TEST_ASSERT(entry->a == i);
+        i ++;
+    }
+    return true;
+}
+
 void list_test(void) {
     TEST_FWK_RUN(list_entry_test);
     TEST_FWK_RUN(list_add_test);
     TEST_FWK_RUN(list_add_tail_test);
     TEST_FWK_RUN(list_del_test);
+    TEST_FWK_RUN(list_for_each_test);
+    TEST_FWK_RUN(list_for_each_entry_test);
 }
