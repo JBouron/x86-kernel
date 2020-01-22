@@ -1,0 +1,116 @@
+#include <test.h>
+
+struct list_entry_test_type {
+    uint32_t a;
+    uint32_t b;
+    struct list_node head;
+    uint32_t c;
+};
+
+// Check that the list_entry macro returns the correct pointer.
+static bool list_entry_test(void) {
+    struct list_entry_test_type tmp;
+
+    // Get the pointer on the list_node of the element.
+    struct list_node * const node = &tmp.head;
+    // Call list_entry;
+    struct list_entry_test_type const * const entry = list_entry(node,
+        struct list_entry_test_type, head);
+    // Check that the pointer returned by list_entry is the address of tmp.
+    TEST_ASSERT(entry == &tmp);
+    return true;
+}
+
+// Test the list_add function.
+static bool list_add_test(void) {
+    struct list_node node0;
+    struct list_node node1;
+    struct list_node node2;
+
+    list_init(&node0);
+    list_init(&node1);
+    list_init(&node2);
+
+    // Add node1 after node0;
+    list_add(&node0, &node1);
+    // Add node2 after node1.
+    list_add(&node1, &node2);
+
+    TEST_ASSERT(node0.prev == &node2);
+    TEST_ASSERT(node0.next == &node1);
+    TEST_ASSERT(node1.prev == &node0);
+    TEST_ASSERT(node1.next == &node2);
+    TEST_ASSERT(node2.prev == &node1);
+    TEST_ASSERT(node2.next == &node0);
+    return true;
+}
+
+static bool list_add_tail_test(void) {
+    struct list_node node0;
+    struct list_node node1;
+    struct list_node node2;
+
+    list_init(&node0);
+    list_init(&node1);
+    list_init(&node2);
+
+    // Add node1 before node0;
+    list_add_tail(&node0, &node1);
+    // Add node2 before node0.
+    list_add_tail(&node0, &node2);
+
+    TEST_ASSERT(node0.prev == &node2);
+    TEST_ASSERT(node0.next == &node1);
+    TEST_ASSERT(node1.prev == &node0);
+    TEST_ASSERT(node1.next == &node2);
+    TEST_ASSERT(node2.prev == &node1);
+    TEST_ASSERT(node2.next == &node0);
+    return true;
+}
+
+static bool list_del_test(void) {
+    struct list_node node0;
+    struct list_node node1;
+    struct list_node node2;
+
+    list_init(&node0);
+    list_init(&node1);
+    list_init(&node2);
+
+    // Add node1 after node0;
+    list_add(&node0, &node1);
+    // Add node2 after node1.
+    list_add(&node1, &node2);
+
+    TEST_ASSERT(node0.prev == &node2);
+    TEST_ASSERT(node0.next == &node1);
+    TEST_ASSERT(node1.prev == &node0);
+    TEST_ASSERT(node1.next == &node2);
+    TEST_ASSERT(node2.prev == &node1);
+    TEST_ASSERT(node2.next == &node0);
+
+    list_del(&node0);
+    TEST_ASSERT(node0.prev == &node0);
+    TEST_ASSERT(node0.next == &node0);
+    TEST_ASSERT(node1.prev == &node2);
+    TEST_ASSERT(node1.next == &node2);
+    TEST_ASSERT(node2.prev == &node1);
+    TEST_ASSERT(node2.next == &node1);
+
+    list_del(&node1);
+    TEST_ASSERT(node0.prev == &node0);
+    TEST_ASSERT(node0.next == &node0);
+    TEST_ASSERT(node1.prev == &node1);
+    TEST_ASSERT(node1.next == &node1);
+    TEST_ASSERT(node2.prev == &node2);
+    TEST_ASSERT(node2.next == &node2);
+
+    return true;
+}
+
+void list_test(void) {
+    TEST_FWK_RUN(list_entry_test);
+    TEST_FWK_RUN(list_add_test);
+    TEST_FWK_RUN(list_add_tail_test);
+    TEST_FWK_RUN(list_del_test);
+}
