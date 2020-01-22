@@ -10,8 +10,8 @@
 
 static struct multiboot_mmap_entry FAKE_ENTRIES[5];
 
-// Test for get_max_addr_for_entry.
-static bool get_max_addr_for_entry_test(void) {
+// Test for get_max_offset_for_entry.
+static bool get_max_offset_for_entry_test(void) {
     // This entry indicate that a frame at address 0x1000 is available with the
     // length == frame length. Therefore we should be able to address the
     // entire frame but not after the frame. The expected max addr is therefore
@@ -23,7 +23,7 @@ static bool get_max_addr_for_entry_test(void) {
         .length = 0x1000,
         .type = 1,
     };
-    return get_max_addr_for_entry(&entry) == 0x1FFF;
+    return get_max_offset_for_entry(&entry) == 0x1FFF;
 }
 
 static bool get_max_addr_simple_test(void) {
@@ -192,43 +192,52 @@ static bool get_max_addr_out_of_order_test(void) {
     return max_addr == (void*)(0x101000 - 1);
 }
 
-static bool contains_kernel_test(void) {
-    // An entry spanning from the byte _before_ the kernel to the byte _after_
-    // the kernel.
-    struct multiboot_mmap_entry entry = {
-        .size = 0x14,
-        .base_addr = (uint32_t)to_phys(KERNEL_START_ADDR) - 1,
-        .length = KERNEL_SIZE + 1,
-        .type = 1,
-    };
+static bool contain_reserved_memory_test(void) {
+    for (uint32_t i = 0; i < NUM_RESERVED_MEM; ++i) {
+        uint32_t index;
+        uint64_t const reserved_start = RESERVED_MEM[i][0];
+        uint64_t const reserved_end = RESERVED_MEM[i][1];
 
-    TEST_ASSERT(contains_kernel(&entry));
+        struct multiboot_mmap_entry entry = {
+            .size = 0x14,
+            .type = 1,
+        };
 
-    // The entry is now exactly the kernel.
-    entry.base_addr = (uint32_t)to_phys(KERNEL_START_ADDR);
-    entry.length = KERNEL_SIZE;
-    TEST_ASSERT(contains_kernel(&entry));
+        // Case 1: The entry does not overlap with the reserved region. It stops
+        // right before the first reserved bit.
+        entry.base_addr = reserved_start - 2;
+        entry.length = 2;
+        TEST_ASSERT(!contain_reserved_memory(&entry, NULL));
 
-    // The entry is now a subset of the kernel.
-    entry.base_addr = (uint32_t)to_phys(KERNEL_START_ADDR) + 1;
-    entry.length = KERNEL_SIZE - 1;
-    TEST_ASSERT(contains_kernel(&entry));
+        // Case 2: The entry overlaps with the first few bytes of the reserved
+        // memory.
+        entry.length = 4;
+        TEST_ASSERT(contain_reserved_memory(&entry, &index));
+        TEST_ASSERT(index == i);
 
-    entry.base_addr = (uint32_t)to_phys(KERNEL_START_ADDR) - 50;
-    entry.length = 100;
-    TEST_ASSERT(contains_kernel(&entry));
+        // Case 3: The entry is fully contained in the reserved region.
+        entry.base_addr = reserved_start;
+        TEST_ASSERT(contain_reserved_memory(&entry, &index));
+        TEST_ASSERT(index == i);
 
-    entry.base_addr = (uint32_t)to_phys(KERNEL_END_ADDR) - 50;
-    entry.length = 100;
-    TEST_ASSERT(contains_kernel(&entry));
+        // Case 4: The entry overlaps with the last bytes of the reserved
+        // memory. It 
+        entry.base_addr = reserved_end - 4;
+        entry.length = 6;
+        TEST_ASSERT(contain_reserved_memory(&entry, &index));
+        TEST_ASSERT(index == i);
 
-    entry.base_addr = (uint32_t)to_phys(KERNEL_START_ADDR) - 50;
-    entry.length = 50;
-    TEST_ASSERT(!contains_kernel(&entry));
+        // Case 5: The entry is after the reserved memory.
+        entry.base_addr = reserved_end + 1;
+        entry.length = 4;
+        TEST_ASSERT(!contain_reserved_memory(&entry, NULL));
 
-    entry.base_addr = (uint32_t)to_phys(KERNEL_END_ADDR) + 1;
-    entry.length = 50;
-    TEST_ASSERT(!contains_kernel(&entry));
+        // Case 6: The entry contains the entire reserved region.
+        entry.base_addr = reserved_start - 4;
+        entry.length = 4 + reserved_end - reserved_start + 4;
+        TEST_ASSERT(contain_reserved_memory(&entry, &index));
+        TEST_ASSERT(index == i);
+    }
     return true;
 }
 
@@ -240,19 +249,19 @@ static bool find_in_entry_test_simple(void) {
         .type = 1,
     };
     void * start = (void*)0xFFFFFFFF;
-    bool found = find_in_entry(&entry, 0x4000, &start);
+    bool found = find_in_entry(&entry, 4, &start);
     TEST_ASSERT(found && !start);
 
     // The base address does not start on a 4KiB boundary. Therefore we can't
     // fit 4 pages into this entry.
     entry.base_addr = 1;
     start = (void*)0xFFFFFFFF;
-    TEST_ASSERT(!find_in_entry(&entry, 0x4000, &start));
+    TEST_ASSERT(!find_in_entry(&entry, 4, &start));
 
     // Should be possible to alloc 3 frames though: From  0x1000 to 0x3FFF.
     entry.base_addr = 1;
     start = (void*)0xFFFFFFFF;
-    TEST_ASSERT(find_in_entry(&entry, 0x3000, &start));
+    TEST_ASSERT(find_in_entry(&entry, 3, &start));
     TEST_ASSERT(start == (void*)0x1000);
 
     return true;
@@ -277,20 +286,17 @@ static bool find_in_entry_test_with_kernel_1(void) {
         .type = 1,
     };
 
-    // We have 1 frame between the start of this entry to the kernel, hence way
-    // more than enough to fit 50 bytes.
     void * start = (void*)0xFFFFFFFF;
-    bool found = find_in_entry(&entry, 50, &start);
-    TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
+    bool found = false;
 
     // Asking for a full frame should also be feasible.
     start = (void*)0xFFFFFFFF;
-    found = find_in_entry(&entry, 0x1000, &start);
+    found = find_in_entry(&entry, 1, &start);
     TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
 
     // We should be able to fit two frames after the kernel.
     start = (void*)0xFFFFFFFF;
-    found = find_in_entry(&entry, 0x2000, &start);
+    found = find_in_entry(&entry, 2, &start);
     TEST_ASSERT(found);
     // The start address should be the next 4KiB after the kernel.
     TEST_ASSERT(is_4kib_aligned(start));
@@ -298,7 +304,7 @@ static bool find_in_entry_test_with_kernel_1(void) {
     TEST_ASSERT((uint32_t)(start - to_phys(KERNEL_END_ADDR)) < 0x1000);
 
     start = (void*)0xFFFFFFFF;
-    found = find_in_entry(&entry, 0x3000, &start);
+    found = find_in_entry(&entry, 3, &start);
     TEST_ASSERT(!found);
 
     return true;
@@ -327,22 +333,21 @@ static bool find_in_entry_test_with_kernel_2(void) {
         get_page_addr(to_phys(KERNEL_END_ADDR)) + 0x1000;
 
     void * start = (void*)0xFFFFFFFF;
-    bool found = find_in_entry(&entry, 50, &start);
-    TEST_ASSERT(found && start == first_free_frame);
+    bool found = false;
 
     // Asking for a full frame should also be feasible.
     start = (void*)0xFFFFFFFF;
-    found = find_in_entry(&entry, 0x1000, &start);
+    found = find_in_entry(&entry, 1, &start);
     TEST_ASSERT(found && start == first_free_frame);
 
     // We should be able to fit two frames after the kernel.
     start = (void*)0xFFFFFFFF;
-    found = find_in_entry(&entry, 0x2000, &start);
+    found = find_in_entry(&entry, 2, &start);
     TEST_ASSERT(found);
     TEST_ASSERT(found && start == first_free_frame);
 
     start = (void*)0xFFFFFFFF;
-    found = find_in_entry(&entry, 0x3000, &start);
+    found = find_in_entry(&entry, 3, &start);
     TEST_ASSERT(!found);
 
     return true;
@@ -368,17 +373,16 @@ static bool find_in_entry_test_with_kernel_3(void) {
     // We have 1 frame between the start of this entry to the kernel, hence way
     // more than enough to fit 50 bytes.
     void * start = (void*)0xFFFFFFFF;
-    bool found = find_in_entry(&entry, 50, &start);
-    TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
+    bool found = false;
 
     // Asking for a full frame should also be feasible.
     start = (void*)0xFFFFFFFF;
-    found = find_in_entry(&entry, 0x1000, &start);
+    found = find_in_entry(&entry, 1, &start);
     TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
 
     // Two frames:
     start = (void*)0xFFFFFFFF;
-    found = find_in_entry(&entry, 0x2000, &start);
+    found = find_in_entry(&entry, 2, &start);
     TEST_ASSERT(!found);
 
     return true;
@@ -399,30 +403,29 @@ static bool find_in_entry_test_with_kernel_4(void) {
     // We have 1 frame between the start of this entry to the kernel, hence way
     // more than enough to fit 50 bytes.
     void * start = (void*)0xFFFFFFFF;
-    bool found = find_in_entry(&entry, 50, &start);
-    TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
+    bool found = false;
 
     // Asking for a full frame should also be feasible.
     start = (void*)0xFFFFFFFF;
-    found = find_in_entry(&entry, 0x1000, &start);
+    found = find_in_entry(&entry, 1, &start);
     TEST_ASSERT(found && (uint32_t)start == entry.base_addr);
 
     // Asking for two frame should not be possible.
     start = (void*)0xFFFFFFFF;
-    found = find_in_entry(&entry, 0x2000, &start);
+    found = find_in_entry(&entry, 2, &start);
     TEST_ASSERT(!found);
 
     return true;
 }
 
 void multiboot_test(void) {
-    TEST_FWK_RUN(get_max_addr_for_entry_test);
+    TEST_FWK_RUN(get_max_offset_for_entry_test);
     TEST_FWK_RUN(get_max_addr_simple_test);
     TEST_FWK_RUN(get_max_addr_more_than_4GiB_test);
     TEST_FWK_RUN(get_max_addr_more_than_4GiB_test_2);
     TEST_FWK_RUN(get_max_addr_more_than_4GiB_test_3);
     TEST_FWK_RUN(get_max_addr_out_of_order_test);
-    TEST_FWK_RUN(contains_kernel_test);
+    TEST_FWK_RUN(contain_reserved_memory_test);
     TEST_FWK_RUN(find_in_entry_test_simple);
     TEST_FWK_RUN(find_in_entry_test_with_kernel_1);
     TEST_FWK_RUN(find_in_entry_test_with_kernel_2);

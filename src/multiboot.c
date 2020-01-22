@@ -8,14 +8,63 @@
 
 // This global hold the physical address of the mutliboot info structure in RAM.
 // Defaults to NULL and is initialized in init_multiboot.
-static struct multiboot_info const * MULTIBOOT_INFO = NULL;
+static struct multiboot_info const * __MULTIBOOT_INFO = NULL;
+// Use a "generic" pointer that works with both physical and virtual addressing.
+#define MULTIBOOT_INFO (*(PTR(__MULTIBOOT_INFO)))
+
+// This tables contain ranges of physical memory that is reserved. This is
+// required because the memory map given by the bootloader possesses some
+// shortcomings:
+//   * It does not marked the physical memory where the kernel has been loaded
+//   to as non available.
+//   * The same applies for some hardware (eg. VGA buffer).
+//   * The memory containing the multiboot structure (and other data) is marked
+//   available as well.
+// Naively traversing the memory map to find "free" memory won't work, we need
+// to be aware of those three things above.
+// The table below contains multiple pairs of addresses (low, high) where low is
+// the address of the lowest byte reserved, and high the one of the higher byte
+// reserved.
+// The table is initialized in the init_reserved_memory_area function called
+// during multiboot initialization.
+#define NUM_RESERVED_MEM    3
+static uint32_t __RESERVED_MEM[NUM_RESERVED_MEM][2];
+
+// Because the table above might be access both before and after paging gets
+// enabled, it is necessary to compute the right pointer to it. This macro
+// provides a shortcut to be sure that the correct address is used. It should be
+// treated as the global itself.
+#define RESERVED_MEM (*(PTR(__RESERVED_MEM)))
+
+// Initialize the RESERVED_MEM table.
+static void init_reserved_memory_area(void) {
+    // The kernel.
+    RESERVED_MEM[0][0] = (uint32_t)to_phys(KERNEL_START_ADDR);
+    RESERVED_MEM[0][1] = (uint32_t)to_phys(KERNEL_END_ADDR);
+
+    // The multiboot structure.
+    uint32_t const start_mb = min_u32((uint32_t)MULTIBOOT_INFO,
+        MULTIBOOT_INFO->mmap_addr);
+    uint32_t const end_mb = max_u32((uint32_t)MULTIBOOT_INFO +
+        sizeof(*MULTIBOOT_INFO) - 1, MULTIBOOT_INFO->mmap_addr +
+        MULTIBOOT_INFO->mmap_length);
+    RESERVED_MEM[1][0] = start_mb;
+    RESERVED_MEM[1][1] = end_mb;
+
+    // The VGA buffer. TODO: Remove the hardcoded address here.
+    uint32_t const vga_buf_offset = 0xB8000;
+    uint32_t const vga_bug_len = 80 * 25 * 2;
+    RESERVED_MEM[2][0] = vga_buf_offset;
+    RESERVED_MEM[2][1] = vga_buf_offset + vga_bug_len - 1;
+}
 
 void init_multiboot(struct multiboot_info const * const ptr) {
     ASSERT(!cpu_paging_enabled());
-    // Since paging is not yet enabled we need to use the physical address of
-    // the global variable to write it.
-    struct multiboot_info const ** const global_ptr = to_phys(&MULTIBOOT_INFO);
-    *global_ptr = ptr;
+    // Set the global variable containing the physical pointer to the multiboot
+    // info.
+    MULTIBOOT_INFO = ptr;
+    // Initialize the array containing the reserved physical memory areas.
+    init_reserved_memory_area();
 }
 
 // Get a pointer on the multiboot structure in memory.
@@ -30,7 +79,7 @@ static struct multiboot_info const * get_multiboot(void) {
     } else {
         // Since paging is not yet enabled we need to use the physical address
         // of the global variable.
-        return *(struct multiboot_info const **)to_phys(&MULTIBOOT_INFO);
+        return MULTIBOOT_INFO;
     }
 }
 
@@ -40,6 +89,7 @@ struct multiboot_info const *get_multiboot_info_struct(void) {
 
 struct multiboot_mmap_entry const *get_mmap_entry_ptr(void) {
     struct multiboot_info const * mi = get_multiboot();
+    ASSERT(mi->mmap_addr);
     return (struct multiboot_mmap_entry*)mi->mmap_addr;
 }
 
@@ -59,13 +109,17 @@ bool mmap_entry_within_4GiB(struct multiboot_mmap_entry const * const entry) {
     return entry->base_addr <= 0xFFFFFFFF;
 }
 
-// Get the maximum address from a memory map entry.
-// @param entry: The entry to get the maximum address from.
-// @return: The physical address of the very last byte of the entry.
-static uint64_t get_max_addr_for_entry(
+// Get the offset of the last byte of a memory map entry.
+// @param entry: The entry to get the max offset from.
+// @return: The (physical) offset of the last byte of the entry.
+static uint64_t get_max_offset_for_entry(
     struct multiboot_mmap_entry const * const entry) {
     ASSERT(mmap_entry_is_available(entry));
     return entry->base_addr + entry->length - 1;
+}
+
+void * get_max_addr_for_entry(struct multiboot_mmap_entry const * const ent) {
+    return (void*)(uint32_t)get_max_offset_for_entry(ent);
 }
 
 void *get_max_addr(void) {
@@ -85,7 +139,7 @@ void *get_max_addr(void) {
     while (entry < first + count) {
         if (mmap_entry_is_available(entry) && mmap_entry_within_4GiB(entry)) {
             // Skip the entrie that are above 4GiB.
-            uint64_t const entry_max = get_max_addr_for_entry(entry);
+            uint64_t const entry_max = get_max_offset_for_entry(entry);
             if (entry_max > curr_max_addr) {
                 curr_max_addr = entry_max;
             }
@@ -104,67 +158,104 @@ void *get_max_addr(void) {
     return (void*)(uint32_t)curr_max_addr;
 }
 
-// Check if an entry contains parts or the entire kernel in its memory range.
+// Check if an entry contains any reserved memory as specified in the
+// RESERVED_MEM table.
 // @param entry: The entry to test.
-// @return: true if the entry contain any byte of the kernel.
-static bool contains_kernel(struct multiboot_mmap_entry const * const entry) {
-    uint64_t const kernel_start = (uint32_t)to_phys(KERNEL_START_ADDR);
-    uint64_t const kernel_end = (uint32_t)to_phys(KERNEL_END_ADDR);
-    uint64_t const entry_start = entry->base_addr;
-    uint64_t const entry_end = get_max_addr_for_entry(entry);
+// @param index [out]: The index in the RESERVED_MEM of the reserved memory
+// region conflicting with the entry. If this pointer is NULL then it is
+// ignored.
+// @return: true if the entry contains any reserved memory, false otherwise.
+// When returning true, the index pointer will contain the index, in the
+// RESERVED_MEM of the conflicting region, otherwise it is untouched.
+static bool contain_reserved_memory(
+    struct multiboot_mmap_entry const * const entry,
+    uint32_t * const index) {
 
-    return !((entry_start < kernel_start && entry_end < kernel_start) ||
-        (kernel_end < entry_start && kernel_end < entry_end));
+    if (!entry->length) {
+        // This is an empty entry, this might happen in the recursion in
+        // find_in_entry. In this case the entry does not contain any reserved
+        // memory.
+        return false;
+    }
+
+    // Compute the start and end offsets of the entry.
+    uint64_t const entry_start = entry->base_addr;
+    uint64_t const entry_end = get_max_offset_for_entry(entry);
+
+    // Check the RESERVED_MEM table for any conflict.
+    for (uint32_t i = 0; i < NUM_RESERVED_MEM; ++i) {
+        uint64_t const reserved_start = RESERVED_MEM[i][0];
+        uint64_t const reserved_end = RESERVED_MEM[i][1];
+        if (!((entry_start < reserved_start && entry_end < reserved_start) ||
+            (reserved_end < entry_start && reserved_end < entry_end))) {
+            // This entry conflict with the ith element of the reserved memory
+            // table. Set the index pointer and return.
+            if (index) {
+                *index = i;
+            }
+            return true;
+        }
+    }
+    
+    // Couldn't find any conflict.
+    return false;
 }
 
-// Check if an entry contains contiguous availale memory.
+// Check if an entry contains contiguous frames. This is an helper function for
+// find_contiguous_physical_frames.
 // @param entry: The entry to test.
-// @param len: The length desired of contiguous available memory.
+// @param nframes: The number of desired contiguous frames.
 // @param start [out]: If the amount of memory is available, this pointer will
 // contain the start address of the memory region. This address is 4KiB aligned.
 // @return: true if the entry contains the requested amount of available,
 // contiguous memory, false otherwise. If this function returns true then
 // `start` will contain the start address, otherwise it is untouched.
 static bool find_in_entry(struct multiboot_mmap_entry const * const entry,
-                          size_t const len,
+                          size_t const nframes,
                           void **start) {
+    uint32_t reserved_mem_index = 0;
     if (!mmap_entry_within_4GiB(entry)) {
         return false;
     }
-    else if (contains_kernel(entry)) {
-        // Since the kernel is in this entry we need to check the holes
-        // before and after the kernel (if any).
-        uint64_t const kstart = (uint32_t)to_phys(KERNEL_START_ADDR);
-        uint64_t const kend = (uint32_t)to_phys(KERNEL_END_ADDR);
-        uint64_t const estart = entry->base_addr;
-        uint64_t const eend = get_max_addr_for_entry(entry);
+    else if (contain_reserved_memory(entry, &reserved_mem_index)) {
+        // This entry overlap with the ith reserved memory region from the
+        // RESERVED_MEM table. Check if we can still fit nframes around the
+        // reserved region.
 
-        if (estart <= kstart) {
-            // We have a hole before the kernel, check it.
+        // Compute the start and end offsets of the reserved memory region as
+        // well as the entry itself.
+        uint64_t const rstart = RESERVED_MEM[reserved_mem_index][0];
+        uint64_t const rend = RESERVED_MEM[reserved_mem_index][1];
+        uint64_t const estart = entry->base_addr;
+        uint64_t const eend = get_max_offset_for_entry(entry);
+
+        if (estart <= rstart) {
+            // There is available memory between the start of the entry and the
+            // start of the reserved memory, check if it is big enough to fit
+            // the requested number of frame.
             struct multiboot_mmap_entry before = {
                 .base_addr = estart,
-                .length = kstart - estart,
+                .length = rstart - estart,
                 .type = 1,
             };
-            // Avoid ending in an infinite recursion.
-            ASSERT(!contains_kernel(&before));
-            if (find_in_entry(&before, len, start)) {
+            // Make sure that the recursion does not go deeper.
+            ASSERT(!contain_reserved_memory(&before, NULL));
+            if (find_in_entry(&before, nframes, start)) {
                 return true;
             }
         }
 
-        if (kend <= eend) {
-            // We have a hole after the kernel, check it.
+        if (rend <= eend) {
+            // Now do the same for the potential available memory between the
+            // end of the reserved memory region and the end of the entry.
             struct multiboot_mmap_entry after = {
-                // The base address is the address of the first byte right after
-                // the kernel.
-                .base_addr = kend + 1,
-                .length = eend - kend,
+                .base_addr = rend + 1,
+                .length = eend - rend,
                 .type = 1,
             };
-            // Avoid ending in an infinite recursion.
-            ASSERT(!contains_kernel(&after));
-            if (find_in_entry(&after, len, start)) {
+            // Avoid deep recursions.
+            ASSERT(!contain_reserved_memory(&after, NULL));
+            if (find_in_entry(&after, nframes, start)) {
                 return true;
             }
         }
@@ -178,7 +269,7 @@ static bool find_in_entry(struct multiboot_mmap_entry const * const entry,
         uint64_t const aligned = round_up_u32(entry->base_addr, 0x1000);
         uint64_t const new_len = entry->length - (aligned - entry->base_addr);
 
-        if (new_len < len) {
+        if (new_len < nframes * 0x1000) {
             // Aligning the address to a page does not have enough space to fit
             // the memory area.
             return false;
@@ -193,29 +284,30 @@ static bool find_in_entry(struct multiboot_mmap_entry const * const entry,
     }
 }
 
-// Find a physcial memory area in RAM of a given size.
-// @param len: The length in bytes of the request.
+// Find in RAM a certain number of contiguous frames.
+// @param nframes: The number of desired contiguous frames.
 // @return: The start address of the area. This address is 4KiB aligned.
 // Note: If no such area is available, this function will trigger a kernel
 // panic. The rational here is that this function is used to allocate the
 // physical memory that will contain the bitmap of free and used physical
 // frames. If we can't even allocate this bitmap then there is no point going
 // further.
-void * find_memory_area(size_t const len) {
+void * find_contiguous_physical_frames(size_t const nframes) {
     struct multiboot_mmap_entry const * const first = get_mmap_entry_ptr();
     uint32_t const count = multiboot_mmap_entries_count();
 
     struct multiboot_mmap_entry const * entry = first;
     while (entry < first + count) {
-        if (mmap_entry_is_available(entry) && entry->length >= len) {
+        if (mmap_entry_is_available(entry) &&
+            entry->length >= nframes * 0x1000) {
             void * start = NULL;
-            if (find_in_entry(entry, len, &start)) {
+            if (find_in_entry(entry, nframes, &start)) {
                 return start;
             }
         }
         ++entry;
     }
-    PANIC("Not enough physical memory to contain %u contiguous bytes", len);
+    PANIC("Not enough physical memory to contain %u contiguous frame", nframes);
     // Unreachable.
     return NULL;
 }

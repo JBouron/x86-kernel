@@ -153,6 +153,11 @@ bool mmap_entry_is_available(struct multiboot_mmap_entry const * const entry);
 // @return: true if the memory is within 4GiB, false otherwise.
 bool mmap_entry_within_4GiB(struct multiboot_mmap_entry const * const entry);
 
+// Get the maximum address from a memory map entry.
+// @param entry: The entry to get the maximum address from.
+// @return: The physical address of the very last byte of the entry.
+void * get_max_addr_for_entry(struct multiboot_mmap_entry const * const ent);
+
 // The the maximum physical address available in RAM. That is the address of the
 // very last available byte in RAM.
 // @return: The address of the last byte in RAM.
@@ -162,7 +167,7 @@ void *get_max_addr(void);
 // @param len: The length in bytes of the memory area to find.
 // @return: A physical pointer that is guaranteed to have `len` available,
 // contiguous bytes.
-void * find_memory_area(size_t const len);
+void * find_contiguous_physical_frames(size_t const nframes);
 
 // Execute tests related to the mutliboot struct manipulation functions.
 void multiboot_test(void);

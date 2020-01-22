@@ -37,50 +37,54 @@ static uint32_t compute_bitmap_size(void) {
     return ceil_x_over_y_u32((uint32_t)get_max_addr(), 0x1000);
 }
 
-// Find a physical memory range that contains at least a certain number of
-// contiguous, available physical frames in RAM.
-// @param nframes: The number of contiguous physical frames of the range.
-// @return: The physical address of the range.
-static void *find_contiguous_frames(uint32_t const nframes) {
-    return find_memory_area(nframes * 0x1000);
-}
-
-// Compute the index of the bit in the bitmap corresponding to a physical frame
+// Compute the index of the bit in the bitmap corresponding to a physical 
 // address.
 // @param ptr: The physical address of the frame of which the function should
-// return the index. Note: this address _must_ be 4KiB aligned.
+// return the index.
 // @return: The index in the bitmap of the frame pointed by `ptr`.
 static uint32_t frame_index(void const * const ptr) {
-    ASSERT(is_4kib_aligned(ptr));
-    return ((uint32_t)ptr) / 0x1000;
+    return ((uint32_t)get_page_addr(ptr)) >> 12;
+}
+
+static void mark_memory_range(void const * const start,
+                              void const * const end) {
+    struct bitmap_t * const bitmap = get_bitmap_addr();
+    uint32_t const start_frame = frame_index(start);
+    uint32_t const end_frame = frame_index(end);
+    for (uint32_t i = start_frame; i <= end_frame; ++i) {
+        ASSERT(!bitmap_get_bit(bitmap, i));
+        bitmap_set(bitmap, i);
+    }
+}
+
+static void unmark_memory_range(void const * const start,
+                                void const * const end) {
+    struct bitmap_t * const bitmap = get_bitmap_addr();
+    uint32_t const start_frame = frame_index(start);
+    uint32_t const end_frame = frame_index(end);
+    for (uint32_t i = start_frame; i <= end_frame; ++i) {
+        ASSERT(bitmap_get_bit(bitmap, i));
+        bitmap_unset(bitmap, i);
+    }
 }
 
 // Mark every physical frames that contains the kernel as allocated in the
 // bitmap.
 static void mark_kernel_frames(void) {
-    struct bitmap_t * const bitmap = get_bitmap_addr();
-    uint32_t const s = frame_index(get_page_addr(to_phys(KERNEL_START_ADDR)));
-    uint32_t const e = frame_index(get_page_addr(to_phys(KERNEL_END_ADDR)));
-    for (uint32_t i = s; i <= e; ++i) {
-        ASSERT(!bitmap_get_bit(bitmap, i));
-        bitmap_set(bitmap, i);
-    }
+    void const * const kstart = to_phys(KERNEL_START_ADDR);
+    void const * const kend = to_phys(KERNEL_END_ADDR);
+    mark_memory_range(kstart, kend);
 }
 
 // Mark every physical frames that contains the actual bitmap as allocated.
 static void mark_bitmap_frames(void const * const start, uint32_t const n) {
-    struct bitmap_t * const bitmap = get_bitmap_addr();
-    uint32_t const first_bitmap_frame = frame_index(start);
-    for (uint32_t i = first_bitmap_frame; i < first_bitmap_frame + n; ++i) {
-        ASSERT(!bitmap_get_bit(bitmap, i));
-        bitmap_set(bitmap, i);
-    }
+    void const * const end = start + (n * 0x1000) - 1;
+    mark_memory_range(start, end);
 }
 
 // Go over the memroy map and mark all the frames that are available as
 // non-allocated.
 static void unmark_avail_frames(void) {
-    struct bitmap_t * const bitmap = get_bitmap_addr();
     struct multiboot_mmap_entry const * const first = get_mmap_entry_ptr();
     uint32_t const count = multiboot_mmap_entries_count();
 
@@ -88,15 +92,8 @@ static void unmark_avail_frames(void) {
     for (entry = first; entry < first + count; ++entry) {
         if (mmap_entry_is_available(entry) && mmap_entry_within_4GiB(entry)) {
             void const * const start = (void*)(uint32_t)entry->base_addr;
-            void const * const end = start + entry->length - 1;
-            void * const f_start = get_page_addr(start);
-            void * const f_end = get_page_addr(end);
-            for (void * ptr = f_start; ptr <= f_end; ptr += 0x1000) {
-                uint32_t const idx = frame_index(ptr);
-                ASSERT(idx < bitmap->size);
-                ASSERT(bitmap_get_bit(bitmap, idx));
-                bitmap_unset(bitmap, idx);
-            }
+            void const * const end = get_max_addr_for_entry(entry);
+            unmark_memory_range(start, end);
         }
     }
 }
@@ -104,17 +101,10 @@ static void unmark_avail_frames(void) {
 // Mark the frame(s) containing the multiboot structure as allocated in the
 // bitmap.
 static void mark_multiboot_info_struct(void) {
-    struct bitmap_t * const bitmap = get_bitmap_addr();
     struct multiboot_info const * const mb_struct = get_multiboot_info_struct();
-    size_t const len = sizeof(*mb_struct);
-
-    void * const s_frame = get_page_addr(mb_struct);
-    void * const e_frame = get_page_addr((void*)mb_struct + len - 1);
-    for (void *ptr = s_frame; ptr <= e_frame; ptr += 0x1000) {
-        uint32_t const idx = frame_index(ptr);
-        ASSERT(!bitmap_get_bit(bitmap, idx));
-        bitmap_set(bitmap, idx);
-    }
+    void const * const mb_start = mb_struct;
+    void const * const mb_end = mb_start + sizeof(*mb_struct) - 1;
+    mark_memory_range(mb_start, mb_end);
 }
 
 void init_frame_alloc(void) {
@@ -140,8 +130,13 @@ void init_frame_alloc(void) {
 
     // Try to find `num_frames` contiguous availables physical frames in RAM by
     // looking at the memory map.
-    void * const start_frame = find_contiguous_frames(num_frames);
+    void * const start_frame = find_contiguous_physical_frames(num_frames);
     ASSERT(is_4kib_aligned(start_frame));
+
+    // The following check is a regression test that the bitmap will not
+    // overwrite the multiboot struct.
+    void const * const mb = (void*)get_multiboot_info_struct();
+    ASSERT(start_frame > mb || (start_frame + (num_frames * 0x1000) - 1 < mb));
 
     // Initialize the bitmap. Mark _all_ the frames as allocated.
     bitmap_init(bitmap, bitmap_size, (uint32_t*)start_frame, true);
