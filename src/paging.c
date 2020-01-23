@@ -451,4 +451,93 @@ void paging_unmap(void const * const vaddr,
     cpu_invalidate_tlb();
 }
 
+// Check if a virtual page is currently mapped to a frame in physical memory in
+// the current address space.
+// @param vaddr: The address (virtual) of the page. This address should be 4KiB
+// aligned.
+// @return: true if vaddr is mapped, false otherwise.
+static bool page_is_mapped(void const * const vaddr) {
+    ASSERT(is_4kib_aligned(vaddr));
+    struct page_dir_t const * const page_dir = get_curr_page_dir_vaddr();
+    uint32_t const pde_idx = pde_index(vaddr);
+    uint32_t const pte_idx = pte_index(vaddr);
+    if (!page_dir->entry[pde_idx].present) {
+        return false;
+    }
+    struct page_table_t const * const table = get_page_table_vaddr(pde_idx);
+    return table->entry[pte_idx].present;
+}
+
+// Find the next non-mapped page in the current virtual address space.
+// @param start: The page address to start searching from.
+// @return: The address of the next non mapped page. Note that if no page is
+// available the function will panic. Therefore the return value of this
+// function is always correct.
+static void * find_next_non_mapped_page(void * const start) {
+    void * ptr = start;
+    void * const max_ptr = get_page_table_vaddr(0);
+    while (ptr < max_ptr) {
+        if (!page_is_mapped(ptr)) {
+            return ptr;
+        }
+        ptr += PAGE_SIZE;
+    }
+    PANIC("Virtual address space full");
+    return NULL;
+}
+
+// Compute the size of the hole (aka non mapped memory) starting at a virtual
+// page address.
+// @param vaddr: The start address to compute the size of the hole from.
+// @return: The size of the hole in number of pages.
+static uint32_t compute_hole_size(void const * const vaddr) {
+    struct page_dir_t const * const page_dir = get_curr_page_dir_vaddr();
+    uint32_t const start_pde_idx = pde_index(vaddr);
+    uint32_t count = 0;
+
+    for (uint16_t i = start_pde_idx; i < 1023; ++i) {
+        union pde_t const * const pde = &page_dir->entry[i];
+        if (!pde->present) {
+            if (i == start_pde_idx) {
+                count += 1024 - pte_index(vaddr);
+            } else {
+                count += 1024;
+            }
+            continue;
+        }
+
+        struct page_table_t const * const page_table = get_page_table_vaddr(i);
+        uint16_t const start_pte_idx = i==start_pde_idx ? pte_index(vaddr) : 0;
+        for (uint16_t j = start_pte_idx; j < 1024; ++j) {
+            if (!page_table->entry[j].present) {
+                count ++;
+            } else {
+                // Found the first used page. return.
+                return count;
+            }
+        }
+    }
+    return count;
+}
+
+// Find a memory region in the current virtual address space with at least a
+// certain number of contiguous pages non mapped.
+// @param start_addr: The start address to search from.
+// @parma npages: The minimum number of contiguous non mapped pages to look for.
+// @return: The start virtual address of the memory region.
+void *paging_find_contiguous_non_mapped_pages(void * const start_addr,
+                                              size_t const npages) {
+    void * ptr = find_next_non_mapped_page(start_addr);
+    bool done = false;
+    while (!done) {
+        uint32_t const hole = compute_hole_size(ptr);
+        if (hole >= npages) {
+            return ptr;
+        }
+        ptr = find_next_non_mapped_page(ptr + PAGE_SIZE);
+    }
+    PANIC("No hole big enough");
+    return NULL;
+}
+
 #include <paging.test>

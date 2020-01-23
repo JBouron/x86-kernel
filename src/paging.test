@@ -288,6 +288,97 @@ static bool paging_unmap_frees_frames_test(void) {
         frames_allocated() == allocated_at_start;
 }
 
+// Test for page_is_mapped.
+static bool paging_page_is_mapped_test(void) {
+    void const * const frame = alloc_frame();
+
+    TEST_ASSERT(!page_is_mapped(frame));
+    paging_map(frame, frame, PAGE_SIZE, 0);
+    TEST_ASSERT(page_is_mapped(frame));
+
+    paging_unmap(frame, PAGE_SIZE);
+    TEST_ASSERT(!page_is_mapped(frame));
+    free_frame(frame);
+    return true;
+}
+
+static bool paging_find_next_non_mapped_page_test(void) {
+    void * const frame = alloc_frame();
+
+    TEST_ASSERT(find_next_non_mapped_page(frame) == frame);
+
+    // Now map some pages starting at address frame. Map 1, 2, ..., 8 pages and
+    // check that find_next_non_mapped_page return the correct address.
+    for (uint8_t i = 0; i < 8; ++i) {
+        paging_map(frame, frame + i * PAGE_SIZE, PAGE_SIZE, 0);
+        // This is the address of the page rigth after the one we mapped above.
+        // This page should be non mapped.
+        void * const exp_addr = frame + (i+1) * PAGE_SIZE;
+        TEST_ASSERT(find_next_non_mapped_page(frame) == exp_addr);
+    }
+
+    // Cleanup.
+    for (uint8_t i = 0; i < 8; ++i) {
+        paging_unmap(frame + i * PAGE_SIZE, PAGE_SIZE);
+    }
+
+    free_frame(frame);
+    return true;
+}
+
+static bool paging_compute_hole_size_test(void) {
+    void * const frame = alloc_frame();
+
+    // If nothing is mapped in the lower half then we expect the hole starting
+    // at address 0x0 to span all the way to the start of the kernel.
+    uint32_t const num_frames_to_kernel = (uint32_t)KERNEL_PHY_OFFSET >> 12;
+    TEST_ASSERT(compute_hole_size(NULL) == num_frames_to_kernel);
+
+    // map the frame to its identity postion + at 3 pages after that.
+    // essentially we are creating a hole between the two mapped pages of size 2
+    // * page_size.
+    paging_map(frame, frame, PAGE_SIZE, 0);
+    paging_map(frame, frame + 3 * PAGE_SIZE, PAGE_SIZE, 0);
+
+    TEST_ASSERT(compute_hole_size(0x0) == (uint32_t)frame >> 12);
+
+    TEST_ASSERT(!compute_hole_size(frame));
+    TEST_ASSERT(compute_hole_size(frame + PAGE_SIZE) == 2);
+
+    paging_map(frame, frame + 2 * PAGE_SIZE, PAGE_SIZE, 0);
+    TEST_ASSERT(compute_hole_size(frame + PAGE_SIZE) == 1);
+
+    paging_unmap(frame, PAGE_SIZE);
+    paging_unmap(frame + 2 * PAGE_SIZE, PAGE_SIZE);
+    paging_unmap(frame + 3 * PAGE_SIZE, PAGE_SIZE);
+    free_frame(frame);
+    return true;
+}
+
+// Test the paging_find_contiguous_non_mapped_pages.
+static bool paging_find_contiguous_non_mapped_pages_test(void) {
+    void * const frame = alloc_frame();
+
+    // Map the frame to its identity postion + at 3 pages after that.
+    // Essentially we are creating a hole between the two mapped pages of size 2
+    // * PAGE_SIZE.
+    paging_map(frame, frame, PAGE_SIZE, 0);
+    paging_map(frame, frame + 3 * PAGE_SIZE, PAGE_SIZE, 0);
+
+    void * const start2 = paging_find_contiguous_non_mapped_pages(frame, 2);
+    TEST_ASSERT(start2 == frame + PAGE_SIZE);
+
+    // We cannot fit 3 frames between the two pages, it has to go after the
+    // second page.
+    void * const start3 = paging_find_contiguous_non_mapped_pages(frame, 3);
+    TEST_ASSERT(start3 == frame + 4 * PAGE_SIZE);
+
+    paging_unmap(frame, PAGE_SIZE);
+    paging_unmap(frame + 3 * PAGE_SIZE, PAGE_SIZE);
+    free_frame(frame);
+    return true;
+}
+
 void paging_test(void) {
     TEST_FWK_RUN(paging_create_recursive_entry_test);
     TEST_FWK_RUN(paging_get_curr_page_dir_vaddr_test);
@@ -298,4 +389,8 @@ void paging_test(void) {
     TEST_FWK_RUN(paging_pagefault_test);
     TEST_FWK_RUN(paging_unmap_page_test);
     TEST_FWK_RUN(paging_unmap_frees_frames_test);
+    TEST_FWK_RUN(paging_page_is_mapped_test);
+    TEST_FWK_RUN(paging_find_next_non_mapped_page_test);
+    TEST_FWK_RUN(paging_compute_hole_size_test);
+    TEST_FWK_RUN(paging_find_contiguous_non_mapped_pages_test);
 }
