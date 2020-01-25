@@ -1,0 +1,608 @@
+#include <test.h>
+#include <debug.h>
+#include <math.h>
+
+// Check the initialization of a group.
+static bool kmalloc_create_group_test(void) {
+    // Create some groups with various number of pages.
+    for (uint8_t i = 1; i < 5; ++i) {
+        uint32_t const num_pages = i;
+        struct group_t * const group = create_group(num_pages);
+
+        // The entire group should be available.
+        TEST_ASSERT(group->size == group->free);
+        TEST_ASSERT(group->num_pages == num_pages);
+
+        // Make sure the size is correct.
+        TEST_ASSERT(sizeof(*group) + HEADER_SIZE + group->size ==
+            num_pages * PAGE_SIZE);
+
+        // At init, the free list must contain a single entry which covers the
+        // entire group memory.
+        TEST_ASSERT(list_size(&group->free_head) == 1);
+        struct node_t const * const first = list_first_entry(&group->free_head,
+            struct node_t, free);
+
+        TEST_ASSERT(first->header.tag == FREE);
+        TEST_ASSERT(first->header.size == group->size);
+
+        free_group(group);
+    }
+    return true;
+}
+
+// Test checking the behavior when allocating the entire group at once.
+static bool kmalloc_alloc_all_group_at_once_test(void) {
+    size_t const num_pages = 4;
+    struct group_t * const group = create_group(num_pages);
+
+    // Cannot allocate more than what the group already has.
+    TEST_ASSERT(!kmalloc_in_group(group, group->free + 1));
+
+    // Can allocate the entire group at once.
+    TEST_ASSERT(kmalloc_in_group(group, group->free));
+
+    // Once that is done the group should be full.
+    TEST_ASSERT(!group->free);
+    TEST_ASSERT(list_empty(&group->free_head));
+
+    // Hack to free the group without freeing each pointer in it.
+    group->free = group->size;
+    free_group(group);
+    return true;
+}
+
+// Test doing allocaitons while carefully checking the state of the group.
+static bool kmalloc_simple_alloc_in_group_test(void) {
+    // A small group of one page only.
+    struct group_t * const group = create_group(1);
+
+    void * next_entry = (void*)group + sizeof(struct group_t) + HEADER_SIZE;
+
+    // Do a couple of allocations back to back.
+    uint32_t const num_allocs = 64;
+    for (uint32_t i = 0; i < num_allocs; ++i) {
+        // Register the count of free bytes before this allocation.
+        uint32_t const free_start = group->free;
+
+        // Do a simple allocation of a few bytes.
+        uint32_t const alloc_size = MIN_SIZE + i;
+        void const * const allocated = kmalloc_in_group(group, alloc_size);
+        // Check that the returned pointer is indeed on the next entry.
+        TEST_ASSERT(allocated == next_entry);
+
+        struct node_t const * const alloc_node = next_entry - HEADER_SIZE;
+        TEST_ASSERT(alloc_node->header.tag == ALLOCATED);
+        TEST_ASSERT(alloc_node->header.size == alloc_size);
+
+        // The next allocation will be allocated to the entry right after this
+        // one.
+        next_entry += alloc_size + HEADER_SIZE;
+
+        // Since the allocation took away alloc_size bytes from the group and
+        // created a new node header the number of free bytes in the group
+        // reduced by `alloc_size + HEADER_SIZE`.
+        TEST_ASSERT(group->free == free_start - alloc_size - HEADER_SIZE);
+
+        // The free list should only contain a single entry at this point,
+        // spanning from the first byte after the allocated memory to the end of
+        // the group.
+        TEST_ASSERT(list_size(&group->free_head) == 1);
+        struct node_t const * const free_entry =
+            list_first_entry(&group->free_head, struct node_t, free);
+        // The only element of the free list should be right after the allocated
+        // memory.
+        TEST_ASSERT((void*)free_entry == allocated + alloc_size);
+        TEST_ASSERT(free_entry->header.tag == FREE);
+        TEST_ASSERT(free_entry->header.size == group->free);
+    }
+
+    // Hack to free the group without freeing each pointer in it.
+    group->free = group->size;
+    free_group(group);
+    return true;
+}
+
+// Test checking that free nodes are correclty allocated after an allocation.
+static bool kmalloc_in_group_min_free_entry_size(void) {
+    size_t const num_pages = 1;
+    struct group_t * const group = create_group(num_pages);
+
+    // Allocate so that we can only fit a single node_t after the allocation in
+    // the group.
+    TEST_ASSERT(kmalloc_in_group(group, group->free - sizeof(struct node_t)));
+
+    TEST_ASSERT(group->free == sizeof(struct node_t) - HEADER_SIZE);
+    TEST_ASSERT(list_size(&group->free_head) == 1);
+
+    TEST_ASSERT(kmalloc_in_group(group, group->free));
+    TEST_ASSERT(!group->free);
+    TEST_ASSERT(list_empty(&group->free_head));
+
+    // Hack to free the group without freeing each pointer in it.
+    group->free = group->size;
+    free_group(group);
+    return true;
+}
+
+// Test checking that if a node cannot be split between an alloc node and a free
+// node (because not enough space for the free node) then the alloc node might
+// be a bit bigger than requested.
+static bool kmalloc_in_group_fragmentation_test(void) {
+    size_t const num_pages = 1;
+    struct group_t * const group = create_group(num_pages);
+
+    uint32_t const alloc_size = group->free - 1;
+    void const * const addr = kmalloc_in_group(group, alloc_size);
+    TEST_ASSERT(addr);
+
+    TEST_ASSERT(!group->free);
+    TEST_ASSERT(list_empty(&group->free_head));
+
+    struct node_t const * const node = addr - HEADER_SIZE;
+    TEST_ASSERT(node->header.tag == ALLOCATED);
+    TEST_ASSERT(node->header.size == alloc_size + 1);
+
+    // Hack to free the group without freeing each pointer in it.
+    group->free = group->size;
+    free_group(group);
+    return true;
+}
+
+// Test allocating constant size (or as much as possible) until the group is
+// full. All allocations are carefully checked.
+static bool kmalloc_in_group_alloc_until_empty(void) {
+    size_t const num_pages = 1;
+    struct group_t * const group = create_group(num_pages);
+
+    // As long as the group tells us that some bytes are free, we should be able
+    // to allocate, as long as we do it in an incremental manner.
+    while (group->free) {
+        uint32_t const alloc_size = min_u32(group->free, MIN_SIZE);
+        void const * const alloc = kmalloc_in_group(group, alloc_size);
+        TEST_ASSERT(alloc);
+        // Check the node.
+        struct node_t const * const node = alloc - HEADER_SIZE;
+        TEST_ASSERT(node->header.tag == ALLOCATED);
+        if (!group->free) {
+            // This was the last allocation. Since the size of the group is not
+            // divisible by 13 we expect that the last entry will have some
+            // fragmentation.
+            uint32_t const actual_size = node->header.size;
+            TEST_ASSERT(actual_size >= alloc_size);
+            TEST_ASSERT(actual_size - alloc_size < sizeof(struct node_t));
+        } else {
+            TEST_ASSERT(node->header.size == alloc_size);
+        }
+    }
+
+    group->free = group->size;
+    free_group(group);
+    return true;
+}
+
+// Test checking that one can iterate over the group's node and find back the
+// number of bytes allocated.
+static bool kmalloc_in_group_check_size_sum(void) {
+    size_t const num_pages = 4;
+    struct group_t * const group = create_group(num_pages);
+
+    uint32_t sum_size_alloc = 0;
+    while (group->free) {
+        uint32_t const alloc_size = min_u32(group->free, 13);
+        void const * const alloc = kmalloc_in_group(group, alloc_size);
+        TEST_ASSERT(alloc);
+        struct node_t const * const node = alloc - HEADER_SIZE;
+        sum_size_alloc += node->header.size;
+    }
+
+    // Now check all the nodes.
+    struct node_t const * node = (void*)group + sizeof(*group);
+    struct node_t const * const last = (void*)group + num_pages * PAGE_SIZE;
+
+    uint32_t tot_size = 0;
+    while (node < last) {
+        TEST_ASSERT(node->header.tag == ALLOCATED);
+        uint32_t const node_size = node->header.size;
+        tot_size += node_size;
+
+        node = (void*)node + node_size + HEADER_SIZE;
+    }
+    TEST_ASSERT(node == last);
+
+    TEST_ASSERT(tot_size == sum_size_alloc);
+    LOG("SY  = %u bytes\n", group->size);
+    LOG("Tot = %u bytes\n", tot_size);
+
+    group->free = group->size;
+    free_group(group);
+    return true;
+}
+
+// Kfree tests.
+
+// Allocate the entire group in 3 allocations, free the second allocation, check
+// that we have a hole in the middle.
+static bool kfree_in_group_simple_test(void) {
+    size_t const num_pages = 2;
+    struct group_t * const group = create_group(num_pages);
+
+    // Allocate the entire group in 3 allocations.
+    void * const first = kmalloc_in_group(group, 2048);
+    void * const second = kmalloc_in_group(group, 1024);
+    void * const third = kmalloc_in_group(group, group->free);
+    // All the allocations should succeed.
+    TEST_ASSERT(first && second && third);
+
+    // There is no free entry.
+    TEST_ASSERT(!group->free);
+    TEST_ASSERT(list_empty(&group->free_head));
+
+    // Now free the second allocation.
+    kfree_in_group(group, second);
+
+    // The group should now have some free space.
+    TEST_ASSERT(group->free == 1024);
+    // The free list should not be empty.
+    TEST_ASSERT(list_size(&group->free_head) == 1);
+
+    struct node_t const * free_node = list_first_entry(&group->free_head,
+        struct node_t, free);
+    TEST_ASSERT(free_node == second - HEADER_SIZE);
+    TEST_ASSERT(free_node->header.tag == FREE);
+    TEST_ASSERT(free_node->header.size == 1024);
+
+    // We should be able to re-allocate the second node.
+    void * const realloc = kmalloc_in_group(group, 1024);
+    TEST_ASSERT(realloc == second);
+    TEST_ASSERT(!group->free);
+    TEST_ASSERT(list_empty(&group->free_head));
+
+    group->free = group->size;
+    free_group(group);
+    return true;
+}
+
+static bool kfree_in_group_free_list_reconstruction_test(void) {
+    size_t const num_pages = 2;
+    struct group_t * const group = create_group(num_pages);
+
+    uint32_t const num_allocs = 32;
+    uint32_t const alloc_size_base = MIN_SIZE;
+
+    void * even_addrs[num_allocs / 2];
+
+    for (uint32_t i = 0; i < num_allocs; ++i) {
+        // Make the allocation size different for even allocations.
+        uint32_t const alloc_size = alloc_size_base + (i % 2);
+        void * const alloc = kmalloc_in_group(group, alloc_size);
+        TEST_ASSERT(alloc);
+        if (!(i % 2)) {
+            even_addrs[i / 2] = alloc;
+        }
+    }
+
+    // Free all of the even allocations.
+    for (uint32_t i = 0; i < num_allocs / 2; ++i) {
+        kfree_in_group(group, even_addrs[i]);
+    }
+
+    // Now check the state of the free list.
+    // There should be all of the freed node + the final node to the end of the
+    // group.
+    TEST_ASSERT(list_size(&group->free_head) == (num_allocs / 2) + 1);
+
+    // Go over the entire free list and check each free node.
+    uint32_t ite = 0;
+    struct node_t * cursor;
+    list_for_each_entry(cursor, &group->free_head, free) {
+        if ((void*)cursor > even_addrs[(num_allocs / 2) - 1]) {
+            // This is the last entry in the free list, spanning to the end of
+            // the group.
+            continue;
+        }
+
+        TEST_ASSERT(cursor == even_addrs[ite] - HEADER_SIZE);
+        TEST_ASSERT(cursor->header.tag == FREE);
+        TEST_ASSERT(cursor->header.size == alloc_size_base);
+        ite ++;
+    }
+
+    group->free = group->size;
+    free_group(group);
+    return true;
+}
+
+// Test that inserting in the free list happens in order of the nodes addesses.
+static bool insert_in_free_list_test(void) {
+    size_t const num_pages = 1;
+    struct group_t * const group = create_group(num_pages);
+
+    struct node_t node[4];
+    node[0].header.tag = ALLOCATED;
+    node[0].header.size = 12;
+    list_init(&node[0].free);
+
+    node[1].header.tag = ALLOCATED;
+    node[1].header.size = 4;
+    list_init(&node[1].free);
+
+    node[2].header.tag = ALLOCATED;
+    node[2].header.size = 7;
+    list_init(&node[2].free);
+
+    node[3].header.tag = ALLOCATED;
+    node[3].header.size = 2;
+    list_init(&node[3].free);
+
+    // Reset the free list of the group and use our custom list. The goal here
+    // is to have more control over the free list _and_ avoid free node being
+    // merged (since they are packed in to an array and their sizes are too big
+    // to hit the merge condtion).
+    list_init(&group->free_head);
+    struct node_t * free = NULL;
+
+    node[3].header.tag = FREE;
+    insert_in_free_list(group, &node[3]);
+    TEST_ASSERT(list_size(&group->free_head) == 1);
+    free = list_first_entry(&group->free_head, struct node_t, free);
+    TEST_ASSERT(free == &node[3]);
+
+    node[2].header.tag = FREE;
+    insert_in_free_list(group, &node[2]);
+    TEST_ASSERT(list_size(&group->free_head) == 2);
+    free = list_first_entry(&group->free_head, struct node_t, free);
+    TEST_ASSERT(free == &node[2]);
+    free = list_entry(free->free.next, struct node_t, free);
+    TEST_ASSERT(free == &node[3]);
+
+    node[1].header.tag = FREE;
+    insert_in_free_list(group, &node[1]);
+    TEST_ASSERT(list_size(&group->free_head) == 3);
+    free = list_first_entry(&group->free_head, struct node_t, free);
+    TEST_ASSERT(free == &node[1]);
+    free = list_entry(free->free.next, struct node_t, free);
+    TEST_ASSERT(free == &node[2]);
+    free = list_entry(free->free.next, struct node_t, free);
+    TEST_ASSERT(free == &node[3]);
+
+    node[0].header.tag = FREE;
+    insert_in_free_list(group, &node[0]);
+    TEST_ASSERT(list_size(&group->free_head) == 4);
+    free = list_first_entry(&group->free_head, struct node_t, free);
+    TEST_ASSERT(free == &node[0]);
+    free = list_entry(free->free.next, struct node_t, free);
+    TEST_ASSERT(free == &node[1]);
+    free = list_entry(free->free.next, struct node_t, free);
+    TEST_ASSERT(free == &node[2]);
+    free = list_entry(free->free.next, struct node_t, free);
+    TEST_ASSERT(free == &node[3]);
+
+    group->free = group->size;
+    free_group(group);
+    return true;
+}
+
+static bool merge_free_node_on_free_test(void) {
+    size_t const num_pages = 2;
+    struct group_t * const group = create_group(num_pages);
+
+    uint32_t const alloc_size = 12;
+    void * const a0 = kmalloc_in_group(group, alloc_size);
+    void * const a1 = kmalloc_in_group(group, alloc_size);
+    void * const a2 = kmalloc_in_group(group, alloc_size);
+
+    struct node_t const * const n0 = (void*)a0 - HEADER_SIZE;
+    struct node_t const * const n2 = (void*)a2 - HEADER_SIZE;
+
+    // There should be one node in the free list.
+    TEST_ASSERT(list_size(&group->free_head) == 1);
+    struct node_t const * last_free = (void*)n2 + n2->header.size + HEADER_SIZE;
+    struct node_t * free = NULL;
+    free = list_first_entry(&group->free_head, struct node_t, free);
+    TEST_ASSERT(free == last_free);
+
+    uint32_t last_free_size = last_free->header.size;
+
+    // Free the last node.
+    kfree_in_group(group, a2);
+    // We expect the node to merge.
+    TEST_ASSERT(list_size(&group->free_head) == 1);
+    free = list_first_entry(&group->free_head, struct node_t, free);
+    TEST_ASSERT(free == n2);
+    TEST_ASSERT(free->header.size == alloc_size + last_free_size + HEADER_SIZE);
+    TEST_ASSERT(free->header.tag == FREE);
+
+    last_free = free;
+    last_free_size = last_free->header.size;
+
+
+    // Free the first node.
+    kfree_in_group(group, a0);
+    // No merge this time around.
+    TEST_ASSERT(list_size(&group->free_head) == 2);
+    free = list_first_entry(&group->free_head, struct node_t, free);
+    TEST_ASSERT(free == n0);
+    TEST_ASSERT(free->header.size == alloc_size);
+    TEST_ASSERT(free->header.tag == FREE);
+
+    free = list_entry(free->free.next, struct node_t, free);
+    TEST_ASSERT(free == last_free);
+    TEST_ASSERT(free->header.tag == FREE);
+    TEST_ASSERT(free->header.size == last_free_size);
+
+    last_free = free;
+    last_free_size = last_free->header.size;
+
+
+    // Free the second node.
+    kfree_in_group(group, a1);
+    // Merge all free nodes.
+    TEST_ASSERT(list_size(&group->free_head) == 1);
+    free = list_first_entry(&group->free_head, struct node_t, free);
+    TEST_ASSERT(free == n0);
+    TEST_ASSERT(free->header.size == group->size);
+    TEST_ASSERT(free->header.tag == FREE);
+
+    group->free = group->size;
+    free_group(group);
+    return true;
+}
+
+static bool end_to_end_group_alloc_test(void) {
+    size_t const num_pages = 4;
+    struct group_t * const group = create_group(num_pages);
+
+    TEST_ASSERT(group->size == group->free);
+
+    uint32_t const num_allocs = 64;
+    void * addr[num_allocs];
+
+#define size_i(i)   (1 + (i) * 2)
+
+    for (uint32_t i = 0; i < num_allocs; ++i) {
+        addr[i] = kmalloc_in_group(group, size_i(i));
+        TEST_ASSERT(addr[i]);
+
+        // Fill the freshly allocated memory with some data.
+        uint8_t *array = addr[i];
+        for (uint32_t j = 0; j < size_i(i); ++j) {
+            // Simply write the index of the allocation in all the bytes.
+            array[j] = i;
+        }
+    }
+
+    // Free all even.
+    for (uint32_t i = 0; i < num_allocs; i += 2) {
+        kfree_in_group(group, addr[i]);
+    }
+    TEST_ASSERT(list_size(&group->free_head) ==  1 + num_allocs / 2 );
+
+    // Check that all odd allocations were untouched.
+    for (uint32_t i = 1; i < num_allocs; i += 2) {
+        uint8_t *array = addr[i];
+        for (uint32_t j = 0; j < size_i(i); ++j) {
+            // Simply write the index of the allocation in all the bytes.
+            TEST_ASSERT(array[j] == i);
+        }
+    }
+
+    // Free all odd.
+    for (uint32_t i = 1; i < num_allocs; i += 2) {
+        kfree_in_group(group, addr[i]);
+    }
+    TEST_ASSERT(list_size(&group->free_head) ==  1);
+    TEST_ASSERT(group->free == group->size);
+
+    free_group(group);
+    return true;
+}
+
+static bool free_group_releases_frame_test(void) {
+    uint32_t const before = frames_allocated();
+    size_t const num_pages = 4;
+    struct group_t * const group = create_group(num_pages);
+    free_group(group);
+    uint32_t const after = frames_allocated();
+    return before == after;
+}
+
+static void free_all_groups(struct list_node * const groups) {
+    uint32_t const ngroups = list_size(groups);
+    struct group_t * addrs[ngroups];
+
+    // Get the pointers of each group.
+    struct group_t * group;
+    uint32_t ite = 0;
+    list_for_each_entry(group, groups, group_list) {
+        addrs[ite++] = group;
+    }
+
+    for (uint32_t i = 0; i < ngroups; ++i) {
+        struct group_t * g = addrs[i];
+        g->free = g->size;
+        free_group(g);
+    }
+}
+
+static bool do_kmalloc_test_create_group(void) {
+    struct list_node groups;
+    list_init(&groups);
+
+    uint32_t alloc_size = 32;
+    void * addr = do_kmalloc(&groups, alloc_size);
+
+    // Even though the list of group is empty the alloc must succeed and crate
+    // a new group.
+    TEST_ASSERT(addr);
+
+    TEST_ASSERT(list_size(&groups) == 1);
+    struct group_t const * group = list_first_entry(&groups, struct group_t,
+        group_list);
+
+    // Since the allocation size is < PAGE_SIZE, a single page suffices for this
+    // group.
+    TEST_ASSERT(group->num_pages == 1);
+    TEST_ASSERT(group->free == group->size - alloc_size - HEADER_SIZE);
+
+    // Now try to allocate more than PAGE_SIZE bytes. This won't fit in the
+    // first group. Therefore we expect the do_kmalloc to create a second group
+    // using to pages.
+    alloc_size = PAGE_SIZE;
+    addr = do_kmalloc(&groups, alloc_size);
+
+    TEST_ASSERT(addr);
+    TEST_ASSERT(list_size(&groups) == 2);
+    group = list_entry(groups.next->next, struct group_t, group_list);
+
+    TEST_ASSERT(group->num_pages == 2);
+    TEST_ASSERT(group->free == group->size - alloc_size - HEADER_SIZE);
+
+    free_all_groups(&groups);
+    return true;
+}
+
+static bool do_kfree_test(void) {
+    struct list_node groups;
+    list_init(&groups);
+
+    uint32_t alloc_size = 32;
+    void * addr = do_kmalloc(&groups, alloc_size);
+
+    // Even though the list of group is empty the alloc must succeed and crate
+    // a new group.
+    TEST_ASSERT(addr);
+
+    TEST_ASSERT(list_size(&groups) == 1);
+    struct group_t const * group = list_first_entry(&groups, struct group_t,
+        group_list);
+
+    // Since the allocation size is < PAGE_SIZE, a single page suffices for this
+    // group.
+    TEST_ASSERT(group->num_pages == 1);
+    TEST_ASSERT(group->free == group->size - alloc_size - HEADER_SIZE);
+
+    do_kfree(&groups, addr);
+    TEST_ASSERT(group->free == group->size);
+
+    free_all_groups(&groups);
+    return true;
+}
+
+void kmalloc_test() {
+    TEST_FWK_RUN(kmalloc_create_group_test);
+    TEST_FWK_RUN(kmalloc_alloc_all_group_at_once_test);
+    TEST_FWK_RUN(kmalloc_simple_alloc_in_group_test);
+    TEST_FWK_RUN(kmalloc_in_group_min_free_entry_size);
+    TEST_FWK_RUN(kmalloc_in_group_fragmentation_test);
+    TEST_FWK_RUN(kmalloc_in_group_alloc_until_empty);
+    TEST_FWK_RUN(kmalloc_in_group_check_size_sum);
+    TEST_FWK_RUN(kfree_in_group_simple_test);
+    TEST_FWK_RUN(kfree_in_group_free_list_reconstruction_test);
+    TEST_FWK_RUN(insert_in_free_list_test);
+    TEST_FWK_RUN(merge_free_node_on_free_test);
+    TEST_FWK_RUN(end_to_end_group_alloc_test);
+    TEST_FWK_RUN(free_group_releases_frame_test);
+    TEST_FWK_RUN(do_kmalloc_test_create_group);
+    TEST_FWK_RUN(do_kfree_test);
+}
