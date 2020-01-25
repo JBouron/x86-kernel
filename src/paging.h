@@ -37,8 +37,12 @@ void paging_map(void const * const paddr,
 // Unmap a virtual memory region.
 // @param vaddr: The virtual address to unmap. Must be 4KiB aligned.
 // @param len: The length of the memory area.
-void paging_unmap(void const * const vaddr,
-                  size_t const len);
+void paging_unmap(void const * const vaddr, size_t const len);
+
+// Unmap a virtual memory region and free the physical frames it was mapped to.
+// @param vaddr: The virtual address to unmap. Must be 4KiB aligned.
+// @param len: The length of the memory area.
+void paging_unmap_and_free_frames(void const * const vaddr, size_t const len);
 
 // Find a memory region in the current virtual address space with at least a
 // certain number of contiguous pages non mapped.

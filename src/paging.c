@@ -381,7 +381,7 @@ static bool page_table_is_empty(struct page_table_t const * const table) {
 
 // Unmap a virtual page.
 // @param vaddr: The address of the virtual page. Must be 4Kib aligned.
-static void unmap_page(void const * const vaddr) {
+static void unmap_page(void const * const vaddr, bool const free_phy_frame) {
     ASSERT(is_4kib_aligned(vaddr));
     struct page_dir_t * const page_dir = get_curr_page_dir_vaddr();
 
@@ -396,6 +396,14 @@ static void unmap_page(void const * const vaddr) {
     // The entry should be present, otherwise we have a conflict.
     if (!page_table->entry[pte_idx].present) {
         PANIC("Address %p is not mapped.", vaddr);
+    }
+
+    // If the request to unmap also requests free'ing the mapped physical frame,
+    // do it now.
+    if (free_phy_frame) {
+        uint32_t const foffset = page_table->entry[pte_idx].frame_addr;
+        void * const faddr = (void*)((uint32_t)foffset << 12);
+        free_frame(faddr);
     }
 
     memzero(&page_table->entry[pte_idx], sizeof(*page_table->entry));
@@ -440,15 +448,26 @@ void paging_map(void const * const paddr,
 // Unmap a virtual memory region.
 // @param vaddr: The virtual address to unmap. Must be 4KiB aligned.
 // @param len: The length of the memory area.
-void paging_unmap(void const * const vaddr,
-                  size_t const len) {
+// @param free_phy_frame: If true, the physical frame mapped to the memory
+// region will be freed.
+static void do_paging_unmap(void const * const vaddr,
+                            size_t const len,
+                            bool const free_phy_frame) {
     ASSERT(is_4kib_aligned(vaddr));
 
     uint32_t const num_frames = ceil_x_over_y_u32(len, PAGE_SIZE);
     for (size_t i = 0; i < num_frames; ++i) {
-        unmap_page(vaddr + i * PAGE_SIZE);
+        unmap_page(vaddr + i * PAGE_SIZE, free_phy_frame);
     }
     cpu_invalidate_tlb();
+}
+
+void paging_unmap(void const * const vaddr, size_t const len) {
+    do_paging_unmap(vaddr, len, false);
+}
+
+void paging_unmap_and_free_frames(void const * const vaddr, size_t const len) {
+    do_paging_unmap(vaddr, len, true);
 }
 
 // Check if a virtual page is currently mapped to a frame in physical memory in

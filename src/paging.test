@@ -58,7 +58,7 @@ static bool _paging_map_page_page_table_test_runner(uint32_t const flags) {
     union pde_t const pde = get_curr_page_dir_vaddr()->entry[pde_idx];
     union pte_t const pte = get_page_table_vaddr(pde_idx)->entry[pte_idx];
 
-    unmap_page(vaddr);
+    unmap_page(vaddr, false);
     cpu_invalidate_tlb();
 
 
