@@ -44,6 +44,8 @@ void list_del(struct list_node * const node);
 // @return: true if the list pointed by head is empty, false otherwise.
 bool list_empty(struct list_node const * const head);
 
+uint32_t list_size(struct list_node const * const head);
+
 // Iterate over a list.
 // @param cursor: The struct list_node * to use as an iterator.
 // @param head: The list to iterate over.
@@ -58,6 +60,18 @@ bool list_empty(struct list_node const * const head);
     for (entry = list_entry((head)->next, typeof(*entry), member);          \
          &entry->member != (head);                                          \
          entry = list_entry(entry->member.next, typeof(*entry), member))
+
+#define list_first(head) \
+    ((head)->next)
+
+#define list_last(head) \
+    ((head)->prev)
+
+#define list_first_entry(head, type, member) \
+    (list_entry(list_first(head), type, member))
+
+#define list_last_entry(head, type, member) \
+    (list_entry(list_last(head), type, member))
 
 // Execute tests related to list manipulation.
 void list_test(void);

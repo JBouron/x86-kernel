@@ -33,4 +33,12 @@ bool list_empty(struct list_node const * const head) {
     return head->next == head;
 }
 
+uint32_t list_size(struct list_node const * const head) {
+    uint32_t size = 0;
+    struct list_node * cursor;
+    list_for_each(cursor, head) {
+        size ++;
+    }
+    return size;
+}
 #include <list.test>
