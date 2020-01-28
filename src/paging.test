@@ -379,6 +379,37 @@ static bool paging_find_contiguous_non_mapped_pages_test(void) {
     return true;
 }
 
+static bool paging_idempotency_test(void) {
+    void const * const addr = (void*)0xBEEFBABE;
+    
+    // ID map the address for two pages. With arbitrary flags.
+    paging_map(addr, addr, 2 * PAGE_SIZE, VM_WRITE);
+    // ID map the address + one page for one page. This overlap the mapping
+    // above but it does not change it as the attributes are the same.
+    paging_map(addr + PAGE_SIZE, addr + PAGE_SIZE, PAGE_SIZE, VM_WRITE);
+
+    paging_unmap(addr, 2 * PAGE_SIZE);
+    return true;
+}
+
+// Check that one can give non 4KiB aligned addresses to paging_map.
+static bool paging_non_aligned_addrs(void) {
+    uint8_t const * const virt = (void*)0x0FFE;
+    TEST_ASSERT(is_4kib_aligned(KERNEL_START_ADDR));
+    uint8_t const * const phy = to_phys(KERNEL_START_ADDR + 0xFFE);
+
+    // Map 4 bytes. The issue here is that the start addresses have a page
+    // offset of 0xFFE, therefore what paging_map needs to do is map two pages.
+    paging_map(phy, virt, 4, 0);
+
+    for (uint32_t i = 0; i < 4; ++i) {
+        TEST_ASSERT(virt[i] == *(KERNEL_START_ADDR + 0xFFE + i));
+    }
+
+    paging_unmap(virt, 4);
+    return true;
+}
+
 void paging_test(void) {
     TEST_FWK_RUN(paging_create_recursive_entry_test);
     TEST_FWK_RUN(paging_get_curr_page_dir_vaddr_test);
@@ -393,4 +424,6 @@ void paging_test(void) {
     TEST_FWK_RUN(paging_find_next_non_mapped_page_test);
     TEST_FWK_RUN(paging_compute_hole_size_test);
     TEST_FWK_RUN(paging_find_contiguous_non_mapped_pages_test);
+    TEST_FWK_RUN(paging_idempotency_test);
+    TEST_FWK_RUN(paging_non_aligned_addrs);
 }

@@ -74,6 +74,23 @@ struct page_table_t {
     union pte_t entry[1024];
 };
 
+// Compare two PTEs.
+// @param a: The first PTE.
+// @param b: The second PTE.
+// @return: true if a and b are identical, false otherwise.
+static bool compare_ptes(union pte_t const a, union pte_t const b) {
+    // Two PTEs are identical if all their fields except accessed, dirty and
+    // ignored are identical.
+    return a.present == b.present &&
+    a.writable == b.writable &&
+    a.user_accessible == b.user_accessible &&
+    a.write_through == b.write_through &&
+    a.cache_disable == b.cache_disable &&
+    a.zero == b.zero &&
+    a.global == b.global &&
+    a.frame_addr == b.frame_addr;
+}
+
 // Allocate a new page directory.
 // @return: The _physical_ address of the freshly allocated page directory.
 static struct page_dir_t * alloc_page_dir(void) {
@@ -228,13 +245,6 @@ static void map_page(struct page_dir_t * const page_dir,
         memzero(page_table, sizeof(*page_table));
     }
 
-    uint32_t const pte_idx = pte_index(vaddr);
-
-    // The entry should not be present, otherwise we have a conflict.
-    if (page_table->entry[pte_idx].present) {
-        PANIC("Address %p is already mapped.", vaddr);
-    }
-
     union pte_t pte;
     // Need to be extremely careful with the bitwise op here. The value stored
     // in the attributes of the PTE need to be 0 or 1, anything higher might not
@@ -251,6 +261,17 @@ static void map_page(struct page_dir_t * const page_dir,
     pte.zero = 0;
     pte.present = 1;
     pte.frame_addr = ((uint32_t)paddr) >> 12;
+
+    uint32_t const pte_idx = pte_index(vaddr);
+
+    if (page_table->entry[pte_idx].present) {
+        // If there was already an entry at this index compare with the new
+        // entry that we want to insert. If both entries are identical then do
+        // nothing, otherwise panic.
+        if (!compare_ptes(pte, page_table->entry[pte_idx])) {
+            PANIC("Overwriting previous PTE when mapping address %p", vaddr);
+        }
+    }
 
     page_table->entry[pte_idx] = pte;
 }
@@ -421,43 +442,62 @@ static void unmap_page(void const * const vaddr, bool const free_phy_frame) {
     }
 }
 
+// Compute the offset within a page of an address.
+// @param addr: The address to compute the page offset for.
+// @return: The page offset of `addr`.
+static uint32_t page_offset(void const * const addr) {
+    return (uint32_t)addr & 0xFFF;
+}
+
 // Map a virtual memory region to a physical one.
-// @param paddr: The physical address to map the virtual address to. Must be
-// 4KiB aligned.
-// @param vaddr: The virtual address. Must be 4KiB aligned.
+// @param paddr: The physical address to map the virtual address to.
+// @param vaddr: The virtual address.
 // @param len: The length in byte of the memory region. Note that mapping should
 // ideally be multiple of PAGE_SIZE (since that is the granularity), but this
 // field does not have to be.
 // @param flags: The attributes of the mapping. See VM_* macros in paging.h.
+// Note: The addresses do not have to be 4KiB aligned, the mapping function will
+// take care of that. However they need to have the same page offset (lower 12
+// bits).
 void paging_map(void const * const paddr,
                 void const * const vaddr,
                 size_t const len,
                 uint32_t const flags) {
-    ASSERT(is_4kib_aligned(paddr));
-    ASSERT(is_4kib_aligned(vaddr));
+    // This function accepts addresses that are not page aligned. However they
+    // at least need to share the same page offset, otherwise there is probably
+    // an issue in the caller.
+    ASSERT(page_offset(paddr) == page_offset(vaddr));
 
-    uint32_t const num_frames = ceil_x_over_y_u32(len, PAGE_SIZE);
+    // Align the start addresses to page aligned addresses. Account for the
+    // potentially increased size.
+    void const * const start_phy = get_page_addr(paddr);
+    void const * const start_virt = get_page_addr(vaddr);
+    size_t const fixed_len = len + (uint32_t)(paddr - start_phy);
+
+    // Map the pages.
+    uint32_t const num_frames = ceil_x_over_y_u32(fixed_len, PAGE_SIZE);
     for (size_t i = 0; i < num_frames; ++i) {
-        void const * const pchunk = paddr + i * PAGE_SIZE;
-        void const * const vchunk = vaddr + i * PAGE_SIZE;
+        void const * const pchunk = start_phy + i * PAGE_SIZE;
+        void const * const vchunk = start_virt + i * PAGE_SIZE;
         map_page(get_curr_page_dir_vaddr(), pchunk, vchunk, flags);
     }
     cpu_invalidate_tlb();
 }
 
 // Unmap a virtual memory region.
-// @param vaddr: The virtual address to unmap. Must be 4KiB aligned.
+// @param vaddr: The virtual address to unmap.
 // @param len: The length of the memory area.
 // @param free_phy_frame: If true, the physical frame mapped to the memory
 // region will be freed.
 static void do_paging_unmap(void const * const vaddr,
                             size_t const len,
                             bool const free_phy_frame) {
-    ASSERT(is_4kib_aligned(vaddr));
+    void const * const start_virt = get_page_addr(vaddr);
+    size_t const fixed_len = len + (uint32_t)(vaddr - start_virt);
 
-    uint32_t const num_frames = ceil_x_over_y_u32(len, PAGE_SIZE);
+    uint32_t const num_frames = ceil_x_over_y_u32(fixed_len, PAGE_SIZE);
     for (size_t i = 0; i < num_frames; ++i) {
-        unmap_page(vaddr + i * PAGE_SIZE, free_phy_frame);
+        unmap_page(start_virt + i * PAGE_SIZE, free_phy_frame);
     }
     cpu_invalidate_tlb();
 }
