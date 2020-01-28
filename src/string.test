@@ -1,4 +1,5 @@
 #include <test.h>
+#include <kmalloc.h>
 
 // Basic test of streq().
 static bool streq_test(void) {
@@ -84,9 +85,21 @@ static bool str_find_chr_test(void) {
     SUCCESS;
 }
 
+static bool strncpy_test(void) {
+    char * const template = "Hello world!";
+    char * const str1 = kmalloc(strlen(template) + 1);
+    strncpy(template, str1, strlen(template));
+    TEST_ASSERT(streq(str1, template));
+    strncpy("LULMEME", str1 + 3, 3);
+    TEST_ASSERT(streq(str1, "HelLULworld!"));
+    kfree(str1);
+    return true;
+}
+
 void str_test(void) {
     TEST_FWK_RUN(streq_test);
     TEST_FWK_RUN(strneq_test);
     TEST_FWK_RUN(strlen_test);
     TEST_FWK_RUN(str_find_chr_test);
+    TEST_FWK_RUN(strncpy_test);
 }

@@ -47,4 +47,10 @@ size_t str_find_chr(char const * const str, char const ch, size_t const begin) {
     }
 }
 
+void strncpy(char const * const src, char * const dst, size_t const len) {
+    for (size_t i = 0; i < len; ++i) {
+        dst[i] = src[i];
+    }
+}
+
 #include <string.test>

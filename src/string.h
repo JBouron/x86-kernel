@@ -33,6 +33,8 @@ bool strneq(const char * const str1, const char * const str2, size_t const n);
 // that is >= `begin`. Else return STR_NPOS (see below).
 size_t str_find_chr(char const * const str, char const ch, size_t const begin);
 
+void strncpy(char const * const src, char * const dst, size_t const len);
+
 // STR_NPOS is used as a special return value of str_find_chr. It
 // indicates that a character is not present in the string.
 #define STR_NPOS    ((size_t) -1)
