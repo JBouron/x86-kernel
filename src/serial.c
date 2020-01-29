@@ -151,6 +151,12 @@ static void set_parity(enum parity_t const parity) {
     write_register(LINE_CTRL, ln_new);
 }
 
+// Enable the interrupts to be sent by the serial controller when data is ready
+// to be read.
+static void enable_serial_interrupt(void) {
+    write_register(INT_ENABLE, 1);
+}
+
 // Implementation of the write interface of the SERIAL_STREAM I/O stream.
 // @param buf: The buffer to write to the serial port.
 // @param len: Length of the buffer.
@@ -171,10 +177,21 @@ static size_t serial_write(uint8_t const * const buf, size_t const len) {
     return sent;
 }
 
+// Read from the serial controller.
+// @param buf: The buffer to read into.
+// @param len: The number of bytes to read.
+// @return: The number of bytes read into buf.
+static size_t serial_read(uint8_t * const buf, size_t const len) {
+    size_t i = 0;
+    for (; i < len && get_status().data_ready; ++i) {
+        buf[i] = read_register(DATA);
+    }
+    return i;
+}
+
 // The serial I/O stream.
 struct io_stream_t SERIAL_STREAM = {
-    // Reading from serial is not yet implemented.
-    .read = NULL,
+    .read = serial_read,
     .write = serial_write,
 };
 
@@ -184,6 +201,7 @@ void serial_init(void) {
     set_char_length(8);
     set_stop_bits(1);
     set_parity(NONE);
+    enable_serial_interrupt();
 }
 
 #include <serial.test>
