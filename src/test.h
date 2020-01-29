@@ -28,6 +28,7 @@ void print_test_summary(void);
         if (!(cond)) { \
             LOG(#cond); \
             LOG("\n"); \
+            BREAK(); \
             FAILURE \
         }\
     } while(0)
