@@ -143,6 +143,15 @@ struct madt_ioapic_entry_t {
     uint32_t const global_sys_int_base;
 } __attribute__((packed));
 
+struct madt_int_src_override_entry_t {
+    // The header of the MADT entry.
+    struct madt_entry_header_t const header;
+    uint8_t const bus;
+    uint8_t const source_irq;
+    uint32_t const global_system_interrupt;
+    uint16_t const flags;
+} __attribute__((packed));
+
 // Compute and verify the checksum of a set of bytes.
 // @param ptr: The pointer to the first byte of the data to verify the checksum
 // for.
@@ -325,6 +334,31 @@ static void process_madt_ioapic_entry(
     IO_APIC_ADDR = (void*)entry->ioapic_addr;
 }
 
+// IO APIC may not identity map legacy ISA interrupts. This is what
+// INTERRUPT_SOURCE_OVERRIDE entries can be found in the MADT.
+// This array maps and ISA interrupt vector to the corresponding IO APIC source
+// interrupt vector.
+static uint8_t isa_vector_mapping[] = {
+    // By default use identity mapping. process_madt_int_src_override_entry will
+    // take care of modifying the entries for which the IO APIC source vector
+    // differs.
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+};
+
+static void process_madt_int_src_override_entry(
+    struct madt_int_src_override_entry_t const * const entry) {
+    LOG("   bus                     = %u\n", entry->bus);
+    LOG("   source_irq              = %u\n", entry->source_irq);
+    LOG("   global_system_interrupt = %u\n", entry->global_system_interrupt);
+    LOG("   flags                   = %x\n", entry->flags);
+
+    // A Bus field of 0 indicate ISA.
+    if (!entry->bus) {
+        // Add the mapping to the the table.
+        isa_vector_mapping[entry->source_irq] = entry->global_system_interrupt;
+    }
+}
+
 // Parses an MADT.
 // @param madt: The MADT to parse.
 static void process_madt(struct madt_t const * const madt) {
@@ -341,14 +375,15 @@ static void process_madt(struct madt_t const * const madt) {
         LOG("MADT[%u] is %s:\n", index, get_madt_type_str(header->type));
 
         switch (header->type) {
-            case PROC_LOCAL_APIC: {
+            case PROC_LOCAL_APIC:
                 process_madt_local_apic_entry(ptr);
                 break;
-            }
-            case IO_APIC: {
+            case IO_APIC:
                 process_madt_ioapic_entry(ptr);
                 break;
-            }
+            case INTERRUPT_SOURCE_OVERRIDE:
+                process_madt_int_src_override_entry(ptr);
+                break;
             default:
                 break;
         }
@@ -380,4 +415,9 @@ void acpi_init(void) {
 
 void * acpi_get_ioapic_addr(void) {
     return IO_APIC_ADDR;
+}
+
+uint8_t acpi_get_isa_interrupt_vector_mapping(uint8_t const isa_vector) {
+    ASSERT(isa_vector <= 15);
+    return isa_vector_mapping[isa_vector];
 }
