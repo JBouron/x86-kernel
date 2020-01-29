@@ -199,6 +199,16 @@ static uint8_t get_max_redirections(void) {
     return ioapicver.max_redirections + 1;
 }
 
+// Read a redirection entry from the IO APIC.
+// @param index: The index of the entry to read in the redirection table.
+// @param dest [OUT]: Pointer to read the entry into.
+static void read_redirection(uint8_t const index,
+    struct redirection_entry_t * const dest) {
+    uint8_t const reg = IOREDTBL(index);
+    dest->low = read_register(reg);
+    dest->high = read_register(reg + 1);
+}
+
 // Write a redirection entry in the redirection table.
 // @param index: The index in the redirection table.
 // @param entry: The entry to be written.
@@ -211,10 +221,8 @@ static void write_redirection(uint8_t const index,
     // read the entire register, change the field and write it back. Since the
     // redirection entries have reserved fields, we need to proceed in this
     // manner.
-    struct redirection_entry_t curr_entry = {
-        .low = read_register(reg),
-        .high = read_register(reg + 1),
-    };
+    struct redirection_entry_t curr_entry;
+    read_redirection(index, &curr_entry);
 
     // Mutate the fields of the current entry.
     curr_entry.vector = entry->vector;
@@ -260,7 +268,6 @@ void init_ioapic(void) {
 void redirect_isa_interrupt(uint8_t const isa_vector,
                             uint8_t const new_vector) {
     ASSERT(isa_vector <= 15);
-    ASSERT(isa_vector < get_max_redirections());
     // Interrupt vector 0-31 are reserved. Make sure the requested vector is not
     // one of them.
     ASSERT(31 < new_vector);
@@ -283,7 +290,26 @@ void redirect_isa_interrupt(uint8_t const isa_vector,
 
     // Write the redirection entry in the IO APIC.
     redir.vector = new_vector;
-    write_redirection(isa_vector, &redir);
+
+    // The ISA vector might have been mapped to another vector on the IO APIC.
+    uint8_t const mappedisa = acpi_get_isa_interrupt_vector_mapping(isa_vector);
+    write_redirection(mappedisa, &redir);
+}
+
+void remove_redirection_for_isa_interrupt(uint8_t const isa_vector) {
+    ASSERT(isa_vector <= 15);
+    // Get the index of the ISA vector in the redirection table.
+    uint8_t const mappedisa = acpi_get_isa_interrupt_vector_mapping(isa_vector);
+
+    // Read the current redirection entry for this ISA vector.
+    struct redirection_entry_t curr_entry;
+    read_redirection(mappedisa, &curr_entry);
+
+    // Mask the interrupt.
+    curr_entry.masked = true;
+
+    // Write-back the entry.
+    write_redirection(mappedisa, &curr_entry);
 }
 
 #include <ioapic.test>
