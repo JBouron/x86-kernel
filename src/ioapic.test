@@ -1,4 +1,6 @@
 #include <test.h>
+#include <interrupt.h>
+#include <cpu.h>
 
 #define IOAPIC_TEST_SETUP()                         \
     struct io_apic_t FAKE;                          \
@@ -16,6 +18,7 @@ static bool ioapic_ioapicver_test(void) {
     return ioapicver.apic_version == 0x11;
 }
 
+// Test the read_register function.
 static bool ioapic_read_register_test(void) {
     IOAPIC_TEST_SETUP();
     
@@ -27,6 +30,7 @@ static bool ioapic_read_register_test(void) {
     return reg_addr == IOAPICARB && read == 0xBEEFBABE;
 }
 
+// Test the write register function.
 static bool ioapic_write_register_test(void) {
     IOAPIC_TEST_SETUP();
     
@@ -40,8 +44,77 @@ static bool ioapic_write_register_test(void) {
     return success;
 }
 
+// End-to-end test for interrupt redirection with the IO-APIC.
+// In this test, the PIT timer is redirected to some vector. The timer is armed,
+// and the test function waits for the interrupt handler of the vector the PIT
+// has been redirected to, to be called.
+//
+// This test checks multiple things:
+//  _ The ACPI parser correctly parser interrupt override entries. Indeed the
+//  PIT IRQ is most likely overridden to another vector. In QEMU for instance it
+//  is remapped to IRQ2.
+//  _ The redirect_isa_interrupt function.
+//  _ The write_redirection functions (and therefore read_redirection).
+
+// Indicate if the handler for the redirected PIT has been called.
+static volatile bool pit_interrupt_received = false;
+
+// The handler for the redirected PIT.
+static void ioapic_redirection_test_handler(
+    struct interrupt_frame_t const * const frame) {
+    LOG("Received PIT interrupt on vector %u\n", frame->vector);
+
+    // Set the success flag.
+    pit_interrupt_received = true;
+
+    // Disable the redirection to avoid receiving more interrupts from the PIT.
+    remove_redirection_for_isa_interrupt(0);
+}
+
+// The actual end-to-end test.
+static bool ioapic_redirection_test(void) {
+    // Disable interrupts while messing around with the IO APIC.
+    cpu_set_interrupt_flag(false);
+
+    // Now redirect the PIT interrupt vector to the vector 32 and register a
+    // callback for vector 32.
+    uint8_t const pit_vector = 0;
+    uint8_t const redir_vector = 32;
+    redirect_isa_interrupt(pit_vector, redir_vector);
+    interrupt_register_callback(redir_vector, ioapic_redirection_test_handler);
+
+    // Note: The following code until the end of the function are hard-coded.
+    // This is because we do not have functions to manipulate the PIT. We need
+    // to do it ourselves ...
+    // Setup the PIT to use a 16 bits counter in Interrupt On Terminal Count
+    // mode. All the details are not really important, as long as the PIT fires
+    // an interrupt and the interrupt get redirected.
+    uint8_t const cmd_port = 0x43;
+    uint8_t const cmd = (3 << 4);
+    cpu_outb(cmd_port, cmd);
+
+    // Use a counter of 65535 for the PIT. This is approx 18Hz.
+    uint8_t const port = 0x40;
+    uint16_t const reset_val = 65535;
+    cpu_outb(port, (uint8_t)(reset_val & 0xFF));
+    cpu_outb(port, (uint8_t)(reset_val >> 8));
+    // PIT starts counting down here !
+
+    // Enable the interrupts.
+    cpu_set_interrupt_flag(true);
+
+    // Wait for the handler to be called.
+    while(!pit_interrupt_received);
+
+    // Clean up.
+    cpu_set_interrupt_flag(false);
+    interrupt_delete_callback(redir_vector);
+    return true;
+}
+
 void ioapic_test(void) {
     TEST_FWK_RUN(ioapic_ioapicver_test);
     TEST_FWK_RUN(ioapic_read_register_test);
     TEST_FWK_RUN(ioapic_write_register_test);
+    TEST_FWK_RUN(ioapic_redirection_test);
 }

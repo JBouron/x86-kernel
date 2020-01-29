@@ -35,17 +35,14 @@ static void test_kernel(void) {
     serial_test();
     segmentation_test();
     interrupt_test();
-    // The lapic test is disabled for now as it generate spurious interrupts
-    // that cause panics.
-    //lapic_test();
     bitmap_test();
     frame_alloc_test();
     paging_test();
     multiboot_test();
     list_test();
     kmalloc_test();
-    lapic_test();
     ioapic_test();
+    lapic_test();
     print_test_summary();
 }
 
