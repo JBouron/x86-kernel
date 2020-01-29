@@ -35,6 +35,7 @@ static void test_kernel(void) {
     serial_test();
     segmentation_test();
     interrupt_test();
+    lapic_test();
     bitmap_test();
     frame_alloc_test();
     paging_test();
@@ -42,7 +43,6 @@ static void test_kernel(void) {
     list_test();
     kmalloc_test();
     ioapic_test();
-    lapic_test();
     print_test_summary();
 }
 

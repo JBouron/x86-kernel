@@ -65,6 +65,8 @@ void lapic_start_timer(uint32_t const period,
 }
 
 void lapic_stop_timer(void) {
+    // Mask the interrupts from the LAPIC timer.
+    LAPIC->lvt_timer.val = LAPIC->lvt_timer.val | ((uint32_t)(1 << 16));
     // Writing 0 in the initial_count register stops the timer in both one-shot
     // and periodic modes.
     LAPIC->initial_count.val = 0;
