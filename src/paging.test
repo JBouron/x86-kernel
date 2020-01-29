@@ -150,6 +150,8 @@ static volatile uint8_t number_page_fault = 0;
 static volatile void const* fault_addrs[2];
 // The error code, per fault that happened.
 static volatile uint32_t error_codes[2];
+// The allocated frame in the page fault handler.
+static void * allocated_frame_in_pagefault_handler = NULL;
 
 // The temporary page fault handler.
 static void dummy_pf_handler(struct interrupt_frame_t const * const frame) {
@@ -165,7 +167,8 @@ static void dummy_pf_handler(struct interrupt_frame_t const * const frame) {
     if (number_page_fault == 1) {
         // On the first page fault, map the page read only. This will trigger
         // a second segfault, at this point map it with write permissions.
-        void const * const phy_frame = alloc_frame();
+        void * const phy_frame = alloc_frame();
+        allocated_frame_in_pagefault_handler = phy_frame;
         paging_map(phy_frame, page_addr, PAGE_SIZE, 0);
     } else {
         // Enable write bit on the second fault.
@@ -210,6 +213,7 @@ static bool paging_pagefault_test(void) {
 
     cpu_set_interrupt_flag(false);
     interrupt_delete_callback(14);
+    free_frame(allocated_frame_in_pagefault_handler);
     return true;
 }
 
@@ -253,6 +257,8 @@ static bool paging_unmap_page_test(void) {
     // Since the page fault handler had to map the virtual page we need to unmap
     // it again.
     paging_unmap(get_page_addr(vaddr), PAGE_SIZE);
+    free_frame(allocated_frame_in_pagefault_handler);
+    free_frame(frame);
 
     cpu_set_interrupt_flag(false);
     interrupt_delete_callback(14);
