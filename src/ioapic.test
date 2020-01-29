@@ -1,0 +1,47 @@
+#include <test.h>
+
+#define IOAPIC_TEST_SETUP()                         \
+    struct io_apic_t FAKE;                          \
+    struct io_apic_t volatile * __old = IO_APIC;    \
+    IO_APIC = (struct io_apic_t volatile*)&FAKE;
+
+#define IOAPIC_TEST_TEARDOWN() \
+    IO_APIC = __old;
+
+// Simple test that the apic version returned by the IOAPICVER register is 0x11.
+static bool ioapic_ioapicver_test(void) {
+    struct ioapicver_t const ioapicver = {
+        .raw = read_register(IOAPICVER),
+    };
+    return ioapicver.apic_version == 0x11;
+}
+
+static bool ioapic_read_register_test(void) {
+    IOAPIC_TEST_SETUP();
+    
+    FAKE.iowin = 0xBEEFBABE;
+    uint32_t const read = read_register(IOAPICARB);
+    uint32_t const reg_addr = FAKE.ioregsel.reg_addr;
+
+    IOAPIC_TEST_TEARDOWN();
+    return reg_addr == IOAPICARB && read == 0xBEEFBABE;
+}
+
+static bool ioapic_write_register_test(void) {
+    IOAPIC_TEST_SETUP();
+    
+    uint32_t const reg = IOREDTBL(5);
+    uint32_t const val = 0xBABECAFE;
+    write_register(reg, val);
+
+    bool const success = FAKE.ioregsel.reg_addr == reg && FAKE.iowin == val;
+
+    IOAPIC_TEST_TEARDOWN();
+    return success;
+}
+
+void ioapic_test(void) {
+    TEST_FWK_RUN(ioapic_ioapicver_test);
+    TEST_FWK_RUN(ioapic_read_register_test);
+    TEST_FWK_RUN(ioapic_write_register_test);
+}
