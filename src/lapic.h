@@ -8,12 +8,13 @@ void init_lapic(void);
 void lapic_eoi(void);
 
 // Initialize and start a timer on the Lapic of the current CPU.
-// @param period: The period (in LAPIC cycles) of the timer.
+// @param msec: The number of milliseconds before the LAPIC fires off an
+// interrupt.
 // @param periodic: If true the timer fires an interrupt periodically, every
 // period.
 // @param vector: The interrupt vector to use once the timer reaches 0.
 // @param callback: The callback to be called every period.
-void lapic_start_timer(uint32_t const period,
+void lapic_start_timer(uint32_t const msec,
                        bool const periodic,
                        uint8_t const vector,
                        int_callback_t const callback);
@@ -21,6 +22,10 @@ void lapic_start_timer(uint32_t const period,
 // Stop the current timer on the Local APIC of the current CPU.
 // Note: This stops both one-shot and periodic timers.
 void lapic_stop_timer(void);
+
+// Calibrate the frequency of the LAPIC timer. This function assumes that the IO
+// APIC is set up and initialized.
+void calibrate_timer(void);
 
 // Test LAPIC functionalities.
 void lapic_test(void);
