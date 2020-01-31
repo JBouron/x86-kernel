@@ -367,3 +367,18 @@ ASM_FUNC_DEF(cpu_invalidate_tlb):
 ASM_FUNC_DEF(cpu_read_cr2):
     mov     %cr2, %eax
     ret
+
+//void cpu_halt(void);
+ASM_FUNC_DEF(cpu_halt):
+    hlt
+    ret
+
+//void cpu_enable_cache(void);
+ASM_FUNC_DEF(cpu_enable_cache):
+    // Cache is enabled by clearing the CD (bit 30) and NW (bit 29) of the CR0
+    // register.
+    mov     %cr0, %eax
+    and     $~(1 << 29), %eax
+    and     $~(1 << 30), %eax
+    mov     %eax, %cr0
+    ret

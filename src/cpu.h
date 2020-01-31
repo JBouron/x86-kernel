@@ -202,5 +202,11 @@ void cpu_invalidate_tlb(void);
 // @return: The current value of the CR2 register.
 void *cpu_read_cr2(void);
 
+// Halt the cpu. This function does not enable interrupts!
+void cpu_halt(void);
+
+// Enable the cache on the CPU.
+void cpu_enable_cache(void);
+
 // Execute tests on CPU related functions.
 void cpu_test(void);

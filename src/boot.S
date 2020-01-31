@@ -38,6 +38,9 @@ ASM_FUNC_DEF(_start_kernel):
     mov     $(stack_top), %esp
     sub     $KERNEL_PHY_OFFSET, %esp
 
+    # We can already enable the cache.
+    call cpu_enable_cache
+
     # Note: %ebx contains the physical address of the multiboot header. We will
     # need it later in the kernel_main thus save it into the stack
     push    %ebx
