@@ -599,4 +599,8 @@ void *paging_find_contiguous_non_mapped_pages(void * const start_addr,
     return NULL;
 }
 
+void const * get_kernel_page_dir_phy_addr(void) {
+    return KERNEL_PAGE_DIR;
+}
+
 #include <paging.test>

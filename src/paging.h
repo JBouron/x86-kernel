@@ -52,5 +52,9 @@ void paging_unmap_and_free_frames(void const * const vaddr, size_t const len);
 void *paging_find_contiguous_non_mapped_pages(void * const start_addr,
                                               size_t const npages);
 
+// Get the physical address of the kernel's page directory.
+// @return: The physical address of the kernel's page directory.
+void const * get_kernel_page_dir_phy_addr(void);
+
 // Execute tests related to paging.
 void paging_test(void);
