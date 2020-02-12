@@ -339,13 +339,21 @@ ASM_FUNC_DEF(cpu_read_cr3):
     mov     %cr3, %eax
     ret
 
-//void cpu_enable_paging(void);
-ASM_FUNC_DEF(cpu_enable_paging):
+// Helper routine writting the correct bits in the correct control registers to
+// activate paging. This routine does _not_ perform the absolute jump into the
+// mapped kernel, this is left to the callee.
+ASM_FUNC_DEF(cpu_enable_paging_bits):
     # Enable PG and WP bits.
     mov     $0x80010000, %eax
     mov     %cr0, %ecx
     or      %ecx, %eax
     mov     %eax, %cr0
+    ret
+
+//void cpu_enable_paging(void);
+ASM_FUNC_DEF(cpu_enable_paging):
+    # Enable the paging bits.
+    call    cpu_enable_paging_bits
     # Now perform an absolute jump.
     lea     paging_enable_target, %eax
     jmp     *%eax
