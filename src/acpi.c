@@ -316,11 +316,20 @@ static char const * get_madt_type_str(enum madt_entry_type_t const type) {
 // The physical address of the I/O APIC. This global is set during acpi_init().
 static void * IO_APIC_ADDR = NULL;
 
+// The number of CPUs in the system. To count the number of CPUs we simply count
+// the number of PROC_LOCAL_APIC entries in the MADT.
+uint16_t NCPUS = 0;
+
 static void process_madt_local_apic_entry(
     struct madt_local_apic_entry_t const * const entry) {
     LOG("   acpi proc id = %u\n", entry->acpi_processor_id);
     LOG("   apic id      = %u\n", entry->apic_id);
     LOG("   flags        = %u\n", entry->flags);
+
+    // Consider a one-to-one between the cpus on the system and the
+    // PROC_LOCAL_APIC entries. FIXME: Ideally here we would want to check that
+    // the acpi proc id is not a duplicate. This might be overkill.
+    NCPUS ++;
 }
 
 static void process_madt_ioapic_entry(
@@ -420,4 +429,8 @@ void * acpi_get_ioapic_addr(void) {
 uint8_t acpi_get_isa_interrupt_vector_mapping(uint8_t const isa_vector) {
     ASSERT(isa_vector <= 15);
     return isa_vector_mapping[isa_vector];
+}
+
+uint16_t acpi_get_number_cpus(void) {
+    return NCPUS;
 }
