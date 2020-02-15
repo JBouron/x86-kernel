@@ -133,4 +133,27 @@ union segment_selector_t kernel_code_selector(void) {
     };
     return sel;
 }
+
+void initialize_trampoline_gdt(struct ap_boot_data_frame_t * const data_frame) {
+    // Per documentation of the AP start up procedure, the APs use a temporary
+    // GDT to enter protected mode. The content of this GDT is as follows:
+    //      GDT[0] = <NULL entry>
+    //      GDT[1] = flat data segment spanning from 0x00000000 to 0xFFFFFFFF.
+    //      GDT[2] = flat code segment spanning from 0x00000000 to 0xFFFFFFFF.
+    // Since the GDT used by the BSP has the same layout, we can simply copy it
+    // over to the temporary GDT.
+    memcpy(data_frame->gdt, GDT, sizeof(GDT));
+
+    // Initialize the GDT table descriptor in the data frame so that APs can
+    // simply call the lgdt instruction without having to deal with the desc
+    // computation.
+    data_frame->gdt_desc.limit = sizeof(data_frame->gdt) - 1;
+    // FIXME: The base address of the GDT in the table desc need to be a linear
+    // address. Here we are passing the address of data_frame->gdt which assumes
+    // that the data frame has been identity mapped. Ideally we would need to
+    // get the physical location of the data frame and add the temp gdt offset
+    // to it.
+    data_frame->gdt_desc.base = &data_frame->gdt;
+}
+
 #include <segmentation.test>

@@ -77,3 +77,287 @@ ASM_FUNC_DEF(_start_kernel):
     # We can still "return" from the HALT in case of non-maskable interrupt
     # thus let us be safe and jump back to the halt if it happens.
     jmp     1b
+
+.code16
+# The align 4KiB is not necessary here, as this code is going to be copied to a
+# physical frame under 1MiB anyway. However, it makes debugging much more easier
+# as the addresses in the APs EIP and the higher mapped ap_entry_point will have
+# their 12 LSB identical.
+.align 4096
+start_ap_addr_start:
+ASM_FUNC_DEF_16BITS(ap_entry_point):
+    # This is the entry point for Application processosrs (APs) that is non boot
+    # processors. This entry point must be below the 1MiB address as the APs
+    # will start executing in real-mode.
+    # Note: Any helper functions used in the real-mode or protected mode must be
+    # present _after_ this routine, in other words this routine must start at
+    # address 0 in the frame.
+
+    # Disable interrupts before doing anything. Ideally we should also disable
+    # NMIs. TODO.
+    cli
+
+    # Set the data segment to be the same as the code segment. This is needed
+    # because the last word in the code frame contains the address of the data
+    # frame.
+    mov     %cs, %ax
+    mov     %ax, %ds
+
+    # Read the data segment that this core should use. This segment is stored in
+    # the last word of this code frame.
+    mov     0xFFE, %ax
+    mov     %ax, %ds
+
+    # Get the APIC ID of this processor. This ID will be used to get a stack
+    # from the stack_segments field.
+    # BX = temporary Application Processor ID.
+    mov     $0x1, %eax
+    cpuid
+    shr     $0x18, %ebx
+    xor     %eax, %eax
+    xor     %ecx, %ecx
+    xor     %edx, %edx
+
+    # Get the stack segment to use for this cpu. This is stored in the data
+    # frame.
+    # Normally, cpus are using the stack stored in stack_segments[APIC ID - 1].
+    # However, depending on the amount of available memory under 1MiB, multiple
+    # cpus may share the same stack. The total number of available stacks in the
+    # stack_segments array is given by the num_stacks field of the
+    # ap_boot_data_frame_t structure.
+    # Therefore, cpus are using stack_segments[APIC ID - 1 % num_stacks].
+    # Compute the index within stack_segments:
+    mov     %bx, %ax
+    sub     $0x1, %ax
+    xor     %dx, %dx
+    # 0x24 is the offest of num_stacks in the data frame.
+    mov     0x24, %cx
+    # AH = AX % CX
+    div     %cx
+    # AX = index in stack_segments.
+    mov     %dx, %ax 
+
+    # Now scale AX by sizeof(*stack_segments).
+    shl     $1, %ax
+    # Add the offset of stack_segments to AX.
+    add     $0x28, %ax  
+    # AX = Stack segment.
+    mov     (%eax), %ax
+    mov     %ax, %ss
+
+    # Read the stack size and setup the stack pointer. The stack size is at
+    # offset 0x22 in the data frame.
+    movw    0x22, %sp
+    # Skip the stack lock.
+    sub     $0x1, %sp
+
+    # Acquire the lock on the stack. Unfortunately we cannot use a helper
+    # function for this as the stack may be in use by another cpu.
+    mov     %ax, %dx
+    jmp     first_try
+retry_stack_lock:
+    pause
+first_try:
+    mov     $0x0, %al
+    mov     $0x1, %cl
+    lock cmpxchg %cl, (%esp)
+    jnz     retry_stack_lock
+
+    # Stack lock has been acquired. This cpu can proceed with this stack. We can
+    # now call helper functions.
+    mov     %dx, %ax
+
+    # We now have our private stack. Set up the GDT.
+    # The GDT descriptor is located at offset 0x0 in the data frame.
+    mov     $0x0, %ax
+    lgdt    (%eax)
+
+    # Save the page directory address for later when we will enable paging.
+    # The PD address is at offset 0x1F in the data frame.
+    pushl   0x1E
+
+    # Create the far pointer used to jump into protected mode.
+    call    create_far_pointer_to_protected_mode
+
+    # Push the far pointer onto the stack and jump to it after enabling
+    # protected mode in the control registers CR0.
+    push    %eax
+    call    enable_and_jump_to_protected_mode
+    # This call will never return.
+
+# Below are the helper function for the 16-bits entry point above.
+
+# Create the far pointer to jmp into protected mode. The far pointer being a
+# 4-bytes data structure will be returned in EAX.
+create_far_pointer_to_protected_mode:
+    # Construct the far pointer. The far pointer is constitued of two words:
+    #   _ The code segment selector to use in protected mode.
+    #   _ The address of the target to jump to.
+    # In a 32-bit register this would look like: <segment><addr>.
+
+    # The target for the jump into protected mode is target_protected_mode.
+    # One quirk of this jump is the fact that the target address of the far
+    # pointer needs to be a linear address, as we are jumping into protected
+    # mode.
+    # When computing the address of the target, we have two options:
+    #   1. Use the physical address of the target, where it has been loaded by
+    #   the boot loader eg. 0x100000 + <target>.
+    #   2. Use the physical address of the target where it has been placed by
+    #   the BSP when copying this code frame eg.: 
+    #       <ap_entry_point>+<target - ap_entry_point>
+    # To jump into protected mode, both ways are valid. However the second
+    # option is more attractive when we want to enable paging because the
+    # current code frame is already ID mapped in virtual memory. Using option 1
+    # would require yet another ID mapping for the code frame containing the
+    # target.
+    # Therefore we use the address of the target within the current code frame.
+
+    # Get the offset of the target from the start of the code frame (starting at
+    # ap_entry_point).
+    mov     $target_protected_mode, %eax
+    sub     $ap_entry_point, %eax
+
+    # Since the target is a linear address, compute it by adding the current
+    # code segment shifted by 4 to the left.
+    mov     %cs, %dx
+    shl     $4, %dx
+    # EAX = linear address for the target of the far jump.
+    add     %edx, %eax
+
+    # In the temporary GDT, the code segment to use is 0x10, that is entry with
+    # index 2 and privilege level 0.
+    # ECX = protected mode code segment to use.
+    mov     $0x10, %ecx
+
+    # Build EAX to contain the far pointer, that is the code segment in the high
+    # 16 bits followed by the address of the target in the lower 16 bits.
+    shl     $16, %ecx
+    or      %ecx, %eax
+
+    # Return the far pointer.
+    ret
+
+# Enable protected mode and perform a far jump into protected mode using the
+# pointer passed as paramter in the stack.
+# @param: The 16bits far pointer (4 bytes) to jump to in protected mode.
+# Note: This routine will not return.
+enable_and_jump_to_protected_mode:
+    # Clean up our stack. We need to remove the return address and the far
+    # pointer passed as parameter: so 0x2 (16-bits return addr) + 0x4.
+    add     $0x6, %sp
+
+    # Enable Protected mode by setting the PE bit (0) of CR0.
+    mov     %cr0, %edx
+    or      $1, %edx
+    mov     %edx, %cr0
+
+    # We can now execute the long jump into protected mode. This must be done
+    # right after the mov to cr0 above. If any instruction is in between the
+    # move and the jump the behaviour is undefined, per Intel's manual.
+    # The far pointer passed as argument is now located at %esp - 0x4 since we
+    # clean up the stack pointer above.
+    ljmp    *-0x4(%esp)
+
+# End of helper function for real-mode code.
+
+.code32
+target_protected_mode:
+    # We are now in protected mode. The segment registers (except CS) still
+    # contain real-mode segment descriptor which are now invalid. Setup up the
+    # segment registers DS, ES, FS and GS to use the data segment of the
+    # temporary GDT.  Even if we don't use all of them, it does not hurt to set
+    # them to sane values.
+    mov     $0x8, %ax
+    mov     %ax, %ds
+    mov     %ax, %es
+    mov     %ax, %fs
+    mov     %ax, %gs
+
+    # The stack is still in real-mode addressing, we need to convert it to
+    # linear addressing.
+    # Compute the linear address of the current stack pointer given the
+    # real-mode stack segment and stack pointer.
+    mov     %ss, %eax
+    shl     $4, %eax
+    add     %eax, %esp
+    # Use the 0x8 (Data segment of temp. GDT) for the stack segment.
+    mov     $0x8, %ax
+    mov     %ax, %ss
+
+    # Segments are now valid and we can call functions again. Note: Calling a
+    # function from protected mode requires computing the function's physical
+    # address and making an absolute call to it. The absolute call is of outmost
+    # importance since this code frame only has been relocated and therefore
+    # relative calls fail.
+    # The CALL_FROM_PROTECTED_MODE macro does all of this for us.
+
+    # Now that we are in protected mode we can setup and enable paging.
+
+    # The current top of the stack contains the physical address of the kernel
+    # pag directory to use. Therefore we can already call setup_paging.
+    call    setup_paging
+    add     $0x4, %esp
+
+    # Paging has been setup, we are ready to jump into the higher half kernel
+    # code.
+    call    jump_to_higher_half
+    # This call will not return.
+
+# Helper functions for protected mode code:
+
+# Setup the CR3 register with the address of the page directory to use and
+# enable the paging bits. After this function paging is enabled.
+# Note: The physical frame holding this code needs to be ID mapped to avoid a
+# pagefault when enabling paging.
+# @param: The physical address to load into CR3.
+setup_paging:
+    # Setup the CR3 register to point to the page directory to be used.
+    # Push the address of the page directory to pass it as parameter to
+    # cpu_set_cr3.
+    push    0x4(%esp)
+    CALL_FROM_PROTECTED_MODE(cpu_set_cr3)
+
+    # Pop the page directory addr from the stack.
+    add     $0x4, %esp
+
+    # Enable paging by setting the corresponding bits in CR0.
+    CALL_FROM_PROTECTED_MODE(cpu_enable_paging_bits)
+
+    # Note: We are still in the ID mapped code frame of the start up code here.
+    ret
+
+# Jump into the higher half kernel. This routine will not return.
+# The processor will jump into the virtual page containing the AP booting code.
+jump_to_higher_half:
+    # Before jumping into the higher half target, we need to clean up the stack
+    # from the return address (as this routine will never return).
+    add     $0x4, %esp
+
+    # We can now jump into the higher half kernel.
+    mov     $target_paging, %eax
+    jmp     *%eax
+# End of helper functions for protected mode.
+
+# The target of jump_to_higher_half. APs will end up here (in higher half mapped
+# virtual address space) after calling jump_to_higher_half.
+target_paging:
+    # Note: Since we are in higher half we can now call functions without
+    # resorting to absolute calls tricks.
+
+    # TODO: Typically we would call a function in higher half here to set up a
+    # new, bigger, private stack.
+    
+    # We do not need the old boot stack anymore. Unlock it to allow another
+    # processor to use it in case boot stacks are shared.
+    movb     $0x0, (%esp)
+
+break:
+    # That should never happen. But if somehow an AP returns and ends up here
+    # then lock it up.
+    cli
+    hlt
+    jmp break
+
+.global ap_entry_point_end
+# The ap_entry_point_end label indicates the end of the AP boot code.
+ap_entry_point_end:
