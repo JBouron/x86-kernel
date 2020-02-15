@@ -208,5 +208,8 @@ void cpu_halt(void);
 // Enable the cache on the CPU.
 void cpu_enable_cache(void);
 
+// Execute a PAUSE instruction.
+void cpu_pause(void);
+
 // Execute tests on CPU related functions.
 void cpu_test(void);

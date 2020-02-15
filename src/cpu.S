@@ -390,3 +390,8 @@ ASM_FUNC_DEF(cpu_enable_cache):
     and     $~(1 << 30), %eax
     mov     %eax, %cr0
     ret
+
+//void cpu_pause(void);
+ASM_FUNC_DEF(cpu_pause):
+    pause
+    ret
