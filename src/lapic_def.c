@@ -24,6 +24,112 @@ typedef struct __attribute__((packed)) {
 } lapic_reg_256_t;
 STATIC_ASSERT(sizeof(lapic_reg_256_t) == 128, "");
 
+// Interrupt Command Register related types. The ICR is used to send Inter
+// Processor Interrupts (IPIs).
+
+// Indicate the delivery mode of an IPI.
+enum delivery_mode_t {
+    // Deliver to processor(s) in destination field.
+    NORMAL = 0,
+    // Deliver to the processor with lowest priority.
+    LOW_PRIO = 1,
+    // Deliver a SMI. Vector must be 0.
+    SYSTEM_MANAGEMENT_INTERRUPT = 2,
+    // Deliver an NMI. Vector is ignored.
+    NON_MASKABLE = 4,
+    // Deliver to processor(s) in destination field with an INIT interrupt.
+    // Vector must be 0.
+    INIT = 5,
+    // Send a startup SIPI to the destination(s).
+    STARTUP = 6,
+} __attribute__((packed));
+
+// Destination mode of the IPI.
+enum destination_mode_t {
+    // The destination field is an APIC ID. That is only one processor will
+    // receive the interrupt.
+    PHYSICAL = 0,
+    // The destination field is a set of processors. Unsupported for now.
+    LOGICAL = 1,
+} __attribute__((packed));
+
+// Trigger mode of the interrupt.
+enum trigger_mode_t {
+    // Edge sensitive.
+    EDGE = 0,
+    // Level sensitive.
+    LEVEL = 1,
+} __attribute__((packed));
+
+// Describes shorthand for the interrupt destination (eg. target processor(s)).
+enum destination_shorthand_t {
+    // No shorthand. The interrupt will be sent to the processor having the APIC
+    // ID as in the destination field.
+    NONE = 0,
+    // Send interrupt to self. Destination field is unused.
+    SELF = 1,
+    // Send interrupt to all the cpus in the system, including the cpu sending
+    // the interrupt. Destination field is unused.
+    ALL_INCL_SELF = 2,
+    // Send interrupt to all the cpus in the system excepted the cpu sending the
+    // interrupt. Destination field is unused.
+    ALL_EXCL_SELF = 3,
+} __attribute__((packed));
+
+// Layout of the ICR register.
+struct icr_t {
+    union {
+        struct {
+            // The ICR is made up of two double words that need to be written in
+            // the order: high then low.
+            // This struct provide an easy way to access those double words.
+            uint32_t low;
+            uint32_t high;
+        } __attribute__((packed));
+
+        // The real layout of the ICR.
+        struct {
+            // The vector of the IPI. This is only useful for NORMAL delivery
+            // mode (see below).
+            uint8_t vector : 8;
+
+            // The delivery mode is the IPI message type.
+            enum delivery_mode_t delivery_mode : 3;
+
+            // Changes the meaning of the destination field defined below.
+            enum destination_mode_t destination_mode : 1;
+
+            // [RO] Indicate the status of the IPI. 0 = all IPIs sent, 1 = the
+            // last IPI did not send yet.
+            uint8_t delivery_status : 1;
+            uint8_t : 1;
+
+            // The level of the interrupt, this is only useful for INIT IPIs.
+            // All other delivery modes must use 1.
+            uint8_t level : 1;
+
+            // Set the trigger mode for the IPI. This is only used for INIT
+            // IPIs with level = 0 (de-assert) and is ignored for all other
+            // types.
+            enum trigger_mode_t trigger_mode : 1;
+            uint8_t : 2;
+
+            // Provides the ability to broadcast an IPI. If not NONE, the
+            // destination field is ignored (since the IPI is either sent to
+            // self or broadcasted).
+            enum destination_shorthand_t destination_shorthand : 2;
+            uint32_t : 12;
+            uint32_t : 24;
+
+            // The destination of the IPI. Interpretation differs depending on
+            // delivery and destination mode and destination shorthand.
+            uint8_t destination : 8;
+        } __attribute__((packed));
+    } __attribute__((packed));
+    uint8_t padding[24];
+} __attribute__((packed));
+STATIC_ASSERT(sizeof(struct icr_t) == 32, "");
+
 #define RESERVED    \
     uint64_t : 64;  \
     uint64_t : 64;
@@ -63,7 +169,7 @@ struct lapic_t {
     RESERVED
 
     lapic_reg_32_t lvt_correctedd_machine_check_interrupt;
-    lapic_reg_64_t interrupt_command;
+    struct icr_t interrupt_command;
     lapic_reg_32_t lvt_timer;
     lapic_reg_32_t lvt_thermal_sensor;
     lapic_reg_32_t lvt_performance_monitoring_counters;

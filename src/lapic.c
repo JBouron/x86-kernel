@@ -1,6 +1,8 @@
 #include <lapic.h>
 #include <paging.h>
 #include <ioapic.h>
+#include <kernel_map.h>
+#include <memory.h>
 
 // lapic_def.c contains the definition of the struct lapic_t.
 #include <lapic_def.c>
@@ -202,6 +204,120 @@ void lapic_stop_timer(void) {
     // Writing 0 in the initial_count register stops the timer in both one-shot
     // and periodic modes.
     LAPIC->initial_count.val = 0;
+}
+
+void lapic_sleep(uint32_t const msec) {
+    uint32_t const count = msec * LAPIC_TIMER_FREQ / 1000;
+
+    // Start a one-shot timer for `msec` milliseconds. We do not want interrupts
+    // here, the cpu will simply wait for the current count of the LAPIC timer
+    // to be 0.
+    start_timer(count, false, 0, true);
+
+    while(LAPIC->current_count.val) {
+        cpu_pause();
+    }
+}
+
+// Test the validity of a configuration for the ICR.
+// @param icr: The configuration to test.
+// @return: true if the configuration described by `icr` param is valid, false
+// otherwise.
+static bool icr_is_valid(struct icr_t const * const icr) {
+    // Intel's manual contain a set of rules to follow when programming the
+    // interrupt command register. Those rules can be found in chapter 10.6.1.
+    if (icr->delivery_mode == SYSTEM_MANAGEMENT_INTERRUPT ||
+        icr->delivery_mode == INIT) {
+        if (icr->vector) {
+            // For SMI and INIT IPIs the vector must be 0 for future
+            // compatibility.
+            return false;
+        }
+    }
+    if (icr->delivery_mode != INIT) {
+        if (!icr->level) {
+            // For the INIT level de-assert delivery mode this flag must be set
+            // to 0; for all other delivery modes it must be set to 1.
+            return false;
+        }
+    } else {
+        // INIT delivery can take both level = 0 and level = 1. However this
+        // changes the behaviour in the following way:
+        // - level = 0: This send a synchronization message to all the local
+        // APICs to set their arbitration IDs to the value of their APIC IDs.
+        // For this mode the level must be 0 and trigger 1 (LEVEL).
+        // - level = 1: This sends an INIT IPI.
+        //
+        // FIXME: Should we send the arbitration ID sync message in this kernel?
+        // This seems to be working fine without.
+        if (icr->level) {
+            if (icr->vector) {
+                return false;
+            }
+        } else if (icr->trigger_mode != LEVEL) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Write a configuration into the ICR. This sends the IPI as described by the
+// value passed as parameter.
+// @param icr: The configuration to write.
+// Note: This function will wait until the IPI has been sent.
+static void write_icr(struct icr_t const * const icr) {
+    // Make sure the ICR is valid before writing it into the LAPIC.
+    ASSERT(icr_is_valid(icr));
+
+    // The interrupt command register must be written MSBytes first.
+    LAPIC->interrupt_command.high = icr->high;
+    LAPIC->interrupt_command.low = icr->low;
+
+    // Wait for the IPI to be sent.
+    while (LAPIC->interrupt_command.delivery_status) {
+        cpu_pause();
+    }
+}
+
+void lapic_send_broadcast_init(void) {
+    struct icr_t icr;
+    memzero(&icr, sizeof(icr));
+
+    // Prepare an INIT IPI asserted. Vector must be 0 and the level must be 1
+    // (otherwise this would send an arbitration ID sync message to the local
+    // apics). We will broadcast this IPI to all the processors on the system
+    // (to wake them up all at once) excepted the current processor, therefore
+    // we can omit all fields related to destination.
+    icr.delivery_mode = INIT;
+    icr.vector = 0x0;
+    icr.level = 1;
+    icr.destination_shorthand = ALL_EXCL_SELF;
+
+    write_icr(&icr);
+}
+
+void lapic_send_broadcast_sipi(void const * const trampoline) {
+    struct icr_t icr;
+    memzero(&icr, sizeof(icr));
+
+    // Prepare an SIPI (aka StartUp IPI) to start the APs in a specific entry
+    // point.
+
+    // The vector of an SIPI is the frame address containing the entry point.
+    // Therefore the entry point needs to start on the boundary of a physical
+    // frame.
+    ASSERT(is_4kib_aligned(trampoline));
+    icr.vector = (uint8_t)((uint32_t)trampoline >> 12);
+
+    // With a STARTUP delivery mode the level field must be 1.
+    icr.delivery_mode = STARTUP;
+    icr.level = 1;
+
+    // Send the SIPI to all the APs at once. Hence we can omit any other
+    // destination related fields.
+    icr.destination_shorthand = ALL_EXCL_SELF;
+
+    write_icr(&icr);
 }
 
 #include <lapic.test>

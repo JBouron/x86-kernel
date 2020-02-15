@@ -27,5 +27,19 @@ void lapic_stop_timer(void);
 // APIC is set up and initialized.
 void calibrate_timer(void);
 
+// "Sleep" for a fixed amount of time using the LAPIC timer.
+// @param msec: The number of milliseconds before this function returns.
+// Note: During "sleep" the core is simply busy waiting for the timer to reach
+// 0.
+void lapic_sleep(uint32_t const msec);
+
+// Broadcast an INIT IPI to all processors except the current one.
+// Note: This function cannot be called from a non-BSP processor.
+void lapic_send_broadcast_init(void);
+
+// Broadcast an StartUp IPI to all processors except the current one.
+// Note: This function cannot be called from a non-BSP processor.
+void lapic_send_broadcast_sipi(void const * const trampoline);
+
 // Test LAPIC functionalities.
 void lapic_test(void);
