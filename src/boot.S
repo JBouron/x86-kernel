@@ -114,6 +114,7 @@ ASM_FUNC_DEF_16BITS(ap_entry_point):
     mov     $0x1, %eax
     cpuid
     shr     $0x18, %ebx
+    # Zero any registers written by the cpuid above.
     xor     %eax, %eax
     xor     %ecx, %ecx
     xor     %edx, %edx
@@ -127,23 +128,19 @@ ASM_FUNC_DEF_16BITS(ap_entry_point):
     # ap_boot_data_frame_t structure.
     # Therefore, cpus are using stack_segments[APIC ID - 1 % num_stacks].
     # Compute the index within stack_segments:
-    mov     %bx, %ax
-    sub     $0x1, %ax
-    xor     %dx, %dx
+
+    # CX = data_frame->num_stacks.
     # 0x24 is the offest of num_stacks in the data frame.
     mov     0x24, %cx
-    # AH = AX % CX
-    div     %cx
-    # AX = index in stack_segments.
-    mov     %dx, %ax 
 
-    # Now scale AX by sizeof(*stack_segments).
-    shl     $1, %ax
-    # Add the offset of stack_segments to AX.
-    add     $0x28, %ax  
-    # AX = Stack segment.
-    mov     (%eax), %ax
-    mov     %ax, %ss
+    mov     %bx, %ax
+    sub     $0x1, %ax
+    # DX = APIC ID - 1 % num_stacks = Index in stack_segments.
+    div     %cx
+
+    # Read the stack segment from stack_segments[DX] in to SS.
+    mov     $0x28, %ebx
+    mov     (%ebx, %edx, 2), %ss
 
     # Read the stack size and setup the stack pointer. The stack size is at
     # offset 0x22 in the data frame.
@@ -152,24 +149,26 @@ ASM_FUNC_DEF_16BITS(ap_entry_point):
     sub     $0x1, %sp
 
     # Acquire the lock on the stack. Unfortunately we cannot use a helper
-    # function for this as the stack may be in use by another cpu.
-    mov     %ax, %dx
+    # function for this as the stack may be in use by another cpu. Use a simple
+    # cmpxchg without test.
+    mov     $0x1, %cl
     jmp     first_try
 retry_stack_lock:
     pause
 first_try:
     mov     $0x0, %al
-    mov     $0x1, %cl
+    # Note: In real-mode SP cannot be used as a pointer in a memory reference.
+    # Bite the bullet and use an address size prefix override on this one by
+    # using ESP.
     lock cmpxchg %cl, (%esp)
     jnz     retry_stack_lock
 
     # Stack lock has been acquired. This cpu can proceed with this stack. We can
     # now call helper functions.
-    mov     %dx, %ax
 
-    # We now have our private stack. Set up the GDT.
+    # Set up the GDT.
     # The GDT descriptor is located at offset 0x0 in the data frame.
-    mov     $0x0, %ax
+    mov     $0x0, %eax
     lgdt    (%eax)
 
     # Save the page directory address for later when we will enable paging.
