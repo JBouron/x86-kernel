@@ -1,0 +1,126 @@
+#include <test.h>
+
+// Check that a data frame is valid, that is contains the right data in the
+// right places.
+// @param data_frame: The date frame to check.
+// @return: True if the data frame is valid, false otherwise.
+static bool check_data_frame(struct ap_boot_data_frame_t * const data_frame) {
+    // Use the TEST_ASSERT macro for early returns. Hacky bt does the trick.
+    TEST_ASSERT(data_frame);
+    TEST_ASSERT(is_under_1mib(data_frame));
+
+    // The GDT table desc should be as follows:
+    // Since we are using a flat segmentation model, the linear address is the
+    // same as the physical address when paging is disabled. It follows that:
+    TEST_ASSERT(data_frame->gdt_desc.base == &data_frame->gdt);
+    // The NULL entry.
+    TEST_ASSERT(!data_frame->gdt[0]);
+    // By convention, the temporary GDT contains a data segment at index 1 and a
+    // code segment at index 2. Both are flat segments on the entire address
+    // space.
+    uint64_t const data_seg = 0xCF93000000FFFFULL;
+    uint64_t const code_seg = 0xCF9B000000FFFFULL;
+    TEST_ASSERT(data_frame->gdt[1] == data_seg);
+    TEST_ASSERT(data_frame->gdt[2] == code_seg);
+    TEST_ASSERT(data_frame->page_dir_addr == get_kernel_page_dir_phy_addr());
+    TEST_ASSERT(data_frame->stack_size == AP_WAKEUP_STACK_SIZE);
+
+    // There should be at least 1 stack.
+    TEST_ASSERT(data_frame->num_stacks > 0);
+
+    // Check that stacks are under 1MiB.
+    void const * last_stack = NULL;
+    for (uint32_t i = 0; i < data_frame->num_stacks; ++i) {
+        void const * const stack = (void*)(data_frame->stack_segments[i] << 4);
+        TEST_ASSERT(stack);
+        TEST_ASSERT(is_under_1mib(stack));
+        if (i) {
+            // Check that stacks do not overlap. In practice, since the APs will
+            // run in real-mode they could still overlap ... But at least this
+            // test makes sure that this overlap does not come from a mishap in
+            // the data frame generation.
+            TEST_ASSERT(stack - last_stack >= AP_WAKEUP_STACK_SIZE);
+            last_stack = stack;
+        }
+    }
+    return true;
+}
+
+// Test the create_data_frame() function, and check that the correct data is at
+// the correct place.
+static bool create_data_frame_test(void) {
+    struct ap_boot_data_frame_t * const data_frame = create_data_frame();
+    bool const valid = check_data_frame(data_frame);
+    // Clean up.
+    uint32_t const stack_per_frame = PAGE_SIZE / AP_WAKEUP_STACK_SIZE;
+    for (uint32_t i = 0; i < data_frame->num_stacks; ++i) {
+        void const * const stack = (void*)(data_frame->stack_segments[i] << 4);
+        if (!(i % stack_per_frame)) {
+            TEST_ASSERT(is_4kib_aligned(stack));
+            paging_unmap(stack, PAGE_SIZE);
+            free_frame(stack);
+        }
+    }
+    paging_unmap(data_frame, PAGE_SIZE);
+    free_frame(data_frame);
+    return valid;
+}
+
+// Test insert_data_segment_in_frame and get_data_frame_addr_from_frame.
+static bool data_segment_in_code_frame_test(void) {
+    void * const frame = alloc_frame();
+    paging_map(frame, frame, PAGE_SIZE, VM_WRITE);
+
+    memzero(frame, PAGE_SIZE);
+
+    uint16_t const data_seg = 0xBABE;
+    insert_data_segment_in_frame(frame, data_seg);
+    void const * const data_frame = get_data_frame_addr_from_frame(frame);
+    TEST_ASSERT(get_real_mode_segment_for_addr(data_frame) == data_seg);
+
+    paging_unmap(frame, PAGE_SIZE);
+    free_frame(frame);
+    return true;
+}
+
+// Check that create_trampoline followed by a cleanup_ap_wakeup_routine_allocs
+// does not leak memory.
+static bool create_trampoline_no_memleak_test(void) {
+    uint32_t const before = frames_allocated();
+    void * const tramp = create_trampoline();
+    cleanup_ap_wakeup_routine_allocs(tramp);
+    uint32_t const after = frames_allocated();
+    return before == after;
+}
+
+static bool create_trampoline_test(void) {
+    void * const tramp = create_trampoline();
+    TEST_ASSERT(tramp);
+    // Under 65K.
+    TEST_ASSERT((uint32_t)tramp < (1 << 16));
+
+    // Check the data frame.
+    struct ap_boot_data_frame_t * const data_frame =
+        get_data_frame_addr_from_frame(tramp);
+    TEST_ASSERT(check_data_frame(data_frame));
+
+    // Check that the code frames contains the wake up code.
+    size_t const len = (void*)&ap_entry_point_end - (void*)ap_entry_point;
+
+    uint8_t const *expected = (uint8_t*)&ap_entry_point;
+    uint8_t const *curr = (uint8_t*)tramp;
+
+    for (size_t i = 0; i < len; ++i) {
+        TEST_ASSERT(curr[i] == expected[i]);
+    }
+
+    cleanup_ap_wakeup_routine_allocs(tramp);
+    return true;
+}
+
+void smp_test(void) {
+    TEST_FWK_RUN(create_data_frame_test);
+    TEST_FWK_RUN(data_segment_in_code_frame_test);
+    TEST_FWK_RUN(create_trampoline_no_memleak_test);
+    TEST_FWK_RUN(create_trampoline_test);
+}

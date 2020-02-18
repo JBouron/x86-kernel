@@ -44,6 +44,7 @@ void test_kernel(void) {
     list_test();
     kmalloc_test();
     ioapic_test();
+    smp_test();
     print_test_summary();
 }
 

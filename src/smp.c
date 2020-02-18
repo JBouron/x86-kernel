@@ -471,3 +471,5 @@ void init_aps(void) {
     cleanup_ap_wakeup_routine_allocs(ap_entry_point);
     paging_unmap(func_addr, PAGE_SIZE);
 }
+
+#include <smp.test>

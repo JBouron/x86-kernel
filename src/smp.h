@@ -46,3 +46,6 @@ STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, stack_segments) == 0x28,"");
 // Wake up the Application Processors on the system and wait for them to be
 // fully initialized.
 void init_aps(void);
+
+// Execute tests related to smp.
+void smp_test(void);
