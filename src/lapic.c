@@ -28,9 +28,11 @@ static void *get_lapic_base_addr(void) {
 
 // Enable the Local APIC for the current CPU.
 static void enable_apic(void) {
-    uint64_t const apic_base_msr = read_msr(IA32_APIC_BASE_MSR);
-    uint64_t const enabled = apic_base_msr | (1 << 11);
-    write_msr(IA32_APIC_BASE_MSR, enabled);
+    // Writing the enable bit in the IA32_APIC_BASE_MSR (0x1B) only works for
+    // the BSP but not the APs.
+    // A more reliable option is to set the bit 8 of the Spuriouse Interrupt
+    // Vector register.
+    LAPIC->spurious_interrupt_vector.val |= (1 << 8);
 }
 
 // Start the LAPIC timer.
