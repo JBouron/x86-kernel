@@ -23,7 +23,11 @@
 .align 16
 .global stack_bottom
 stack_bottom:
-.skip 4096 # 16KiB.
+# Set the following .skip to set the kernel stack size (common to all
+# processors). We use 16KiB which is relatively big for a kernel of that size.
+# However this is very useful for testing as we can statically allocate big
+# data-structures.
+.skip 16384
 .global stack_top
 stack_top:
 
