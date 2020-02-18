@@ -21,8 +21,10 @@
 # Define the stack here. By default use 16KiB.
 .section .bss
 .align 16
+.global stack_bottom
 stack_bottom:
-.skip 16384 # 16KiB.
+.skip 4096 # 16KiB.
+.global stack_top
 stack_top:
 
 .section .text
@@ -343,19 +345,36 @@ target_paging:
     # Note: Since we are in higher half we can now call functions without
     # resorting to absolute calls tricks.
 
-    # TODO: Typically we would call a function in higher half here to set up a
-    # new, bigger, private stack.
+    # Allocate a new, bigger stack in higher half kernel for this cpu.
+    call    ap_alloc_higher_half_stack
     
     # We do not need the old boot stack anymore. Unlock it to allow another
     # processor to use it in case boot stacks are shared.
-    movb     $0x0, (%esp)
+    movb    $0x0, (%esp)
 
-break:
+    # Use the allocated stack above. This cpu is now free to do whatever it
+    # wants.
+
+    # Compute the size of a kernel stack.
+    mov     $(stack_top - stack_bottom), %ebx
+    # Add the size of the stack, this gives the address of the bottom of the
+    # stack and therefore the address we should use as ESP. This is very
+    # important as ap_alloc_higher_half_stack returns the address of the _top_
+    # of the stack.
+    add     %ebx, %eax
+
+    mov     %eax, %esp
+
+    # Jump to the final start up routine. This routine is not supposed to
+    # return.
+    jmp     ap_finalize_start_up
+
+limbo:
     # That should never happen. But if somehow an AP returns and ends up here
     # then lock it up.
     cli
     hlt
-    jmp break
+    jmp limbo
 
 .global ap_entry_point_end
 # The ap_entry_point_end label indicates the end of the AP boot code.

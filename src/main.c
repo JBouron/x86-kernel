@@ -22,9 +22,10 @@
 #include <kmalloc.h>
 #include <acpi.h>
 #include <ioapic.h>
+#include <smp.h>
 
 // Execute all the tests in the kernel.
-static void test_kernel(void) {
+void test_kernel(void) {
     LOG("Running tests:\n");
     vga_test();
     mem_test();
@@ -80,25 +81,6 @@ static void virt_shutdown(void) {
     cpu_outw(0x604, 0x2000);
 }
 
-#define id_map(addr) \
-    paging_map(addr, addr, PAGE_SIZE, 0)
-
-__attribute__((unused)) static void pagefault_id_map_handler(struct interrupt_frame_t const * const frame) {
-    LOG("####### PAGE FAULT ######\n");
-    LOG("EIP = %p\n", frame->eip);
-    void * const cr2 = cpu_read_cr2();
-    id_map(get_page_addr(cr2));
-    ASSERT(frame);
-}
-
-static void serial_interrupt_handler(struct interrupt_frame_t const * const frame) {
-    ASSERT(frame);
-    char c = '\0';
-    if (SERIAL_STREAM.read((uint8_t*)(&c), 1)) {
-        LOG("%c", c);
-    }
-}
-
 void
 kernel_main(struct multiboot_info const * const multiboot_info) {
     ASSERT(multiboot_info);
@@ -115,6 +97,7 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     interrupt_init();
     init_lapic();
     init_ioapic();
+    calibrate_timer();
     cpu_set_interrupt_flag(true);
 
     uint32_t const start_alloc_frames = frames_allocated();
@@ -130,11 +113,9 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     void * addr = kmalloc(234);
     LOG("Alloc at %p\n", addr);
 
-    interrupt_register_callback(32, serial_interrupt_handler);
-
-    redirect_isa_interrupt(4, 32);
     cpu_set_interrupt_flag(true);
 
-    while(1);
+    init_aps();
+
     virt_shutdown();
 }

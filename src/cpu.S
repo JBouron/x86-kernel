@@ -395,3 +395,31 @@ ASM_FUNC_DEF(cpu_enable_cache):
 ASM_FUNC_DEF(cpu_pause):
     pause
     ret
+
+//void cpu_read_esp(void);
+ASM_FUNC_DEF(cpu_read_esp):
+    # This function returns the ESP at the time of the call, hence skip the
+    # return value in the stack.
+    lea     0x4(%esp), %eax
+    ret
+
+//uint8_t cpu_apic_id(void);
+ASM_FUNC_DEF(cpu_apic_id):
+    mov     $0x1, %eax
+    # Getting the APIC ID is perfomed by executing cpuid with EAX = 1. The
+    # result is encoded in the bits 31:24 of EBX.
+    cpuid
+    shr     $24, %ebx
+    mov     %ebx, %eax
+    ret
+
+//bool cpu_is_bsp(void);
+ASM_FUNC_DEF(cpu_is_bsp):
+    call    cpu_apic_id
+    cmp     $0x0, %eax
+    jnz     not_bsp
+    mov     $0x1, %eax
+    ret
+not_bsp:
+    mov     $0x0, %eax
+    ret

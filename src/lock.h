@@ -7,10 +7,13 @@ struct spinlock_t {
     uint8_t lock;
 };
 
+#define INIT_SPINLOCK() \
+    {               \
+        .lock = 0,  \
+    }
+
 #define DECLARE_SPINLOCK(name)  \
-    struct spinlock_t name = {  \
-        .lock = 0,              \
-    };
+    struct spinlock_t name = INIT_SPINLOCK();
 
 // Acquire the lock on a spinlock. Returns only when the lock has been acquired
 // by the current cpu.

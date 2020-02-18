@@ -8,6 +8,8 @@
 #include <acpi.h>
 #include <math.h>
 #include <kernel_map.h>
+#include <lock.h>
+#include <kmalloc.h>
 
 // Application Processor (AP) Start Up Algorithm
 // =============================================
@@ -124,6 +126,9 @@ static uint16_t get_real_mode_segment_for_addr(void const * const addr) {
     return (uint32_t)addr >> 4;
 }
 
+// The size of the stack used by the APs when executing the wake up routine.
+#define AP_WAKEUP_STACK_SIZE    (PAGE_SIZE / 4)
+
 // Create a data frame containing all data structures required by the APs to
 // boot.
 // @return: The physical address of the data frame.
@@ -162,7 +167,7 @@ static void * create_data_frame(void) {
     // APs do not need a big stack during boot/initialization. Since we are
     // limited in the number of available physical frames under 1MiB, allocate
     // multiple stacks per frame.
-    uint32_t const stack_size = PAGE_SIZE / 4;
+    uint32_t const stack_size = AP_WAKEUP_STACK_SIZE;
     ASSERT(!(PAGE_SIZE % stack_size));
     data_frame->stack_size = stack_size;
     uint8_t const stacks_per_frame = PAGE_SIZE / stack_size;
@@ -240,6 +245,18 @@ static void insert_data_segment_in_frame(void * const code_frame,
     *last_word_addr = (uint16_t)(uint32_t)data_segment;
 }
 
+// Extract the physical address of the data frame from the code frame. This
+// address is computed from the real-mode data segment stored in the last word
+// of code frame.
+// @param code_frame: The code frame to extract the address from.
+// @return: The physical address of the data frame.
+static void *get_data_frame_addr_from_frame(void * const code_frame) {
+    uint16_t * const last = (uint16_t*)(code_frame + PAGE_SIZE) - 1;
+    // Since the segment is encoded at the end of the code frame we need to
+    // translate it into a physical address as real-mode does.
+    return (void*)(*last << 4);
+}
+
 // Create the trampoline, that is the boot code, data frames and stacks
 // necessarty to boot and initialize the APs all the way to the higher-half
 // kernel.
@@ -291,6 +308,121 @@ static void * create_trampoline(void) {
     return code_frame;
 }
 
+// Clean up all allocated memory (physical and virtual) during AP wake up
+// routine, that is:
+//  _ The physical frame containing the wake up code.
+//  _ Any physical frame used for temporary AP stacks.
+//  _ The physical frame used as the data frame.
+// The virtual mappings for all of the above frame is removed as well.
+// @param code: The physical address of the frame containing the AP wake up
+// code.
+static void cleanup_ap_wakeup_routine_allocs(void * const code_frame) {
+    struct ap_boot_data_frame_t * const data_frame =
+        get_data_frame_addr_from_frame(code_frame);
+
+    // Unmap the frame containing the AP wake up code.
+    paging_unmap(code_frame, PAGE_SIZE);
+    free_frame(code_frame);
+
+    // Iterate over the stack and de-allocate them.
+    uint32_t const inc = PAGE_SIZE / AP_WAKEUP_STACK_SIZE;
+    for (uint32_t i = 0; i < data_frame->num_stacks; i += inc) {
+        void * const stack_frame = (void*)(data_frame->stack_segments[i] << 4);
+        paging_unmap(stack_frame, PAGE_SIZE);
+        free_frame(stack_frame);
+    }
+
+    // De-allocate the data frame.
+    paging_unmap(data_frame, PAGE_SIZE);
+    free_frame(data_frame);
+}
+
+// Upon waking, APs are changing the state of the kernel through stack
+// allocations, logging, ... All of this needs to be protected against race
+// conditions.
+// As this is initialization stage we can use a big global lock without much
+// performance penalties.
+// The AP_BOOT_LOCK should be held when modifying the kernel state in anyway.
+// It is only meant to prevent race condition while APs are waking up, as the
+// BSP is waiting in the meantime.
+DECLARE_SPINLOCK(AP_BOOT_LOCK);
+
+// The number of Application Processor that are fully woken up and initialized.
+// This function serves as a signal to the BSP that all APs are ready. It must
+// be incremented _once_ per AP, while holding the AP_BOOT_LOCK.
+static uint8_t APS_READY = 0;
+
+// This is kind of a hacky way to do compute the size of the kernel stack: Use
+// the same as the BSP's.
+extern uint8_t stack_top;
+extern uint8_t stack_bottom;
+#define KERNEL_STACK_SIZE   ((size_t)(&stack_top - &stack_bottom))
+
+// Allocate a stack in the higher half kernel of size KERNEL_STACK_SIZE.
+// @return: The address of the top of the stack.
+void *ap_alloc_higher_half_stack(void) {
+    // As this function is going to change global state (i.e. page tables and
+    // physical frames allocations) we need to acquire the AP_BOOT_LOCK. In the
+    // meantime, the BSP is waiting for the APs to boot and therefore is not
+    // accessing any of this states.
+    spinlock_lock(&AP_BOOT_LOCK);
+
+    // Find a big enough hole in the virtual address space to fit the kernel
+    // stack for this cpu.
+    size_t const size = ceil_x_over_y_u32(KERNEL_STACK_SIZE, PAGE_SIZE);
+    void * const vaddr = paging_find_contiguous_non_mapped_pages(
+        KERNEL_PHY_OFFSET, size);
+    LOG("Found stack @ %p\n", vaddr);
+
+    // Allocate physical frames for the stack and map them to the higher half
+    // kernel.
+    for (uint32_t i = 0; i < size; ++i) {
+        void * const frame = alloc_frame();
+        paging_map(frame, vaddr + i * PAGE_SIZE, PAGE_SIZE, VM_WRITE);
+    }
+
+    // Allocation is over let other cpus do theirs.
+    spinlock_unlock(&AP_BOOT_LOCK);
+
+    // Return the virtual address of the top of the stack.
+    return vaddr;
+}
+
+void ap_finalize_start_up(void) {
+    // This AP has a private stack in higher half that is of a decent size.
+    // Before being fully operational, a few operations need to be done one this
+    // cpu. The next few functions do not require the AP_BOOT_LOCK has they are
+    // setting cpu-private states.
+    
+    // Start by enabling the cache.
+    cpu_enable_cache();
+
+    // This AP is still using the temporary GDT from the ap wake up procedure at
+    // this point. Switch to the real GDT.
+    ap_init_segmentation();
+
+    // Initialize interrupts on this AP as well as the LAPIC.
+    ap_interrupt_init();
+    ap_init_lapic();
+
+    uint8_t const apic_id = cpu_apic_id();
+
+    // Log that the CPU is ready and inc the APS_READY to report back to the
+    // BSP.
+    spinlock_lock(&AP_BOOT_LOCK);
+    LOG("CPU %u ready with stack %p\n", apic_id, cpu_read_esp());
+    APS_READY ++;
+
+    spinlock_unlock(&AP_BOOT_LOCK);
+
+    // Start a loop waiting for interrupts. This will be a useful starting
+    // point for future development.
+    while (true) {
+        cpu_set_interrupt_flag(true);
+        cpu_halt();
+    }
+}
+
 void init_aps(void) {
     // Create the trampoline.
     void * const ap_entry_point = create_trampoline();
@@ -325,7 +457,17 @@ void init_aps(void) {
     lapic_send_broadcast_sipi(ap_entry_point);
     lapic_sleep(200);
 
-    // TODO: Typically here we would wait on a "signal" that all cpus are booted
-    // and ready to roll.
-    lock_up();
+    // Now wait for all the Application Processors to wake up and initialize.
+    uint8_t const naps = acpi_get_number_cpus() - 1;
+    while (APS_READY != naps) {
+        lapic_sleep(100);
+    }
+
+    LOG("All APs ready!\n");
+
+    // All APs are woken up and all have allocated their private stack. We can
+    // now clean up the code frame containing the wake up routine, the data
+    // frame and the stack frames.
+    cleanup_ap_wakeup_routine_allocs(ap_entry_point);
+    paging_unmap(func_addr, PAGE_SIZE);
 }

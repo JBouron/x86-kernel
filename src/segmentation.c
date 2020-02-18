@@ -71,6 +71,31 @@ static uint16_t const KERNEL_DATA_INDEX = 1;
 // The index of the kernel code segment in the GDT.
 static uint16_t const KERNEL_CODE_INDEX = 2;
 
+// Load a GDT into the GDTR of the current cpu.
+// @param gdt: The linear address of the GDT to load.
+// @param size: The total size in bytes of the GDT.
+static void load_gdt(union segment_descriptor_t* const gdt, size_t const size) {
+    struct gdt_desc_t const table_desc = {
+        .base = gdt,
+        .limit = size - 1,
+    };
+    cpu_lgdt(&table_desc);
+}
+
+// Setup the segment selectors on this cpu to use the flat kernel data and
+// kernel code segments in GDT.
+static void setup_segment_selectors(void) {
+    union segment_selector_t data_seg = kernel_data_selector();
+    cpu_set_ds(&data_seg);
+    cpu_set_es(&data_seg);
+    cpu_set_fs(&data_seg);
+    cpu_set_gs(&data_seg);
+    cpu_set_ss(&data_seg);
+
+    union segment_selector_t code_seg = kernel_code_selector();
+    cpu_set_cs(&code_seg);
+}
+
 void init_segmentation(void) {
     // The segmentation is initialized very early during boot _before_ paging.
     // Therefore we need to fix up the pointer to global variables as they are
@@ -89,31 +114,19 @@ void init_segmentation(void) {
     init_desc(gdt_phy + KERNEL_CODE_INDEX, 0, 0xFFFFF, true, 0);
 
     // Load the GDTR.
-    struct gdt_desc_t const table_desc = {
-        .base = gdt_phy,
-        .limit = (sizeof(union segment_descriptor_t) * GDT_SIZE) - 1,
-    };
-    cpu_lgdt(&table_desc);
+    load_gdt(gdt_phy, GDT_SIZE * sizeof(*gdt_phy));
 
-    // Update the data segment registers.
-    union segment_selector_t data_seg = {
-        .index = KERNEL_DATA_INDEX,
-        .is_local = 0,
-        .requested_priv_level = 0,
-    };
-    cpu_set_ds(&data_seg);
-    cpu_set_es(&data_seg);
-    cpu_set_fs(&data_seg);
-    cpu_set_gs(&data_seg);
-    cpu_set_ss(&data_seg);
+    setup_segment_selectors();
+}
 
-    // Update code segment register.
-    union segment_selector_t code_seg = {
-        .index = KERNEL_CODE_INDEX,
-        .is_local = 0,
-        .requested_priv_level = 0,
-    };
-    cpu_set_cs(&code_seg);
+void ap_init_segmentation(void) {
+    ASSERT(!cpu_is_bsp());
+
+    // At this point linear address == virtual address.
+    load_gdt(GDT, GDT_SIZE * sizeof(*GDT));
+
+    // Re-init all segment selectors on the current cpu.
+    setup_segment_selectors();
 }
 
 union segment_selector_t kernel_data_selector(void) {

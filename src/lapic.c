@@ -3,6 +3,7 @@
 #include <ioapic.h>
 #include <kernel_map.h>
 #include <memory.h>
+#include <interrupt.h>
 
 // lapic_def.c contains the definition of the struct lapic_t.
 #include <lapic_def.c>
@@ -15,7 +16,8 @@ static volatile struct lapic_t *LAPIC;
 // base address.
 static uint32_t const IA32_APIC_BASE_MSR = 0x1B;
 
-// The frequency of the LAPIC timer in Hz.
+// The frequency of the LAPIC timer in Hz. We assume that the frequency is
+// constant AND the same on all cpus in the system.
 static uint64_t LAPIC_TIMER_FREQ = 0;
 
 // Get the base address of the LAPIC.
@@ -174,6 +176,13 @@ void init_lapic(void) {
     enable_apic();
 }
 
+void ap_init_lapic(void) {
+    ASSERT(!cpu_is_bsp());
+    // The LAPIC registers have already been mapped by the BSP at boot,
+    // therefore all is left to do is enabling the LAPIC on this AP.
+    enable_apic();
+}
+
 void lapic_eoi(void) {
     // A write of 0 in the EOI register indicates the end of interrupt.
     LAPIC->eoi.val = 0;
@@ -188,7 +197,7 @@ void lapic_start_timer(uint32_t const msec,
     cpu_set_interrupt_flag(false);
 
     // Get the counter value from milliseconds.
-    uint32_t const count = msec * LAPIC_TIMER_FREQ / 1000;
+    uint32_t const count = msec * (LAPIC_TIMER_FREQ / 1000);
 
     // Register the callback for the given vector.
     interrupt_register_callback(vector, callback);

@@ -4,6 +4,9 @@
 // Initialize the interrupts for the kernel.
 void interrupt_init(void);
 
+// Initialize interrupts for an Application Processor.
+void ap_interrupt_init(void);
+
 // This contain information about the interrupt that triggered the call to the
 // handler/callback.
 struct interrupt_frame_t {

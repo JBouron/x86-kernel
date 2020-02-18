@@ -4,6 +4,9 @@
 // Initialized the Local APIC on the current CPU.
 void init_lapic(void);
 
+// Initialize the LAPIC on the current AP.
+void ap_init_lapic(void);
+
 // Indicate the End-of-Interrupt to the Local APIC of the current CPU.
 void lapic_eoi(void);
 

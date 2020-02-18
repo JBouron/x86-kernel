@@ -8,6 +8,11 @@
 // code and data.
 void init_segmentation(void);
 
+// Init the segmentation mechanism for an Application Processor. This function
+// will load the GDTR of the AP with the address of the current kernel-wide GDT
+// and set the code and data segments accordingly.
+void ap_init_segmentation(void);
+
 // Get the segment selector for the kernel data segment.
 // @return: The segment selector for the kernel data segment.
 union segment_selector_t kernel_data_selector(void);

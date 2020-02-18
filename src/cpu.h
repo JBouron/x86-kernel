@@ -211,5 +211,13 @@ void cpu_enable_cache(void);
 // Execute a PAUSE instruction.
 void cpu_pause(void);
 
+// Read the value of ESP right _before_ this call.
+void *cpu_read_esp(void);
+
+// Read the APIC ID of the calling processor.
+uint8_t cpu_apic_id(void);
+
+bool cpu_is_bsp(void);
+
 // Execute tests on CPU related functions.
 void cpu_test(void);

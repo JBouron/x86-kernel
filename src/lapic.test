@@ -61,11 +61,13 @@ static void timer_interrupt_callback(struct interrupt_frame_t const * const f) {
 static bool one_shot_lapic_timer_test(void) {
     is_periodic = false;
     timer_success = false;
+
     // Init and start a one shot timer.
     lapic_start_timer(timer_init_count,
         false, timer_vector, timer_interrupt_callback);
 
     while (!timer_success) {
+        cpu_pause();
         // Nothing to do;
     }
     // Timer was a success.

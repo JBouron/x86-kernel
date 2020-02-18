@@ -136,6 +136,17 @@ void interrupt_init(void) {
     memzero(CALLBACKS, sizeof(CALLBACKS));
 }
 
+void ap_interrupt_init(void) {
+    ASSERT(!cpu_is_bsp());
+
+    // Simply load IDT into the IDTR of this AP.
+    struct idt_desc_t const desc = {
+        .base = IDT,
+        .limit = (IDT_SIZE * 8 - 1),
+    };
+    cpu_lidt(&desc);
+}
+
 void interrupt_register_callback(uint8_t const vector,
                                  int_callback_t const callback) {
     ASSERT(vector < IDT_SIZE);
