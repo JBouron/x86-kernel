@@ -185,6 +185,8 @@ static bool paging_pagefault_test(void) {
     interrupt_register_callback(14, dummy_pf_handler);
     cpu_set_interrupt_flag(true);
 
+    number_page_fault = 0;
+
     // Use the following address to trigger a page fault.
     void const * const fault_addr = (void*)0xBEEFDEAD;
 
