@@ -46,10 +46,16 @@ static bool check_data_frame(struct ap_boot_data_frame_t * const data_frame) {
     return true;
 }
 
+// Dummy function to use as target when create data/code frames.
+static void _dummy(void) {
+
+}
+
 // Test the create_data_frame() function, and check that the correct data is at
 // the correct place.
 static bool create_data_frame_test(void) {
-    struct ap_boot_data_frame_t * const data_frame = create_data_frame();
+    struct ap_boot_data_frame_t * const data_frame = create_data_frame(&_dummy);
+    TEST_ASSERT(data_frame->wake_up_target == &_dummy);
     bool const valid = check_data_frame(data_frame);
     // Clean up.
     uint32_t const stack_per_frame = PAGE_SIZE / AP_WAKEUP_STACK_SIZE;
@@ -87,14 +93,14 @@ static bool data_segment_in_code_frame_test(void) {
 // does not leak memory.
 static bool create_trampoline_no_memleak_test(void) {
     uint32_t const before = frames_allocated();
-    void * const tramp = create_trampoline();
+    void * const tramp = create_trampoline(&_dummy);
     cleanup_ap_wakeup_routine_allocs(tramp);
     uint32_t const after = frames_allocated();
     return before == after;
 }
 
 static bool create_trampoline_test(void) {
-    void * const tramp = create_trampoline();
+    void * const tramp = create_trampoline(&_dummy);
     TEST_ASSERT(tramp);
     // Under 65K.
     TEST_ASSERT((uint32_t)tramp < (1 << 16));
@@ -102,6 +108,7 @@ static bool create_trampoline_test(void) {
     // Check the data frame.
     struct ap_boot_data_frame_t * const data_frame =
         get_data_frame_addr_from_frame(tramp);
+    TEST_ASSERT(data_frame->wake_up_target == &_dummy);
     TEST_ASSERT(check_data_frame(data_frame));
 
     // Check that the code frames contains the wake up code.
@@ -118,9 +125,79 @@ static bool create_trampoline_test(void) {
     return true;
 }
 
+// init_aps_test. This is an end-to-end test of the init_aps function. This test
+// goes as follows:
+//  1. The BSP allocates the _ap_signal array. This array contains one uint8_t
+//  per cpu, set to 0 initially.
+//  2. The BSP sends the INIT-SIPI-SIPI to all APs with the wake_up_target set
+//  to _ap_target.
+//  3. The BSP waits for the APs to become online.
+//  4. Once online, APs will call _ap_target, in which they set a bit in the
+//  array _ap_signal using their APIC ID as index.
+//  5. Meanwhile the BSP waits for all entries in _ap_signal to be 1.
+
+static uint8_t *_ap_signal = NULL;
+// Target used in the init_aps_test function.
+static void _ap_target(void) {
+    uint8_t const apic_id = cpu_apic_id();
+
+    // Set the bit in the _ap_signal, no need for a lock here, SRSW FTW.
+    _ap_signal[apic_id] = 1;
+
+    // Wait forever. The test will kill this AP.
+    while (true) {
+        cpu_set_interrupt_flag(true);
+        cpu_halt();
+    }
+}
+
+static bool _do_init_aps_test(void) {
+    // Prepare the _ap_signal array.
+    uint8_t const ncpus = acpi_get_number_cpus();
+    _ap_signal = kmalloc(ncpus * sizeof(*_ap_signal));
+    memzero(_ap_signal, ncpus* sizeof(_ap_signal));
+
+    // Set the bit for the BSP.
+    _ap_signal[cpu_apic_id()] = 1;
+
+    do_init_aps(_ap_target);
+
+    // Wait for all APs to boot and to announce themselves.
+    uint32_t const max_iter = 1000;
+    uint32_t iter = 0;
+    bool done = false;
+    while (!done) {
+        lapic_sleep(10);
+        done = true;
+        for (uint8_t i = 0; i < ncpus; ++i) {
+            if (_ap_signal[i] != 1) {
+                // CPU i is not ready.
+                done = false;
+                break;
+            }
+        }
+        iter ++;
+        if (iter == max_iter) {
+            // Timeout.
+            kfree(_ap_signal);
+            return false;
+        }
+    }
+    kfree(_ap_signal);
+    return true;
+}
+
+static bool init_aps_test(void) {
+    bool const res = _do_init_aps_test();
+    // Re-initialize the APs.
+    init_aps();
+    return res;
+}
+
 void smp_test(void) {
     TEST_FWK_RUN(create_data_frame_test);
     TEST_FWK_RUN(data_segment_in_code_frame_test);
     TEST_FWK_RUN(create_trampoline_no_memleak_test);
     TEST_FWK_RUN(create_trampoline_test);
+    TEST_FWK_RUN(init_aps_test);
 }
