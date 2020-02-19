@@ -405,12 +405,14 @@ ASM_FUNC_DEF(cpu_read_esp):
 
 //uint8_t cpu_apic_id(void);
 ASM_FUNC_DEF(cpu_apic_id):
+    push    %ebx
     mov     $0x1, %eax
     # Getting the APIC ID is perfomed by executing cpuid with EAX = 1. The
     # result is encoded in the bits 31:24 of EBX.
     cpuid
     shr     $24, %ebx
     mov     %ebx, %eax
+    pop     %ebx
     ret
 
 //bool cpu_is_bsp(void);
