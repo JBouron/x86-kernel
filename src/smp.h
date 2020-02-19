@@ -21,6 +21,9 @@ struct ap_boot_data_frame_t {
     // enabling paging.
     void const * page_dir_addr;
 
+    // The function the APs should call once they are fully initialized.
+    void (*wake_up_target)(void);
+
     // When initializing their stack pointers, APs need the size of their stack.
     uint16_t stack_size;
 
@@ -39,9 +42,10 @@ struct ap_boot_data_frame_t {
 // as well.
 STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, gdt_desc) == 0, "");
 STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, page_dir_addr) == 0x1E, "");
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, stack_size) == 0x22, "");
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, num_stacks) == 0x24, "");
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, stack_segments) == 0x28,"");
+STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, wake_up_target) == 0x22, "");
+STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, stack_size) == 0x26, "");
+STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, num_stacks) == 0x28, "");
+STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, stack_segments) == 0x2C,"");
 
 // Wake up the Application Processors on the system and wait for them to be
 // fully initialized.

@@ -136,8 +136,8 @@ ASM_FUNC_DEF_16BITS(ap_entry_point):
     # Compute the index within stack_segments:
 
     # CX = data_frame->num_stacks.
-    # 0x24 is the offest of num_stacks in the data frame.
-    mov     0x24, %cx
+    # 0x28 is the offest of num_stacks in the data frame.
+    mov     0x28, %cx
 
     mov     %bx, %ax
     sub     $0x1, %ax
@@ -145,12 +145,12 @@ ASM_FUNC_DEF_16BITS(ap_entry_point):
     div     %cx
 
     # Read the stack segment from stack_segments[DX] in to SS.
-    mov     $0x28, %ebx
+    mov     $0x2C, %ebx
     mov     (%ebx, %edx, 2), %ss
 
     # Read the stack size and setup the stack pointer. The stack size is at
-    # offset 0x22 in the data frame.
-    movw    0x22, %sp
+    # offset 0x26 in the data frame.
+    movw    0x26, %sp
     # Skip the stack lock.
     sub     $0x1, %sp
 
@@ -176,6 +176,9 @@ first_try:
     # The GDT descriptor is located at offset 0x0 in the data frame.
     mov     $0x0, %eax
     lgdt    (%eax)
+
+    # Save the wake up target.
+    pushl   0x22
 
     # Save the page directory address for later when we will enable paging.
     # The PD address is at offset 0x1F in the data frame.
@@ -351,6 +354,8 @@ target_paging:
 
     # Allocate a new, bigger stack in higher half kernel for this cpu.
     call    ap_alloc_higher_half_stack
+
+    mov     (%esp), %ecx
     
     # We do not need the old boot stack anymore. Unlock it to allow another
     # processor to use it in case boot stacks are shared.
@@ -368,10 +373,17 @@ target_paging:
     add     %ebx, %eax
 
     mov     %eax, %esp
+    # The AP now has its private/complete kernel stack.
+
+    push    %ecx
+
+    # Initialize the remaining CPU states (GDT, IDT, ...).
+    call    ap_initialize_state
 
     # Jump to the final start up routine. This routine is not supposed to
     # return.
-    jmp     ap_finalize_start_up
+    pop     %ecx
+    jmp     *%ecx
 
 limbo:
     # That should never happen. But if somehow an AP returns and ends up here

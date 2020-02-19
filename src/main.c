@@ -102,7 +102,6 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     cpu_set_interrupt_flag(true);
 
     uint32_t const start_alloc_frames = frames_allocated();
-    test_kernel();
 
     LOG("Multiboot header at %p\n", multiboot_info);
     struct multiboot_info const * const hdr = to_virt(multiboot_info);
@@ -117,6 +116,8 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     cpu_set_interrupt_flag(true);
 
     init_aps();
+
+    test_kernel();
 
     virt_shutdown();
 }

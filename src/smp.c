@@ -70,6 +70,9 @@
 // Page Directory Addr: The data frame contains the physical address of the page
 // directory they will have to use.
 //
+// Wake up target: The function to call once the AP is online. Having this in
+// the data frame makes testing easier.
+//
 // Finding the Data Frame
 // ----------------------
 //     The segment containing the data frame is written at the end of the
@@ -129,10 +132,12 @@ static uint16_t get_real_mode_segment_for_addr(void const * const addr) {
 // The size of the stack used by the APs when executing the wake up routine.
 #define AP_WAKEUP_STACK_SIZE    (PAGE_SIZE / 4)
 
+void ap_finalize_start_up(void);
+
 // Create a data frame containing all data structures required by the APs to
 // boot.
 // @return: The physical address of the data frame.
-static void * create_data_frame(void) {
+static void * create_data_frame(void (*target)(void)) {
     void * const phy_frame = alloc_frame();
 
     // Since the data frame must be accessible by the APs running in real-mode
@@ -157,6 +162,8 @@ static void * create_data_frame(void) {
     // Put the page directory physical address in the data frame to allow APs to
     // enable paging.
     data_frame->page_dir_addr = get_kernel_page_dir_phy_addr();
+
+    data_frame->wake_up_target = target;
 
     // ACPI tables gives us the number of cpus present in the system.
     uint16_t const ncpus = acpi_get_number_cpus();
@@ -261,7 +268,7 @@ static void *get_data_frame_addr_from_frame(void * const code_frame) {
 // necessarty to boot and initialize the APs all the way to the higher-half
 // kernel.
 // @return: The physical address of the entry point for the APs.
-static void * create_trampoline(void) {
+static void * create_trampoline(void (*target)(void)) {
     void * const code_frame = alloc_frame();
     LOG("Trampoline code frame at %p\n", code_frame);
 
@@ -290,7 +297,7 @@ static void * create_trampoline(void) {
 
     // Setup the data frame that will contain all the necessary data structures
     // for AP booting.
-    void const * const data_frame = create_data_frame();
+    void const * const data_frame = create_data_frame(target);
 
     // Compute the data segment that APs should use in real-mode addressing and
     // insert it at the end of the code frame. Opon receiving the SIPI(s) the
@@ -348,15 +355,48 @@ static void cleanup_ap_wakeup_routine_allocs(void * const code_frame) {
 DECLARE_SPINLOCK(AP_BOOT_LOCK);
 
 // The number of Application Processor that are fully woken up and initialized.
-// This function serves as a signal to the BSP that all APs are ready. It must
+// This function serves as a signal to the BSP that all APs are online. It must
 // be incremented _once_ per AP, while holding the AP_BOOT_LOCK.
-static uint8_t APS_READY = 0;
+static uint8_t APS_ONLINE = 0;
 
 // This is kind of a hacky way to do compute the size of the kernel stack: Use
 // the same as the BSP's.
 extern uint8_t stack_top;
 extern uint8_t stack_bottom;
 #define KERNEL_STACK_SIZE   ((size_t)(&stack_top - &stack_bottom))
+
+// Array containing the virtual addresses of the top of the stack for all cpus
+// in the system. This will be allocated by the BSP prior to wake up the APs.
+// This is useful in case one wants to free the stacks used by the APs when
+// resetting them.
+// This variable should be accessed while holding the AP_BOOT_LOCK.
+// Note: This is a temporary mechanism until we have real per-cpus variables.
+static void **APS_STACKS = NULL;
+
+// Initialize the APS_STACKS array. If this array is not yet allocated, this
+// function allocates it. Otherwise it de-allocates all stacks in the array and
+// memzero the array.
+static void maybe_allocate_aps_stacks_array(void) {
+    uint32_t const ncpus = acpi_get_number_cpus();
+
+    spinlock_lock(&AP_BOOT_LOCK);
+    if (APS_STACKS) {
+        // The APs are probably already online. This means that this is a reset
+        // or a init_aps test. We thus need to de-allocate their stack. Now is a
+        // good time to do it, as they are in a wait-for-SIPI state and hence
+        // not running.
+        for (uint32_t i = 0; i < ncpus; ++i) {
+            void * stack = APS_STACKS[i];
+            if (stack) {
+                paging_unmap_and_free_frames(stack, KERNEL_STACK_SIZE);
+            }
+        }
+    } else {
+        APS_STACKS = kmalloc(ncpus * sizeof(*APS_STACKS));
+    }
+    memzero(APS_STACKS, ncpus * sizeof(*APS_STACKS));
+    spinlock_unlock(&AP_BOOT_LOCK);
+}
 
 // Allocate a stack in the higher half kernel of size KERNEL_STACK_SIZE.
 // @return: The address of the top of the stack.
@@ -381,6 +421,10 @@ void *ap_alloc_higher_half_stack(void) {
         paging_map(frame, vaddr + i * PAGE_SIZE, PAGE_SIZE, VM_WRITE);
     }
 
+    // Save the allocated stack into the APS_STACKS array.
+    ASSERT(APS_STACKS);
+    APS_STACKS[cpu_apic_id()] = vaddr;
+
     // Allocation is over let other cpus do theirs.
     spinlock_unlock(&AP_BOOT_LOCK);
 
@@ -388,10 +432,12 @@ void *ap_alloc_higher_half_stack(void) {
     return vaddr;
 }
 
-void ap_finalize_start_up(void) {
+// Initialize the AP state, that is IDT, GDT, cache, and LAPIC. This function
+// also increments the APS_ONLINE global variable before returning.
+void ap_initialize_state(void) {
     // This AP has a private stack in higher half that is of a decent size.
     // Before being fully operational, a few operations need to be done one this
-    // cpu. The next few functions do not require the AP_BOOT_LOCK has they are
+    // cpu. The next functions do not require the AP_BOOT_LOCK has they are
     // setting cpu-private states.
     
     // Start by enabling the cache.
@@ -405,16 +451,15 @@ void ap_finalize_start_up(void) {
     ap_interrupt_init();
     ap_init_lapic();
 
+    // This AP is now fully initialized, announce the the BSP that it is online.
     uint8_t const apic_id = cpu_apic_id();
-
-    // Log that the CPU is ready and inc the APS_READY to report back to the
-    // BSP.
     spinlock_lock(&AP_BOOT_LOCK);
-    LOG("CPU %u ready with stack %p\n", apic_id, cpu_read_esp());
-    APS_READY ++;
-
+    LOG("CPU %u online with stack %p\n", apic_id, cpu_read_esp());
+    APS_ONLINE ++;
     spinlock_unlock(&AP_BOOT_LOCK);
+}
 
+void ap_finalize_start_up(void) {
     // Start a loop waiting for interrupts. This will be a useful starting
     // point for future development.
     while (true) {
@@ -423,9 +468,13 @@ void ap_finalize_start_up(void) {
     }
 }
 
-void init_aps(void) {
+// Actual implementation of the init_aps function. This variant allows one to
+// explicitely specify the target function to be called by the APs once online.
+// This is useful for testing.
+// @param target: The function that should be called by the APs after wake up.
+static void do_init_aps(void (*target)(void)) {
     // Create the trampoline.
-    void * const ap_entry_point = create_trampoline();
+    void * const ap_entry_point = create_trampoline(target);
 
     // FIXME: The boot code will make a call to cpu_enable_paging_bits to enable
     // paging. Therefore this function must be ID mapped into virtual memory.
@@ -449,6 +498,9 @@ void init_aps(void) {
     lapic_send_broadcast_init();
     lapic_sleep(10);
 
+    // Allocate the APS_STACKS or free any existing stacks in there.
+    maybe_allocate_aps_stacks_array();
+
     lapic_send_broadcast_sipi(ap_entry_point);
     // FIXME: The lapic sleep only has a millisecond granularity. Therefore wait
     // 1ms instead of 200 micro-second. That should be fine.
@@ -457,19 +509,28 @@ void init_aps(void) {
     lapic_send_broadcast_sipi(ap_entry_point);
     lapic_sleep(200);
 
-    // Now wait for all the Application Processors to wake up and initialize.
+    // Now wait for all the Application Processors to get online.
     uint8_t const naps = acpi_get_number_cpus() - 1;
-    while (APS_READY != naps) {
-        lapic_sleep(100);
+    while (APS_ONLINE != naps) {
+        lapic_sleep(10);
     }
 
-    LOG("All APs ready!\n");
+    LOG("All APs online!\n");
+
+    // Reset the APS_ONLINE global variable, in case we ever reset the APs and
+    // re-init them again (i.e. in tests).
+    APS_ONLINE = 0;
 
     // All APs are woken up and all have allocated their private stack. We can
     // now clean up the code frame containing the wake up routine, the data
     // frame and the stack frames.
     cleanup_ap_wakeup_routine_allocs(ap_entry_point);
     paging_unmap(func_addr, PAGE_SIZE);
+
+}
+
+void init_aps(void) {
+    do_init_aps(ap_finalize_start_up);
 }
 
 #include <smp.test>
