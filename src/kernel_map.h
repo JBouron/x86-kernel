@@ -16,6 +16,8 @@ extern uint8_t SECTION_DATA_START;
 extern uint8_t SECTION_DATA_END;
 extern uint8_t SECTION_BSS_START;
 extern uint8_t SECTION_BSS_END;
+extern uint8_t SECTION_PERCPU_START;
+extern uint8_t SECTION_PERCPU_END;
 extern uint8_t KERNEL_END;
 
 // The start and end _virtual_ addresses of the kernel's section as well as the
@@ -30,6 +32,8 @@ extern uint8_t KERNEL_END;
 #define SECTION_DATA_END_ADDR        (&SECTION_DATA_END - 1)
 #define SECTION_BSS_START_ADDR       (&SECTION_BSS_START)
 #define SECTION_BSS_END_ADDR         (&SECTION_BSS_END - 1)
+#define SECTION_PERCPU_START_ADDR    (&SECTION_PERCPU_START)
+#define SECTION_PERCPU_END_ADDR      (&SECTION_PERCPU_END - 1)
 #define KERNEL_END_ADDR              (&KERNEL_END - 1)
 
 // The size of the kernel's sections and the kernel itself.
@@ -43,6 +47,8 @@ extern uint8_t KERNEL_END;
     (SECTION_DATA_END_ADDR - SECTION_DATA_START_ADDR + 1)
 #define SECTION_BSS_SIZE \
     (SECTION_BSS_END_ADDR - SECTION_BSS_START_ADDR + 1)
+#define SECTION_PERCPU_SIZE \
+    (SECTION_PERCPU_END_ADDR - SECTION_PERCPU_START_ADDR + 1)
 
 // Translate a virtual pointer to a physical one. Note that this function should
 // be used when setting paging. Once paging is set this function will not return

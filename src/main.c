@@ -23,6 +23,7 @@
 #include <acpi.h>
 #include <ioapic.h>
 #include <smp.h>
+#include <percpu.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -45,6 +46,8 @@ void test_kernel(void) {
     kmalloc_test();
     ioapic_test();
     smp_test();
+    percpu_test();
+
     print_test_summary();
 }
 
@@ -114,6 +117,10 @@ kernel_main(struct multiboot_info const * const multiboot_info) {
     LOG("Alloc at %p\n", addr);
 
     cpu_set_interrupt_flag(true);
+
+    // Allocate the percpu segments and the final GDT before waking up the APs.
+    init_percpu();
+    switch_to_final_gdt(PER_CPU_OFFSETS);
 
     init_aps();
 

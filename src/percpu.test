@@ -1,0 +1,162 @@
+#include <test.h>
+
+static bool percpu_this_cpu_off_test(void) {
+    uint8_t const ncpus = acpi_get_number_cpus();
+    for (uint8_t i = 0; i < ncpus; ++i) {
+        void * const val = cpu_var(this_cpu_off, i);
+        LOG("val = %p\n", val);
+        TEST_ASSERT(val == PER_CPU_OFFSETS[i]);
+    }
+    return true;
+}
+
+static bool percpu_cpu_id_test(void) {
+    uint8_t const ncpus = acpi_get_number_cpus();
+    for (uint8_t i = 0; i < ncpus; ++i) {
+        uint8_t const val = cpu_var(cpu_id, i);
+        TEST_ASSERT(val == i);
+    }
+    return true;
+}
+
+#define _val_int8_t    (69)
+#define _val_int16_t   (2704)
+#define _val_int32_t   (2072020)
+#define _val_int64_t   (983470592345ULL)
+
+#define _val_uint8_t    (0xAB)
+#define _val_uint16_t   (0xCAFE)
+#define _val_uint32_t   (0xDEADBEEF)
+#define _val_uint64_t   (12983470592345ULL)
+
+#define _val_void_ptr  ((void*)0xCAFEBABE)
+
+#define _var_name(type) percpu_local_var_test_ ## type ## _var
+
+#define percpu_local_var_test(type) \
+    DECLARE_PER_CPU(type, _var_name(type));               \
+    static bool percpu_local_var_test_ ## type (void) {   \
+        this_cpu_var(_var_name(type)) = _val_ ## type;         \
+        return this_cpu_var(_var_name(type)) == _val_ ## type; \
+    }
+
+percpu_local_var_test(int8_t);
+percpu_local_var_test(int16_t);
+percpu_local_var_test(int32_t);
+percpu_local_var_test(int64_t);
+
+percpu_local_var_test(uint8_t);
+percpu_local_var_test(uint16_t);
+percpu_local_var_test(uint32_t);
+percpu_local_var_test(uint64_t);
+
+typedef void * void_ptr;
+percpu_local_var_test(void_ptr);
+
+#undef percpu_local_var_test
+
+typedef struct {
+    uint32_t a;
+    void *b;
+} struct_type;
+DECLARE_PER_CPU(struct_type, _var_name(struct_type));
+static bool percpu_local_var_test_struct_type(void) {
+    this_cpu_var(_var_name(struct_type)).a = 0xF001D34D;
+    this_cpu_var(_var_name(struct_type)).b = (void*)0x1234;
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type)).a == 0xF001D34D);
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type)).b == (void*)0x1234);
+    struct_type val = {.a = 0xBEEFCAFE, .b = (void*)0xAAAAAAAA};
+    this_cpu_var(_var_name(struct_type)) = val;
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type)).a == 0xBEEFCAFE);
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type)).b == (void*)0xAAAAAAAA);
+    return true;
+}
+
+#define _next_cpu   ((cpu_apic_id() + 1) % acpi_get_number_cpus())
+#define percpu_remote_var_test(type) \
+    static bool percpu_remote_var_test_ ## type (void) {   \
+        this_cpu_var(_var_name(type)) = 0;                 \
+        cpu_var(_var_name(type), _next_cpu) = _val_ ## type;          \
+        return this_cpu_var(_var_name(type)) == 0 && \
+            cpu_var(_var_name(type), _next_cpu) == _val_ ## type; \
+    }
+
+percpu_remote_var_test(int8_t);
+percpu_remote_var_test(int16_t);
+percpu_remote_var_test(int32_t);
+percpu_remote_var_test(int64_t);
+
+percpu_remote_var_test(uint8_t);
+percpu_remote_var_test(uint16_t);
+percpu_remote_var_test(uint32_t);
+percpu_remote_var_test(uint64_t);
+
+percpu_remote_var_test(void_ptr);
+
+#undef percpu_remote_var_test
+
+static bool percpu_remote_var_test_struct_type(void) {
+    this_cpu_var(_var_name(struct_type)).a = 0x0;
+    this_cpu_var(_var_name(struct_type)).b = (void*)0x0;
+
+    cpu_var(_var_name(struct_type), _next_cpu).a = 0xF001D34D;
+    cpu_var(_var_name(struct_type), _next_cpu).b = (void*)0x1234;
+    TEST_ASSERT(cpu_var(_var_name(struct_type), _next_cpu).a == 0xF001D34D);
+    TEST_ASSERT(cpu_var(_var_name(struct_type), _next_cpu).b == (void*)0x1234);
+    struct_type val = {.a = 0xBEEFCAFE, .b = (void*)0xAAAAAAAA};
+    cpu_var(_var_name(struct_type), _next_cpu) = val;
+    TEST_ASSERT(cpu_var(_var_name(struct_type), _next_cpu).a == 0xBEEFCAFE);
+    TEST_ASSERT(cpu_var(_var_name(struct_type), _next_cpu).b ==
+        (void*)0xAAAAAAAA);
+
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type)).a == 0x0);
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type)).b == (void*)0x0);
+    return true;
+}
+
+#undef _next_cpu
+
+#undef _val_int8_t
+#undef _val_int16_t
+#undef _val_int32_t
+#undef _val_int64_t
+#undef _val_uint8_t
+#undef _val_uint16_t
+#undef _val_uint32_t
+#undef _val_uint64_t
+#undef _val_void_ptr
+#undef _var_name
+
+void percpu_test(void) {
+    TEST_FWK_RUN(percpu_this_cpu_off_test);
+    TEST_FWK_RUN(percpu_cpu_id_test);
+
+    TEST_FWK_RUN(percpu_local_var_test_int8_t);
+    TEST_FWK_RUN(percpu_local_var_test_int16_t);
+    TEST_FWK_RUN(percpu_local_var_test_int32_t);
+    TEST_FWK_RUN(percpu_local_var_test_int64_t);
+
+    TEST_FWK_RUN(percpu_local_var_test_uint8_t);
+    TEST_FWK_RUN(percpu_local_var_test_uint16_t);
+    TEST_FWK_RUN(percpu_local_var_test_uint32_t);
+    TEST_FWK_RUN(percpu_local_var_test_uint64_t);
+
+    TEST_FWK_RUN(percpu_local_var_test_void_ptr);
+
+    TEST_FWK_RUN(percpu_local_var_test_struct_type);
+
+
+    TEST_FWK_RUN(percpu_remote_var_test_int8_t);
+    TEST_FWK_RUN(percpu_remote_var_test_int16_t);
+    TEST_FWK_RUN(percpu_remote_var_test_int32_t);
+    TEST_FWK_RUN(percpu_remote_var_test_int64_t);
+
+    TEST_FWK_RUN(percpu_remote_var_test_uint8_t);
+    TEST_FWK_RUN(percpu_remote_var_test_uint16_t);
+    TEST_FWK_RUN(percpu_remote_var_test_uint32_t);
+    TEST_FWK_RUN(percpu_remote_var_test_uint64_t);
+
+    TEST_FWK_RUN(percpu_remote_var_test_void_ptr);
+
+    TEST_FWK_RUN(percpu_remote_var_test_struct_type);
+}

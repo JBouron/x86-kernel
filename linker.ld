@@ -51,6 +51,13 @@ SECTIONS
 		*(.bss)
         SECTION_BSS_END = .;
 	}
+
+    .percpu ALIGN(4K) : AT(ADDR(.percpu) - KERNEL_PHY_OFFSET)
+    {
+        SECTION_PERCPU_START = .;
+        *(.percpu)
+        SECTION_PERCPU_END = .;
+    }
     KERNEL_END = .;
  
 	/* The compiler may produce other sections, by default it will put them
