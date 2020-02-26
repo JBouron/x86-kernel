@@ -72,6 +72,8 @@ static bool segmentation_data_segment_test(void) {
     };
     cpu_lgdt(&table_desc);
 
+    union segment_selector_t orig_gs = cpu_read_gs();
+
     // Load gs with the segment selector selecting the previously declared
     // segment.
     union segment_selector_t gs = {
@@ -93,6 +95,7 @@ static bool segmentation_data_segment_test(void) {
     for (uint16_t i = 0; i < 32; ++i) {
         TEST_ASSERT(read_byte_gs(i) == i);
     }
+    cpu_set_gs(&orig_gs);
     return true;
 }
 
@@ -145,11 +148,13 @@ static bool segmentation_flat_model_initialized_test(void) {
     // selectors.
     union segment_selector_t const exp_data_sel = kernel_data_selector();
     union segment_selector_t const exp_code_sel = kernel_code_selector();
+    union segment_selector_t const per_cpu_sel =
+        per_cpu_segment_selector(cpu_apic_id());
     TEST_ASSERT(cpu_read_cs().value == exp_code_sel.value);
     TEST_ASSERT(cpu_read_ds().value == exp_data_sel.value);
     TEST_ASSERT(cpu_read_es().value == exp_data_sel.value);
     TEST_ASSERT(cpu_read_fs().value == exp_data_sel.value);
-    TEST_ASSERT(cpu_read_gs().value == exp_data_sel.value);
+    TEST_ASSERT(cpu_read_gs().value == per_cpu_sel.value);
     TEST_ASSERT(cpu_read_ss().value == exp_data_sel.value);
     return true;
 }

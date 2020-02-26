@@ -25,5 +25,11 @@ union segment_selector_t kernel_code_selector(void);
 // @param data_frame: The data frame in which the GDT resides.
 void initialize_trampoline_gdt(struct ap_boot_data_frame_t * const data_frame);
 
+// Allocate the final GDT and load it into the GDTR.
+// @param per_cpu_areas: Array containing one void* per cpu on the system
+// pointing to their private per-cpu areas. Those areas will be transformed into
+// segment in the final GDT.
+void switch_to_final_gdt(void **per_cpu_areas);
+
 // Run tests related to segmentation.
 void segmentation_test(void);
