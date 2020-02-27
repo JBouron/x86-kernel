@@ -356,6 +356,7 @@ target_paging:
     call    ap_alloc_higher_half_stack
 
     mov     (%esp), %ecx
+    add     $0x4, %esp
     
     # We do not need the old boot stack anymore. Unlock it to allow another
     # processor to use it in case boot stacks are shared.

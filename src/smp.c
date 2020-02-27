@@ -134,6 +134,10 @@ static uint16_t get_real_mode_segment_for_addr(void const * const addr) {
 
 void ap_finalize_start_up(void);
 
+// The maximum number of stacks to allocate for the woken APs. This is currently
+// used for testing to stress test the stack locks and contention.
+static uint32_t AP_WAKEUP_ROUTINE_MAX_STACKS = 256;
+
 // Create a data frame containing all data structures required by the APs to
 // boot.
 // @return: The physical address of the data frame.
@@ -228,7 +232,8 @@ static void * create_data_frame(void (*target)(void)) {
 
             LOG("stack[%u] = %p\n", index, stack);
 
-            if (index + 1 >= naps) {
+            if (index + 1 >= naps ||
+                data_frame->num_stacks == AP_WAKEUP_ROUTINE_MAX_STACKS) {
                 // We have enough stacks to go on. Stop now.
                 break;
             }

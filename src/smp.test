@@ -151,7 +151,10 @@ static void _ap_target(void) {
     }
 }
 
-static bool _do_init_aps_test(void) {
+// Run the init_aps_test.
+// @param limit_stacks: If set, use a single stack to wake up the core. This is
+// a stress test on the stack locking mechanism.
+static bool _do_init_aps_test(bool const limit_stacks) {
     // Prepare the _ap_signal array.
     uint8_t const ncpus = acpi_get_number_cpus();
     _ap_signal = kmalloc(ncpus * sizeof(*_ap_signal));
@@ -160,6 +163,11 @@ static bool _do_init_aps_test(void) {
     // Set the bit for the BSP.
     _ap_signal[cpu_apic_id()] = 1;
 
+    if (limit_stacks) {
+        AP_WAKEUP_ROUTINE_MAX_STACKS = 1;
+    } else {
+        AP_WAKEUP_ROUTINE_MAX_STACKS = 256;
+    }
     do_init_aps(_ap_target);
 
     // Wait for all APs to boot and to announce themselves.
@@ -188,7 +196,14 @@ static bool _do_init_aps_test(void) {
 }
 
 static bool init_aps_test(void) {
-    bool const res = _do_init_aps_test();
+    bool const res = _do_init_aps_test(false);
+    // Re-initialize the APs.
+    init_aps();
+    return res;
+}
+
+static bool init_aps_single_boot_stack_test(void) {
+    bool const res = _do_init_aps_test(true);
     // Re-initialize the APs.
     init_aps();
     return res;
@@ -200,4 +215,5 @@ void smp_test(void) {
     TEST_FWK_RUN(create_trampoline_no_memleak_test);
     TEST_FWK_RUN(create_trampoline_test);
     TEST_FWK_RUN(init_aps_test);
+    TEST_FWK_RUN(init_aps_single_boot_stack_test);
 }
