@@ -392,14 +392,14 @@ static void maybe_allocate_aps_stacks_array(void) {
         // not running.
         for (uint32_t i = 0; i < ncpus; ++i) {
             void * stack = APS_STACKS[i];
-            if (stack) {
+            if (i != cpu_apic_id() && stack) {
                 paging_unmap_and_free_frames(stack, KERNEL_STACK_SIZE);
+                APS_STACKS[i] = NULL;
             }
         }
     } else {
         APS_STACKS = kmalloc(ncpus * sizeof(*APS_STACKS));
     }
-    memzero(APS_STACKS, ncpus * sizeof(*APS_STACKS));
     spinlock_unlock(&AP_BOOT_LOCK);
 }
 

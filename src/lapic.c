@@ -177,7 +177,6 @@ void init_lapic(void) {
 }
 
 void ap_init_lapic(void) {
-    ASSERT(!cpu_is_bsp());
     // The LAPIC registers have already been mapped by the BSP at boot,
     // therefore all is left to do is enabling the LAPIC on this AP.
     enable_apic();

@@ -137,8 +137,6 @@ void interrupt_init(void) {
 }
 
 void ap_interrupt_init(void) {
-    ASSERT(!cpu_is_bsp());
-
     // Simply load IDT into the IDTR of this AP.
     struct idt_desc_t const desc = {
         .base = IDT,

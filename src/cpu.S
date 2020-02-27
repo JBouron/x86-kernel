@@ -414,14 +414,3 @@ ASM_FUNC_DEF(cpu_apic_id):
     mov     %ebx, %eax
     pop     %ebx
     ret
-
-//bool cpu_is_bsp(void);
-ASM_FUNC_DEF(cpu_is_bsp):
-    call    cpu_apic_id
-    cmp     $0x0, %eax
-    jnz     not_bsp
-    mov     $0x1, %eax
-    ret
-not_bsp:
-    mov     $0x0, %eax
-    ret

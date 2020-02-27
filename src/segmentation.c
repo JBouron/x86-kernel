@@ -171,8 +171,6 @@ void init_segmentation(void) {
 }
 
 void ap_init_segmentation(void) {
-    ASSERT(!cpu_is_bsp());
-
     // APs do not use the early GDT, only the final GDT. Make sure that, at this
     // point, the final GDT has been allocated.
     if (!GDT) {

@@ -217,7 +217,5 @@ void *cpu_read_esp(void);
 // Read the APIC ID of the calling processor.
 uint8_t cpu_apic_id(void);
 
-bool cpu_is_bsp(void);
-
 // Execute tests on CPU related functions.
 void cpu_test(void);

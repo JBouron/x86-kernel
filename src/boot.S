@@ -127,12 +127,12 @@ ASM_FUNC_DEF_16BITS(ap_entry_point):
 
     # Get the stack segment to use for this cpu. This is stored in the data
     # frame.
-    # Normally, cpus are using the stack stored in stack_segments[APIC ID - 1].
+    # Normally, cpus are using the stack stored in stack_segments[APIC ID].
     # However, depending on the amount of available memory under 1MiB, multiple
     # cpus may share the same stack. The total number of available stacks in the
     # stack_segments array is given by the num_stacks field of the
     # ap_boot_data_frame_t structure.
-    # Therefore, cpus are using stack_segments[APIC ID - 1 % num_stacks].
+    # Therefore, cpus are using stack_segments[APIC ID % num_stacks].
     # Compute the index within stack_segments:
 
     # CX = data_frame->num_stacks.
@@ -140,8 +140,7 @@ ASM_FUNC_DEF_16BITS(ap_entry_point):
     mov     0x28, %cx
 
     mov     %bx, %ax
-    sub     $0x1, %ax
-    # DX = APIC ID - 1 % num_stacks = Index in stack_segments.
+    # DX = APIC ID % num_stacks = Index in stack_segments.
     div     %cx
 
     # Read the stack segment from stack_segments[DX] in to SS.
