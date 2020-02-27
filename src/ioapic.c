@@ -246,7 +246,7 @@ static void write_redirection(uint8_t const index,
 static uint8_t compute_destination_for_interrupt(uint8_t const vector) {
     // TODO: Try to do some load balancing once all cores are up.
     ASSERT(vector >= 32);
-    return 0;
+    return cpu_apic_id();
 }
 
 void init_ioapic(void) {
