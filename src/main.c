@@ -51,6 +51,16 @@ void test_kernel(void) {
     print_test_summary();
 }
 
+// Resign from the BSP role, that is clear the BSP bit in to the
+// IA32_APIC_BASE_MSR. The reason is that this bit inhibit any INIT IPI on the
+// BSP which makes it impossible to execute init_aps test from APs.
+static void resign_bsp(void) {
+    uint32_t const IA32_APIC_BASE_MSR = 0x1B;
+    uint64_t const msr = read_msr(IA32_APIC_BASE_MSR);
+    // Bit 8 indicates if the cpu is BSP or not. It is R/W.
+    write_msr(IA32_APIC_BASE_MSR, msr & (~(1 << 8)));
+}
+
 static void pretty_print_mutliboot_hdr(struct multiboot_info const * hdr) {
     LOG("Memory low = %x\n", hdr->mem_lower * 1024);
     LOG("Memory hi  = %x\n", hdr->mem_upper * 1024);
@@ -88,6 +98,7 @@ static void virt_shutdown(void) {
 void
 kernel_main(struct multiboot_info const * const multiboot_info) {
     ASSERT(multiboot_info);
+    resign_bsp();
     vga_init();
     serial_init();
     tty_init(NULL, &SERIAL_STREAM);
