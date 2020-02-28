@@ -123,9 +123,32 @@ static bool interrupt_register_callback_test(void) {
     return callback_target == 0xBB && callback_conds;
 }
 
+static bool global_callback_called = false;
+static void global_callback(struct interrupt_frame_t const * const frame) {
+    ASSERT(frame);
+    global_callback_called = true;
+}
+
+static bool local_callback_called = false;
+static void local_callback(struct interrupt_frame_t const * const frame) {
+    ASSERT(frame);
+    local_callback_called = true;
+}
+
+// Check that a local callback has the priority over a global callback.
+static bool interrupt_local_callback_priority_test(void) {
+    interrupt_register_global_callback(0, global_callback);
+    interrupt_register_local_callback(0, local_callback);
+    basic_interrupt_test_int();
+    interrupt_delete_global_callback(0);
+    interrupt_delete_local_callback(0);
+    return !global_callback_called && local_callback_called;
+}
+
 void interrupt_test(void) {
     TEST_FWK_RUN(interrupt_test_init_desc);
     TEST_FWK_RUN(get_interrupt_handler_test);
     TEST_FWK_RUN(basic_interrupt_test);
     TEST_FWK_RUN(interrupt_register_callback_test);
+    TEST_FWK_RUN(interrupt_local_callback_priority_test);
 }
