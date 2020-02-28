@@ -3,6 +3,8 @@
 #include <memory.h>
 #include <segmentation.h>
 #include <lapic.h>
+#include <lock.h>
+#include <percpu.h>
 
 // Interrupt gate descriptor.
 union interrupt_descriptor_t {
@@ -63,10 +65,12 @@ static void init_desc(union interrupt_descriptor_t * const desc,
 #define IDT_SIZE 33
 union interrupt_descriptor_t IDT[IDT_SIZE] __attribute__((aligned (8)));
 
-// All the code backs per interrupt vector. Ideally this should be a linked list
-// but as we don't have a way to dynamically allocate memory for now a static
-// array with one entry per vector should be enough.
-int_callback_t CALLBACKS[IDT_SIZE];
+// Array of global callback per vector.
+int_callback_t GLOBAL_CALLBACKS[IDT_SIZE];
+// Since any cpu can access the GLOBAL_CALLBACKS array, we need a lock.
+DECLARE_SPINLOCK(GLOBAL_CALLBACKS_LOCK);
+// The cpu-private callbacks.
+DECLARE_PER_CPU(int_callback_t, local_callbacks[IDT_SIZE]);
 
 // Get the address/offset of the interrupt handler for a given vector.
 extern uint32_t get_interrupt_handler(uint8_t const vector);
@@ -74,23 +78,32 @@ extern uint32_t get_interrupt_handler(uint8_t const vector);
 // The generic interrupt handler. Eventually all the interrupts call the generic
 // handler.
 // @param frame: Information about the interrupt.
-__attribute__((unused)) void generic_interrupt_handler(
-    struct interrupt_frame_t const * const frame) {
-    ASSERT(frame->vector <= 255);
+void generic_interrupt_handler(struct interrupt_frame_t const * const frame) {
+    uint8_t const vector = frame->vector;
     // A sanity check that the low level interrupt handler did not send garbage
     // to us.
+    ASSERT(vector < IDT_SIZE);
 
-    // Log some info about the interrupt.
-    LOG("Interrupt with vector %d\n", frame->vector);
-    LOG("error code = %x\n", frame->error_code);
-    LOG("eip = %x\n", frame->eip);
-    LOG("cs = %x\n", frame->cs);
-    LOG("eflags = %x\n", frame->eflags);
+    int_callback_t callback = NULL;
 
-    if (frame->vector < IDT_SIZE && CALLBACKS[frame->vector]) {
-        // A callback has been registered for this interrupt vector, call it.
-        CALLBACKS[frame->vector](frame);
+    // Check for local callback first.
+    callback = this_cpu_var(local_callbacks)[vector];
+
+    // Check for global callback.
+    if (!callback) {
+        callback = GLOBAL_CALLBACKS[vector];
+    }
+
+    if (callback) {
+        callback(frame);
     } else {
+        // No callback found.
+        // Log some info about the interrupt.
+        LOG("Interrupt with vector %d\n", frame->vector);
+        LOG("error code = %x\n", frame->error_code);
+        LOG("eip = %x\n", frame->eip);
+        LOG("cs = %x\n", frame->cs);
+        LOG("eflags = %x\n", frame->eflags);
         PANIC("Unexpected interrupt in kernel\n");
     }
     lapic_eoi();
@@ -133,7 +146,7 @@ void interrupt_init(void) {
 
     // Zero the callback array. This has to be done before enabling interrupts
     // to avoid race conditions.
-    memzero(CALLBACKS, sizeof(CALLBACKS));
+    memzero(GLOBAL_CALLBACKS, sizeof(GLOBAL_CALLBACKS));
 }
 
 void ap_interrupt_init(void) {
@@ -145,16 +158,69 @@ void ap_interrupt_init(void) {
     cpu_lidt(&desc);
 }
 
-void interrupt_register_callback(uint8_t const vector,
-                                 int_callback_t const callback) {
+// Register a callback for an interrupt vector.
+// @param vector: The vector that should trigger the interrupt callback once
+// "raised".
+// @param callback: The callback to be called everytime an interrupt with vector
+// `vector` is received by a CPU.
+// @param global: If set, the callback is registered as global, otherwise as
+// local.
+static void register_callback(uint8_t const vector,
+                              int_callback_t const callback,
+                              bool const global) {
     ASSERT(vector < IDT_SIZE);
+
+    int_callback_t * const callbacks = global ?
+        GLOBAL_CALLBACKS : this_cpu_var(local_callbacks);
+
+    if (global) {
+        spinlock_lock(&GLOBAL_CALLBACKS_LOCK);
+    }
+
     // For now there can only be one callback per interrupt vector.
-    ASSERT(!CALLBACKS[vector]);
-    CALLBACKS[vector] = callback;
+    ASSERT(!callbacks[vector]);
+    callbacks[vector] = callback;
+
+    if (global) {
+        spinlock_unlock(&GLOBAL_CALLBACKS_LOCK);
+    }
 }
 
-void interrupt_delete_callback(uint8_t const vector) {
-    CALLBACKS[vector] = NULL;
+// Remove a callback for a given vector.
+// @param vector: The interrupt vector for which the callback should be removed.
+// @param global: If set, remove the global callback registered for `vector`,
+// otherwise remove the local callback.
+static void delete_callback(uint8_t const vector, bool const global) {
+    int_callback_t * const callbacks = global ?
+        GLOBAL_CALLBACKS : this_cpu_var(local_callbacks);
+
+    if (global) {
+        spinlock_lock(&GLOBAL_CALLBACKS_LOCK);
+    }
+
+    callbacks[vector] = NULL;
+
+    if (global) {
+        spinlock_unlock(&GLOBAL_CALLBACKS_LOCK);
+    }
+}
+
+void interrupt_register_global_callback(uint8_t const vector,
+                                        int_callback_t const callback) {
+    register_callback(vector, callback, true);
+}
+
+void interrupt_register_local_callback(uint8_t const vector,
+                                       int_callback_t const callback) {
+    register_callback(vector, callback, false);
+}
+
+void interrupt_delete_global_callback(uint8_t const vector) {
+    delete_callback(vector, true);
+}
+
+void interrupt_delete_local_callback(uint8_t const vector) {
+    delete_callback(vector, false);
 }
 
 #include <interrupt.test>

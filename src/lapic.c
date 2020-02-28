@@ -116,7 +116,7 @@ void calibrate_timer(void) {
 
     // Redirect the PIT irq to the vector above and register the handler.
     redirect_isa_interrupt(0, vector);
-    interrupt_register_callback(vector, calibrate_timer_pit_handler);
+    interrupt_register_local_callback(vector, calibrate_timer_pit_handler);
 
     // Setup the PIT to use a rate generator (periodic mode) with a counter of
     // 16 bits.
@@ -150,7 +150,7 @@ void calibrate_timer(void) {
     cpu_set_interrupt_flag(false);
 
     // Delete the callback for the PIT.
-    interrupt_delete_callback(vector);
+    interrupt_delete_local_callback(vector);
 
     // Disable the LAPIC timer. This is not strictly necessary since it is
     // masked anyway. But it is better to leave it in a clean state.
@@ -199,7 +199,7 @@ void lapic_start_timer(uint32_t const msec,
     uint32_t const count = msec * (LAPIC_TIMER_FREQ / 1000);
 
     // Register the callback for the given vector.
-    interrupt_register_callback(vector, callback);
+    interrupt_register_local_callback(vector, callback);
 
     // Enable the interrupts again.
     cpu_set_interrupt_flag(true);

@@ -81,7 +81,8 @@ static bool ioapic_redirection_test(void) {
     uint8_t const pit_vector = 0;
     uint8_t const redir_vector = 32;
     redirect_isa_interrupt(pit_vector, redir_vector);
-    interrupt_register_callback(redir_vector, ioapic_redirection_test_handler);
+    interrupt_register_local_callback(redir_vector,
+        ioapic_redirection_test_handler);
 
     // Note: The following code until the end of the function are hard-coded.
     // This is because we do not have functions to manipulate the PIT. We need
@@ -108,7 +109,7 @@ static bool ioapic_redirection_test(void) {
 
     // Clean up.
     cpu_set_interrupt_flag(false);
-    interrupt_delete_callback(redir_vector);
+    interrupt_delete_local_callback(redir_vector);
     return true;
 }
 

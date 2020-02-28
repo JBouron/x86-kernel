@@ -72,7 +72,7 @@ static bool one_shot_lapic_timer_test(void) {
     }
     // Timer was a success.
 
-    interrupt_delete_callback(timer_vector);
+    interrupt_delete_local_callback(timer_vector);
     return true;
 }
 static bool periodic_lapic_timer_test(void) {
@@ -89,7 +89,7 @@ static bool periodic_lapic_timer_test(void) {
     // Timer was a success.
 
     cpu_set_interrupt_flag(false);
-    interrupt_delete_callback(timer_vector);
+    interrupt_delete_local_callback(timer_vector);
     return timer_periods == 4;
 }
 

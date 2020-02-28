@@ -23,20 +23,46 @@ struct interrupt_frame_t {
     uint32_t vector;
 } __attribute__((packed));
 
+// Callbacks
+// =========
+//      Callbacks are an easy way to dynamically dispatch functions calls when
+// certain interrupts are raised. The kernel can register interrupt callback to
+// specific interrupt vectors.
+// There are two level of callbacks: global and cpu local. Global callbacks are
+// global to all cpus, while cpu local are, well, local to the cpu.
+// When an interrupt is raised, the generic interrupt handler look for a local
+// callback for the given vector. If such a callback is present, the handler
+// calls the callback and irets. If no local callback is registered for that
+// vector, the handler looks for a global callback and, if found, calls it. If
+// there is no local nor global callback registered for the vector a PANIC is
+// raised.
+
 // An high-level callback for an interrupt.
 typedef void (*int_callback_t)(struct interrupt_frame_t const *);
 
-// Register a callback for an interrupt vector.
+// Register a global callback for an interrupt vector.
 // @param vector: The vector that should trigger the interrupt callback once
 // "raised".
 // @param callback: The callback to be called everytime an interrupt with vector
-// `vector` is received by the CPU.
-void interrupt_register_callback(uint8_t const vector,
-                                 int_callback_t const callback);
+// `vector` is received by a CPU.
+void interrupt_register_global_callback(uint8_t const vector,
+                                        int_callback_t const callback);
 
-// Remove the callback for a given vector.
+// Register a local callback for an interrupt vector.
+// @param vector: The vector that should trigger the interrupt callback once
+// "raised".
+// @param callback: The callback to be called everytime an interrupt with vector
+// `vector` is received by the current CPU.
+void interrupt_register_local_callback(uint8_t const vector,
+                                       int_callback_t const callback);
+
+// Remove a global callback for a given vector.
 // @param vector: The interrupt vector for which the callback should be removed.
-void interrupt_delete_callback(uint8_t const vector);
+void interrupt_delete_global_callback(uint8_t const vector);
+
+// Remove a local callback for a given vector.
+// @param vector: The interrupt vector for which the callback should be removed.
+void interrupt_delete_local_callback(uint8_t const vector);
 
 // Execute tests related to interrupts.
 void interrupt_test(void);

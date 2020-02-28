@@ -182,7 +182,7 @@ static void dummy_pf_handler(struct interrupt_frame_t const * const frame) {
 
 static bool paging_pagefault_test(void) {
     // Register the dummy handler and enable interrupts.
-    interrupt_register_callback(14, dummy_pf_handler);
+    interrupt_register_local_callback(14, dummy_pf_handler);
     cpu_set_interrupt_flag(true);
 
     number_page_fault = 0;
@@ -214,7 +214,7 @@ static bool paging_pagefault_test(void) {
     TEST_ASSERT(read_val == 0xCAFEBABE);
 
     cpu_set_interrupt_flag(false);
-    interrupt_delete_callback(14);
+    interrupt_delete_local_callback(14);
     free_frame(allocated_frame_in_pagefault_handler);
     return true;
 }
@@ -234,7 +234,7 @@ static bool paging_unmap_page_test(void) {
     error_codes[1] = 0;
     number_page_fault = 0;
 
-    interrupt_register_callback(14, dummy_pf_handler);
+    interrupt_register_local_callback(14, dummy_pf_handler);
     cpu_set_interrupt_flag(true);
 
     // Since the virtual address is mapped we should be able to read it without
@@ -263,7 +263,7 @@ static bool paging_unmap_page_test(void) {
     free_frame(frame);
 
     cpu_set_interrupt_flag(false);
-    interrupt_delete_callback(14);
+    interrupt_delete_local_callback(14);
     return true;
 }
 
