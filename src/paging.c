@@ -4,6 +4,7 @@
 #include <memory.h>
 #include <math.h>
 #include <kernel_map.h>
+#include <lock.h>
 
 // This is the definition of an entry of a page directory.
 union pde_t {
@@ -101,6 +102,22 @@ static struct page_dir_t * alloc_page_dir(void) {
 // @return: The _physical_ address of the freshly allocated page table.
 static struct page_table_t * alloc_page_table(void) {
     return (struct page_table_t*) alloc_frame();
+}
+
+// For now we have only a single virtual address space shared by all cpus. When
+// mutating the virtual address space (that is page dir and tables) cpus must
+// hold the lock on it. For now make things simple and use a lock for any paging
+// operation.
+DECLARE_SPINLOCK(PAGING_LOCK);
+
+// Lock the current virtual address space.
+static void lock_vaddr_space(void) {
+    spinlock_lock(&PAGING_LOCK);
+}
+
+// Unlock the current virtual address space.
+static void unlock_vaddr_space(void) {
+    spinlock_unlock(&PAGING_LOCK);
 }
 
 // The _physical_ address of the kernel page directory.
@@ -468,6 +485,8 @@ void paging_map(void const * const paddr,
     // an issue in the caller.
     ASSERT(page_offset(paddr) == page_offset(vaddr));
 
+    lock_vaddr_space();
+
     // Align the start addresses to page aligned addresses. Account for the
     // potentially increased size.
     void const * const start_phy = get_page_addr(paddr);
@@ -481,6 +500,8 @@ void paging_map(void const * const paddr,
         void const * const vchunk = start_virt + i * PAGE_SIZE;
         map_page(get_curr_page_dir_vaddr(), pchunk, vchunk, flags);
     }
+    unlock_vaddr_space();
+
     cpu_invalidate_tlb();
 }
 
@@ -503,11 +524,15 @@ static void do_paging_unmap(void const * const vaddr,
 }
 
 void paging_unmap(void const * const vaddr, size_t const len) {
+    lock_vaddr_space();
     do_paging_unmap(vaddr, len, false);
+    unlock_vaddr_space();
 }
 
 void paging_unmap_and_free_frames(void const * const vaddr, size_t const len) {
+    lock_vaddr_space();
     do_paging_unmap(vaddr, len, true);
+    unlock_vaddr_space();
 }
 
 // Check if a virtual page is currently mapped to a frame in physical memory in
@@ -586,11 +611,13 @@ static uint32_t compute_hole_size(void const * const vaddr) {
 // @return: The start virtual address of the memory region.
 void *paging_find_contiguous_non_mapped_pages(void * const start_addr,
                                               size_t const npages) {
+    lock_vaddr_space();
     void * ptr = find_next_non_mapped_page(start_addr);
     bool done = false;
     while (!done) {
         uint32_t const hole = compute_hole_size(ptr);
         if (hole >= npages) {
+            unlock_vaddr_space();
             return ptr;
         }
         ptr = find_next_non_mapped_page(ptr + PAGE_SIZE);
@@ -600,7 +627,10 @@ void *paging_find_contiguous_non_mapped_pages(void * const start_addr,
 }
 
 void const * get_kernel_page_dir_phy_addr(void) {
-    return KERNEL_PAGE_DIR;
+    lock_vaddr_space();
+    void const * addr = KERNEL_PAGE_DIR;
+    unlock_vaddr_space();
+    return addr;
 }
 
 #include <paging.test>

@@ -6,6 +6,7 @@
 #include <list.h>
 #include <kernel_map.h>
 #include <math.h>
+#include <lock.h>
 
 // Dynamic memory allocator for the kernel.
 // The memory allocator has the same interfaces as malloc() and free(). The goal
@@ -442,6 +443,10 @@ static void do_kfree(struct list_node * group_list, void * const addr) {
     PANIC("Unknow pointer to free.");
 }
 
+// The spinlock that must be held while performing any operation in the dynamic
+// memory allocator.
+DECLARE_SPINLOCK(KMALLOC_LOCK);
+
 // The global kernel list of groups.
 struct list_node GROUP_LIST;
 
@@ -454,12 +459,15 @@ static bool KMALLOC_INITIALIZED = false;
 // @param size: The requested amount of memory.
 // @return: The virtual address of the allocated memory.
 void * kmalloc(size_t const size) {
+    spinlock_lock(&KMALLOC_LOCK);
     if (!KMALLOC_INITIALIZED) {
         // Initialize the group list if it wasn't done already.
         list_init(&GROUP_LIST);
         KMALLOC_INITIALIZED = true;
     }
-    return do_kmalloc(&GROUP_LIST, size);
+    void * const addr = do_kmalloc(&GROUP_LIST, size);
+    spinlock_unlock(&KMALLOC_LOCK);
+    return addr;
 }
 
 // Public interface to free dynamically allocated memory.
@@ -467,8 +475,10 @@ void * kmalloc(size_t const size) {
 // middle of an allocated buffer. It _must_ point to the very first byte of the
 // allocated buffer.
 void kfree(void * const addr) {
+    spinlock_lock(&KMALLOC_LOCK);
     ASSERT(KMALLOC_INITIALIZED);
     do_kfree(&GROUP_LIST, addr);
+    spinlock_unlock(&KMALLOC_LOCK);
 }
 
 #include <kmalloc.test>

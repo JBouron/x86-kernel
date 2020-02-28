@@ -5,6 +5,7 @@
 #include <cpu.h>
 #include <paging.h>
 #include <memory.h>
+#include <lock.h>
 
 // The register addresses of the IO APIC.
 #define IOAPICID    0
@@ -30,6 +31,11 @@ struct io_apic_t {
     // APIC.
     uint32_t iowin;
 } __attribute__((packed));
+
+// There are usually less IOAPICs than cores on a system (this kernel currently
+// supports a single IOAPIC anyway). Therefore a lock is required to avoid race
+// condition if two cpus try to write IOAPIC registers concurrently.
+DECLARE_SPINLOCK(IOAPIC_LOCK);
 
 // The virtual address of the current IO APIC. For now we assume only one.
 struct io_apic_t volatile * IO_APIC = NULL;
@@ -250,6 +256,9 @@ static uint8_t compute_destination_for_interrupt(uint8_t const vector) {
 }
 
 void init_ioapic(void) {
+    // Since this function is called by the BSP before waking up the APs we can
+    // avoid acquiring the IOAPIC_LOCK.
+
     IO_APIC = acpi_get_ioapic_addr();
     LOG("IO APIC at %p\n", IO_APIC);
 
@@ -293,7 +302,10 @@ void redirect_isa_interrupt(uint8_t const isa_vector,
 
     // The ISA vector might have been mapped to another vector on the IO APIC.
     uint8_t const mappedisa = acpi_get_isa_interrupt_vector_mapping(isa_vector);
+
+    spinlock_lock(&IOAPIC_LOCK);
     write_redirection(mappedisa, &redir);
+    spinlock_unlock(&IOAPIC_LOCK);
 }
 
 void remove_redirection_for_isa_interrupt(uint8_t const isa_vector) {
@@ -303,6 +315,9 @@ void remove_redirection_for_isa_interrupt(uint8_t const isa_vector) {
 
     // Read the current redirection entry for this ISA vector.
     struct redirection_entry_t curr_entry;
+
+    // Atomically mask the interrupt.
+    spinlock_lock(&IOAPIC_LOCK);
     read_redirection(mappedisa, &curr_entry);
 
     // Mask the interrupt.
@@ -310,6 +325,7 @@ void remove_redirection_for_isa_interrupt(uint8_t const isa_vector) {
 
     // Write-back the entry.
     write_redirection(mappedisa, &curr_entry);
+    spinlock_unlock(&IOAPIC_LOCK);
 }
 
 #include <ioapic.test>

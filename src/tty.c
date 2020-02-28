@@ -1,6 +1,9 @@
 #include <tty.h>
 #include <string.h>
 #include <memory.h>
+#include <lock.h>
+
+DECLARE_SPINLOCK(TTY_LOCK);
 
 
 // The input and output streams to be used by the tty.
@@ -183,11 +186,13 @@ void tty_init(struct i_stream_t const * const input_stream,
 // @param fmt: The format string.
 // @param __VA_ARGS: The values to use in the formatted string.
 void tty_printf(const char * const fmt, ...) {
+    spinlock_lock(&TTY_LOCK);
     // We use the generic_printf function with the tty_putc function as backend.
     va_list list;
     va_start(list, fmt);
     do_printf(fmt, list);
     va_end(list);
+    spinlock_unlock(&TTY_LOCK);
 }
 
 #include <tty.test>
