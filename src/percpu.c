@@ -4,16 +4,6 @@
 #include <kmalloc.h>
 #include <memory.h>
 
-// Each cpu has a variable indicating the address of the per-cpu variable area
-// belonging to it. This variable is known as `this_cpu_off`. This variable is
-// used by the this_cpu_var macro to access variables of the current cpu. 
-DECLARE_PER_CPU(void*, this_cpu_off);
-
-// Getting the ID of the cpu in the system (aka. APIC ID) can be achieved using
-// the expensive `cpuid` instruction. A cheaper way to achieve this is to use a
-// pre-cpu variable holding the APIC ID of the cpu.
-DECLARE_PER_CPU(uint8_t, cpu_id);
-
 // Allocate one per-cpu variable area per cpu on the system and initialize basic
 // variables (defined above).
 static void allocate_per_cpu_areas(void) {

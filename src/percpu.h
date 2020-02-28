@@ -49,7 +49,10 @@ void *_read_void_ptr_at_offset(uint32_t const offset);
 // @param type: The type of the variable. Can be of any size, struct, ...
 // @parma name: The name of the variable.
 #define DECLARE_PER_CPU(type, name) \
-    __attribute__((section(".percpu"))) type _PERCPU_NAME(name)
+    __attribute__((weak,section(".percpu"))) type _PERCPU_NAME(name)
+// Note: The weak attribute allows to declare per cpu variable in headers
+// without having a definition for them, without getting errors at build. This
+// is fine because we will allocate them manually (not statically) anyway.
 
 // Accessor macros:
 
@@ -76,3 +79,15 @@ void init_percpu(void);
 
 // Execute per-cpu variables related tests.
 void percpu_test(void);
+
+// Below are per-cpu variable accessible from the whole kernel.
+
+// Each cpu has a variable indicating the address of the per-cpu variable area
+// belonging to it. This variable is known as `this_cpu_off`. This variable is
+// used by the this_cpu_var macro to access variables of the current cpu. 
+DECLARE_PER_CPU(void*, this_cpu_off);
+
+// Getting the ID of the cpu in the system (aka. APIC ID) can be achieved using
+// the expensive `cpuid` instruction. A cheaper way to achieve this is to use a
+// pre-cpu variable holding the APIC ID of the cpu.
+DECLARE_PER_CPU(uint8_t, cpu_id);
