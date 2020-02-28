@@ -114,7 +114,103 @@ static bool percpu_remote_var_test_struct_type(void) {
     return true;
 }
 
-#undef _next_cpu
+#undef _var_name
+#define _var_name(type) percpu_local_var_test_ ## type ## _array
+
+#define percpu_local_array_test(type)                                       \
+DECLARE_PER_CPU(type, _var_name(type)[3]);                                  \
+static bool percpu_local_array_test_ ## type(void) {                        \
+    this_cpu_var(_var_name(type))[0] = _val_ ## type;                       \
+    this_cpu_var(_var_name(type))[1] = this_cpu_var(_var_name(type))[0];    \
+    this_cpu_var(_var_name(type))[2] = this_cpu_var(_var_name(type))[1];    \
+    TEST_ASSERT(this_cpu_var(_var_name(type))[0] == _val_ ## type);         \
+    TEST_ASSERT(this_cpu_var(_var_name(type))[1] == _val_ ## type);         \
+    TEST_ASSERT(this_cpu_var(_var_name(type))[2] == _val_ ## type);         \
+    return true;                                                            \
+}
+
+percpu_local_array_test(int8_t);
+percpu_local_array_test(int16_t);
+percpu_local_array_test(int32_t);
+percpu_local_array_test(int64_t);
+
+percpu_local_array_test(uint8_t);
+percpu_local_array_test(uint16_t);
+percpu_local_array_test(uint32_t);
+percpu_local_array_test(uint64_t);
+
+percpu_local_array_test(void_ptr);
+
+DECLARE_PER_CPU(struct_type, _var_name(struct_type)[3]);
+static bool percpu_local_array_test_struct_type(void) {
+    this_cpu_var(_var_name(struct_type))[0].a = 0xF001D34D;
+    this_cpu_var(_var_name(struct_type))[0].b = (void*)0x1234;
+
+    this_cpu_var(_var_name(struct_type))[1] =
+        this_cpu_var(_var_name(struct_type))[0];
+    this_cpu_var(_var_name(struct_type))[2] =
+        this_cpu_var(_var_name(struct_type))[1];
+
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type))[0].a == 0xF001D34D);
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type))[0].b == (void*)0x1234);
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type))[1].a == 0xF001D34D);
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type))[1].b == (void*)0x1234);
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type))[2].a == 0xF001D34D);
+    TEST_ASSERT(this_cpu_var(_var_name(struct_type))[2].b == (void*)0x1234);
+    return true;
+}
+
+#define percpu_remote_array_test(type)                                         \
+static bool percpu_remote_array_test_ ## type(void) {                          \
+    this_cpu_var(_var_name(type))[0] = _val_ ## type;                          \
+    this_cpu_var(_var_name(type))[1] = 0;                                      \
+    this_cpu_var(_var_name(type))[2] = 0;                                      \
+    cpu_var(_var_name(type), _next_cpu)[0] = this_cpu_var(_var_name(type))[0]; \
+    cpu_var(_var_name(type), _next_cpu)[1] = this_cpu_var(_var_name(type))[0]; \
+    cpu_var(_var_name(type), _next_cpu)[2] = this_cpu_var(_var_name(type))[0]; \
+    TEST_ASSERT(this_cpu_var(_var_name(type))[0] == _val_ ## type);            \
+    TEST_ASSERT(this_cpu_var(_var_name(type))[1] == 0);                        \
+    TEST_ASSERT(this_cpu_var(_var_name(type))[2] == 0);                        \
+    TEST_ASSERT(cpu_var(_var_name(type), _next_cpu)[0] == _val_ ## type);      \
+    TEST_ASSERT(cpu_var(_var_name(type), _next_cpu)[1] == _val_ ## type);      \
+    TEST_ASSERT(cpu_var(_var_name(type), _next_cpu)[2] == _val_ ## type);      \
+    return true;                                                               \
+}
+
+static bool percpu_remote_array_test_struct_type(void) {
+    this_cpu_var(_var_name(struct_type))[0].a = 0xF001D34D;
+    this_cpu_var(_var_name(struct_type))[0].b = (void*)0x1234;
+
+    cpu_var(_var_name(struct_type), _next_cpu)[0] =
+        this_cpu_var(_var_name(struct_type))[0];
+    cpu_var(_var_name(struct_type), _next_cpu)[1] =
+        this_cpu_var(_var_name(struct_type))[0];
+    cpu_var(_var_name(struct_type), _next_cpu)[2] =
+        this_cpu_var(_var_name(struct_type))[0];
+
+    TEST_ASSERT(cpu_var(_var_name(struct_type), _next_cpu)[0].a == 0xF001D34D);
+    TEST_ASSERT(cpu_var(_var_name(struct_type), _next_cpu)[0].b ==
+        (void*)0x1234);
+    TEST_ASSERT(cpu_var(_var_name(struct_type), _next_cpu)[1].a == 0xF001D34D);
+    TEST_ASSERT(cpu_var(_var_name(struct_type), _next_cpu)[1].b ==
+        (void*)0x1234);
+    TEST_ASSERT(cpu_var(_var_name(struct_type), _next_cpu)[2].a == 0xF001D34D);
+    TEST_ASSERT(cpu_var(_var_name(struct_type), _next_cpu)[2].b ==
+        (void*)0x1234);
+    return true;
+}
+
+percpu_remote_array_test(int8_t);
+percpu_remote_array_test(int16_t);
+percpu_remote_array_test(int32_t);
+percpu_remote_array_test(int64_t);
+
+percpu_remote_array_test(uint8_t);
+percpu_remote_array_test(uint16_t);
+percpu_remote_array_test(uint32_t);
+percpu_remote_array_test(uint64_t);
+
+percpu_remote_array_test(void_ptr);
 
 #undef _val_int8_t
 #undef _val_int16_t
@@ -126,6 +222,7 @@ static bool percpu_remote_var_test_struct_type(void) {
 #undef _val_uint64_t
 #undef _val_void_ptr
 #undef _var_name
+#undef _next_cpu
 
 void percpu_test(void) {
     TEST_FWK_RUN(percpu_this_cpu_off_test);
@@ -159,4 +256,34 @@ void percpu_test(void) {
     TEST_FWK_RUN(percpu_remote_var_test_void_ptr);
 
     TEST_FWK_RUN(percpu_remote_var_test_struct_type);
+
+
+    TEST_FWK_RUN(percpu_local_array_test_int8_t);
+    TEST_FWK_RUN(percpu_local_array_test_int16_t);
+    TEST_FWK_RUN(percpu_local_array_test_int32_t);
+    TEST_FWK_RUN(percpu_local_array_test_int64_t);
+
+    TEST_FWK_RUN(percpu_local_array_test_uint8_t);
+    TEST_FWK_RUN(percpu_local_array_test_uint16_t);
+    TEST_FWK_RUN(percpu_local_array_test_uint32_t);
+    TEST_FWK_RUN(percpu_local_array_test_uint64_t);
+
+    TEST_FWK_RUN(percpu_local_array_test_void_ptr);
+
+    TEST_FWK_RUN(percpu_local_array_test_struct_type);
+
+
+    TEST_FWK_RUN(percpu_remote_array_test_int8_t);
+    TEST_FWK_RUN(percpu_remote_array_test_int16_t);
+    TEST_FWK_RUN(percpu_remote_array_test_int32_t);
+    TEST_FWK_RUN(percpu_remote_array_test_int64_t);
+
+    TEST_FWK_RUN(percpu_remote_array_test_uint8_t);
+    TEST_FWK_RUN(percpu_remote_array_test_uint16_t);
+    TEST_FWK_RUN(percpu_remote_array_test_uint32_t);
+    TEST_FWK_RUN(percpu_remote_array_test_uint64_t);
+
+    TEST_FWK_RUN(percpu_remote_array_test_void_ptr);
+
+    TEST_FWK_RUN(percpu_remote_array_test_struct_type);
 }
