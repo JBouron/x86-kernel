@@ -61,33 +61,6 @@ static void resign_bsp(void) {
     write_msr(IA32_APIC_BASE_MSR, msr & (~(1 << 8)));
 }
 
-static void pretty_print_mutliboot_hdr(struct multiboot_info const * hdr) {
-    LOG("Memory low = %x\n", hdr->mem_lower * 1024);
-    LOG("Memory hi  = %x\n", hdr->mem_upper * 1024);
-    LOG("Mmap len  = %u\n", hdr->mmap_length);
-    LOG("Mmap addr = %x\n", hdr->mmap_addr);
-
-    uint64_t tot_mem = 0;
-    void const * const addr = to_virt((void*)hdr->mmap_addr);
-    struct multiboot_mmap_entry const * entry = (struct multiboot_mmap_entry*)addr;
-    while (entry < (struct multiboot_mmap_entry*)(addr + hdr->mmap_length)) {
-        uint64_t const start = entry->base_addr;
-        uint64_t const end = start + entry->length - 1;
-        char const * const type = entry->type == 1 ? "Available" : "Reserved ";
-        LOG("%X - %X => %s (%X)\n", start, end, type, entry->length);
-        entry ++;
-        if (entry->type == 1) {
-            tot_mem += entry->length;
-        }
-    }
-    LOG("Total memory %U bytes\n", tot_mem);
-    LOG("Kernel is    %u bytes\n", KERNEL_SIZE);
-    LOG(".text  is    %u bytes\n", SECTION_TEXT_SIZE);
-    LOG(".rodata  is  %u bytes\n", SECTION_RODATA_SIZE);
-    LOG(".data  is    %u bytes\n", SECTION_DATA_SIZE);
-    LOG(".bss  is     %u bytes\n", SECTION_BSS_SIZE);
-}
-
 // Trigger a shutdown of the virtual machine. This function has an undefined
 // behaviour for bare-metal installations.
 static void virt_shutdown(void) {
@@ -95,47 +68,49 @@ static void virt_shutdown(void) {
     cpu_outw(0x604, 0x2000);
 }
 
-void
-kernel_main(struct multiboot_info const * const multiboot_info) {
-    ASSERT(multiboot_info);
-    resign_bsp();
+// Initialize global kernel state.
+static void init_kernel_state(void) {
+    // Start by initializing logging as early as possible to be able to log
+    // anywhere.
     vga_init();
     serial_init();
     tty_init(NULL, &SERIAL_STREAM);
 
-    LOG("\n");
-    LOG("=== ### ===\n");
-    LOG("Kernel loaded at %p-%p\n", to_phys(KERNEL_START_ADDR), to_phys(KERNEL_END_ADDR));
-    LOG("Kernel size: %x bytes\n", KERNEL_SIZE);
-
+    // Parse ACPI tables.
     acpi_init();
+
+    // Parsing the ACPI tables gave us the number of cpus on the system. We can
+    // now proceed to allocate percpu areas.
+    init_percpu();
+    // Switch to the final GDT containing percpu segments.
+    switch_to_final_gdt(PER_CPU_OFFSETS);
+}
+
+void kernel_main(struct multiboot_info const * const multiboot_info) {
+    ASSERT(multiboot_info);
+
+    // Initialize global kernel state.
+    init_kernel_state();
+
+    // Initialize interrupts, LAPIC and IOAPIC.
     interrupt_init();
     init_lapic();
     init_ioapic();
+
+    // Calibrate the lapic timer frequency.
     calibrate_timer();
-    cpu_set_interrupt_flag(true);
 
-    uint32_t const start_alloc_frames = frames_allocated();
+    // Disable the BSP bit on the current cpu. The reason is that this bit
+    // inhibit any INIT IPI on the BSP which makes it impossible to execute
+    // init_aps test from APs.
+    resign_bsp();
 
-    LOG("Multiboot header at %p\n", multiboot_info);
-    struct multiboot_info const * const hdr = to_virt(multiboot_info);
-    pretty_print_mutliboot_hdr(hdr);
-
-    uint32_t const end_alloc_frames = frames_allocated();
-    uint32_t const delta_alloc_frames = end_alloc_frames - start_alloc_frames;
-    LOG("%u frames allocated\n", delta_alloc_frames);
-    void * addr = kmalloc(234);
-    LOG("Alloc at %p\n", addr);
-
-    cpu_set_interrupt_flag(true);
-
-    // Allocate the percpu segments and the final GDT before waking up the APs.
-    init_percpu();
-    switch_to_final_gdt(PER_CPU_OFFSETS);
-
+    // Wake up Application Processors.
     init_aps();
 
+    // Run tests.
     test_kernel();
 
+    // Shutdown the virtual machine.
     virt_shutdown();
 }
