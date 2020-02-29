@@ -136,6 +136,41 @@ static bool lapic_send_ipi_test(void) {
         }
     }
     kfree((void*)received_ipi);
+    interrupt_delete_global_callback(ipi_vector);
+    return true;
+}
+
+static bool lapic_send_ipi_broadcast_test(void) {
+    uint8_t const ncpus = acpi_get_number_cpus();
+    received_ipi = kmalloc(ncpus * sizeof(*received_ipi));
+
+    interrupt_register_global_callback(ipi_vector, ipi_handler);
+    lapic_send_ipi(IPI_BROADCAST, ipi_vector);
+
+    uint8_t iter = 0;
+    uint8_t max_iter = 10;
+    bool done = false;
+
+    while (!done) {
+        ++iter;
+        if (iter == max_iter) {
+            return false;
+        }
+        lapic_sleep(50);
+        done = true;
+        for (uint8_t cpu = 0; cpu < ncpus; ++cpu)  {
+            if (cpu == this_cpu_var(cpu_id)) {
+                continue;
+            }
+            if (!received_ipi[cpu]) {
+                done = false;
+                break;
+            }
+        }
+    }
+
+    kfree((void*)received_ipi);
+    interrupt_delete_global_callback(ipi_vector);
     return true;
 }
 
@@ -146,4 +181,5 @@ void lapic_test(void) {
     TEST_FWK_RUN(one_shot_lapic_timer_test);
     TEST_FWK_RUN(periodic_lapic_timer_test);
     TEST_FWK_RUN(lapic_send_ipi_test);
+    TEST_FWK_RUN(lapic_send_ipi_broadcast_test);
 }

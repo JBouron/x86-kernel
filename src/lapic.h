@@ -44,9 +44,11 @@ void lapic_send_broadcast_init(void);
 // Note: This function cannot be called from a non-BSP processor.
 void lapic_send_broadcast_sipi(void const * const trampoline);
 
+#define IPI_BROADCAST   255
 // Send an Inter-Processor-Interrupt using the local APIC.
 // @param dest_cpu: The ID of the cpu to send the interrupt to.
-// @param vector: The vector to raise on the destination cpu.
+// @param vector: The vector to raise on the destination cpu. If this value is
+// IPI_BROADCAST, send a broadcast to all cpus except the current cpu.
 // Note: This function waits for the interrupt to be issued by the LAPIC before
 // returning.
 void lapic_send_ipi(uint8_t const dest_cpu, uint8_t const vector);

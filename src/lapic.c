@@ -335,14 +335,19 @@ void lapic_send_ipi(uint8_t const dest_cpu, uint8_t const vector) {
     struct icr_t icr;
     memzero(&icr, sizeof(icr));
 
-    ASSERT(dest_cpu <= acpi_get_number_cpus());
-
     icr.vector = vector;
+    icr.level = 1;
     icr.delivery_mode = NORMAL;
     icr.destination_mode = PHYSICAL;
-    icr.level = 1;
-    icr.destination_shorthand = NONE;
-    icr.destination = dest_cpu;
+
+    if (dest_cpu < acpi_get_number_cpus()) {
+        icr.destination_shorthand = NONE;
+        icr.destination = dest_cpu;
+    } else if (dest_cpu == IPI_BROADCAST) {
+        icr.destination_shorthand = ALL_EXCL_SELF;
+    } else {
+        PANIC("Invalid cpu id %u\n", dest_cpu);
+    }
 
     write_icr(&icr);
 }
