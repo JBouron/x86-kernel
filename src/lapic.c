@@ -4,7 +4,7 @@
 #include <kernel_map.h>
 #include <memory.h>
 #include <interrupt.h>
-
+#include <acpi.h>
 // lapic_def.c contains the definition of the struct lapic_t.
 #include <lapic_def.c>
 
@@ -327,6 +327,22 @@ void lapic_send_broadcast_sipi(void const * const trampoline) {
     // Send the SIPI to all the APs at once. Hence we can omit any other
     // destination related fields.
     icr.destination_shorthand = ALL_EXCL_SELF;
+
+    write_icr(&icr);
+}
+
+void lapic_send_ipi(uint8_t const dest_cpu, uint8_t const vector) {
+    struct icr_t icr;
+    memzero(&icr, sizeof(icr));
+
+    ASSERT(dest_cpu <= acpi_get_number_cpus());
+
+    icr.vector = vector;
+    icr.delivery_mode = NORMAL;
+    icr.destination_mode = PHYSICAL;
+    icr.level = 1;
+    icr.destination_shorthand = NONE;
+    icr.destination = dest_cpu;
 
     write_icr(&icr);
 }

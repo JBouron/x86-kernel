@@ -1,6 +1,8 @@
 #include <test.h>
 #include <interrupt.h>
 #include <cpu.h>
+#include <percpu.h>
+#include <kmalloc.h>
 
 // Test/Check that the processor supports LAPIC.
 static bool has_lapic(void) {
@@ -93,10 +95,55 @@ static bool periodic_lapic_timer_test(void) {
     return timer_periods == 4;
 }
 
+static bool volatile *received_ipi = NULL;
+static uint32_t const ipi_vector = 32;
+static void ipi_handler(struct interrupt_frame_t const * const frame) {
+
+    uint8_t const cpuid = this_cpu_var(cpu_id);
+    uint8_t const vector = frame->vector;
+    if (vector == ipi_vector) {
+        LOG("CPU %u received IPI\n", cpuid);
+        received_ipi[cpuid] = true;
+    } else {
+        LOG("CPU %u: unexpected interrupt (%u) in test IPI\n", cpuid, vector);
+    }
+}
+static bool lapic_send_ipi_test(void) {
+    // Assume that no cpu is overriding the callback with a local callback for
+    // the IPI vector.
+    interrupt_register_global_callback(ipi_vector, ipi_handler);
+
+    uint8_t const ncpus = acpi_get_number_cpus();
+    received_ipi = kmalloc(ncpus * sizeof(*received_ipi));
+
+    cpu_set_interrupt_flag(true);
+
+    for (uint8_t cpu = 0; cpu < acpi_get_number_cpus(); ++cpu)  {
+        // Send the IPI to the target cpu, which can be the current CPU!
+        lapic_send_ipi(cpu, ipi_vector);
+
+        // Wait for the remote cpu to set its flag.
+        uint8_t iter = 0;
+        uint8_t max_iter = 10;
+        while (!received_ipi[cpu]) {
+            lapic_sleep(50);
+            ++iter;
+            if (iter == max_iter) {
+                // Timeout.
+                LOG("Timeout for CPU %u\n", cpu);
+                return false;
+            }
+        }
+    }
+    kfree((void*)received_ipi);
+    return true;
+}
+
 void lapic_test(void) {
     TEST_FWK_RUN(has_lapic);
     TEST_FWK_RUN(get_lapic_base_addr_test);
     TEST_FWK_RUN(enable_apic_test);
     TEST_FWK_RUN(one_shot_lapic_timer_test);
     TEST_FWK_RUN(periodic_lapic_timer_test);
+    TEST_FWK_RUN(lapic_send_ipi_test);
 }
