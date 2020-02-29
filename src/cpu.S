@@ -381,6 +381,12 @@ ASM_FUNC_DEF(cpu_halt):
     hlt
     ret
 
+//void cpu_set_interrupt_flag_and_halt(void);
+ASM_FUNC_DEF(cpu_set_interrupt_flag_and_halt):
+    sti
+    hlt
+    ret
+
 //void cpu_enable_cache(void);
 ASM_FUNC_DEF(cpu_enable_cache):
     // Cache is enabled by clearing the CD (bit 30) and NW (bit 29) of the CR0

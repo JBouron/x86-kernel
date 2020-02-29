@@ -205,6 +205,12 @@ void *cpu_read_cr2(void);
 // Halt the cpu. This function does not enable interrupts!
 void cpu_halt(void);
 
+// Set the interrupt flag on the current cpu and enter an halt state immediately
+// after. The "immediately after" part is important here as it ensure that we
+// cannot receive an interrupt between the time interrupts are enabled and the
+// cpu enters a halt state.
+void cpu_set_interrupt_flag_and_halt(void);
+
 // Enable the cache on the CPU.
 void cpu_enable_cache(void);
 
