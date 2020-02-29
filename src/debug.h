@@ -15,7 +15,7 @@
 // Panic the kernel, output the error message an dump some states into the tty.
 #define PANIC(...) \
     do { \
-        LOG("----[ PANIC! ]----\n"); \
+        LOG("----[ CPU %u PANIC! ]----\n", cpu_apic_id()); \
         LOG("Kernel panic at %s:%d\n", __FILE__, __LINE__); \
         LOG(__VA_ARGS__); \
         lock_up(); \
