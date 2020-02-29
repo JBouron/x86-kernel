@@ -76,7 +76,10 @@ enum destination_shorthand_t {
     ALL_EXCL_SELF = 3,
 } __attribute__((packed));
 
-// Layout of the ICR register.
+// Layout of the ICR if we assume both double words are continuous in the LAPIC
+// register area. This structure makes it easy to program the ICR but does not
+// reflect the physical layout of it (in practice the ICR is split into to
+// lapic_reg_32_t with a hole in between).
 struct icr_t {
     union {
         struct {
@@ -98,11 +101,7 @@ struct icr_t {
 
             // Changes the meaning of the destination field defined below.
             enum destination_mode_t destination_mode : 1;
-
-            // [RO] Indicate the status of the IPI. 0 = all IPIs sent, 1 = the
-            // last IPI did not send yet.
-            uint8_t delivery_status : 1;
-            uint8_t : 1;
+            uint8_t : 2;
 
             // The level of the interrupt, this is only useful for INIT IPIs.
             // All other delivery modes must use 1.
@@ -118,8 +117,7 @@ struct icr_t {
             // destination field is ignored (since the IPI is either sent to
             // self or broadcasted).
             enum destination_shorthand_t destination_shorthand : 2;
-            uint32_t : 12;
-            uint32_t : 24;
+            uint64_t : 36;
 
             // The destination of the IPI. Interpretation differs depending on
             // delivery and destination mode and destination shorthand.
@@ -169,7 +167,7 @@ struct lapic_t {
     RESERVED
 
     lapic_reg_32_t lvt_correctedd_machine_check_interrupt;
-    struct icr_t interrupt_command;
+    lapic_reg_64_t interrupt_command;
     lapic_reg_32_t lvt_timer;
     lapic_reg_32_t lvt_thermal_sensor;
     lapic_reg_32_t lvt_performance_monitoring_counters;

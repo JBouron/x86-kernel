@@ -280,11 +280,12 @@ static void write_icr(struct icr_t const * const icr) {
     ASSERT(icr_is_valid(icr));
 
     // The interrupt command register must be written MSBytes first.
-    LAPIC->interrupt_command.high = icr->high;
-    LAPIC->interrupt_command.low = icr->low;
+    LAPIC->interrupt_command.bits_32_63.val = icr->high;
+    LAPIC->interrupt_command.bits_0_31.val = icr->low;
 
-    // Wait for the IPI to be sent.
-    while (LAPIC->interrupt_command.delivery_status) {
+    // Wait for the IPI to be sent by looking at the delivery status bit (bit
+    // 12) of the ICR.
+    while (LAPIC->interrupt_command.bits_0_31.val & (1 << 12)) {
         cpu_pause();
     }
 }
