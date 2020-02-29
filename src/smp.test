@@ -158,7 +158,7 @@ static bool _do_init_aps_test(bool const limit_stacks) {
     // Prepare the _ap_signal array.
     uint8_t const ncpus = acpi_get_number_cpus();
     _ap_signal = kmalloc(ncpus * sizeof(*_ap_signal));
-    memzero(_ap_signal, ncpus* sizeof(_ap_signal));
+    memzero(_ap_signal, ncpus * sizeof(*_ap_signal));
 
     // Set the bit for the BSP.
     _ap_signal[cpu_apic_id()] = 1;
