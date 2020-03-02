@@ -30,6 +30,56 @@ static bool ipm_simple_test(void) {
     return true;
 }
 
+// Remote call test:
+// The cpu running the test send, to each core one by one (incl itself) a remote
+// call (REMOTE_CALL) message. This message will trigger a call to
+// remote_call_func. The argument is a unique value that the remote cpu must
+// write to remote_call_flag.
+
+static uint32_t remote_call_flag = 0;
+
+static void remote_call_func(void * arg) {
+    uint32_t const val = (uint32_t)arg;
+    LOG("CPU %u exec remote call, value = %u\n", this_cpu_var(cpu_id), val);
+    remote_call_flag = val;
+}
+
+static bool ipm_remote_call_test(void) {
+    uint8_t const ncpus = acpi_get_number_cpus();
+    // STI since we will send a message to ourselves.
+    cpu_set_interrupt_flag(true);
+
+    struct remote_call_t call = {
+        .func = remote_call_func,
+        .arg = NULL,
+    };
+
+    for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
+        // Read the TSC to get a somewhat unique value for each cpu.
+        uint32_t const val = read_tsc() & 0xFFFFFFFFULL;
+        call.arg = (void*)val;
+
+        // Make sure that the value of the remote call flag is set to something
+        // different that `val`.
+        remote_call_flag = ~val;
+
+        exec_remote_call(cpu, &call);
+
+        uint8_t iter = 0;
+        uint8_t const max_iters = 100;
+        while (remote_call_flag != val) {
+            lapic_sleep(10);
+            ++iter;
+            if (iter > max_iters) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
 void ipm_test(void) {
     TEST_FWK_RUN(ipm_simple_test);
+    TEST_FWK_RUN(ipm_remote_call_test);
 }

@@ -41,8 +41,19 @@ static void process_messages(void) {
         unlock_message_queue();
 
         LOG("[%u] Processing message from %u\n", cpuid, msg->sender_id);
-        if (msg->tag == __TEST && TEST_TAG_CALLBACK) {
-            TEST_TAG_CALLBACK(msg);
+        switch (msg->tag) {
+            case __TEST : {
+                if (TEST_TAG_CALLBACK) {
+                    TEST_TAG_CALLBACK(msg);
+                }
+                break;
+            }
+            case REMOTE_CALL : {
+                struct remote_call_t const * const call = msg->data;
+                call->func(call->arg);
+                break;
+            }
+
         }
 
         // Re-acquire the lock before the next iteration since the condition
@@ -116,6 +127,11 @@ void send_ipm(uint8_t const cpu,
     // remote core, some IPIs may be dropped but the remote cpu will recieve at
     // least one, which is enough anyway.
     lapic_send_ipi(cpu, IPM_VECTOR);
+}
+
+void exec_remote_call(uint8_t const cpu,
+                      struct remote_call_t const * const call) {
+    send_ipm(cpu, REMOTE_CALL, (void*)call, sizeof(call));
 }
 
 #include <ipm.test>

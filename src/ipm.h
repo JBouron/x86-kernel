@@ -19,6 +19,7 @@
 enum ipm_tag_t {
     // This tag is used for testing only!
     __TEST,
+    REMOTE_CALL,
 };
 
 // The structure of a message.
@@ -59,6 +60,33 @@ void send_ipm(uint8_t const cpu,
               enum ipm_tag_t const tag,
               void * const data,
               size_t const len);
+
+// Remote calls
+// ============
+//      The IPM mechanism provides a way to execute function calls on remote cpu
+// through a REMOTE_CALL message. A REMOTE_CALL message contains information
+// about the call to be performed in it data field. This information is encoded
+// in a struct remote_call_t.
+// Upon processing the message, the remote cpu will execute the function call.
+
+// Structure holding information for a remote call.
+struct remote_call_t {
+    // The function to call on the remote processor.
+    void (*func)(void*);
+    // The argument to pass to the above function.
+    void *arg;
+};
+
+// Execute a function call on a remote processor.
+// @param cpu: The APIC ID of the cpu on which the remote call is to be
+// performed. Can be the current cpu.
+// @param call: struct remote_call_t containing information about the remote
+// call to carry out on the remote cpu.
+// Note: This function will return once the message has been sent to the remote
+// cpu. However there is no guarantee that the remote call completes before this
+// function returns.
+void exec_remote_call(uint8_t const cpu,
+                      struct remote_call_t const * const call);
 
 // Execute IPM related tests.
 void ipm_test(void);
