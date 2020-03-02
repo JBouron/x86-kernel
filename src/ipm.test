@@ -79,7 +79,108 @@ static bool ipm_remote_call_test(void) {
     return true;
 }
 
+// Overload test: Make all other cpus send a message to the current cpu
+// concurrently. This is not only a stress test for the concurrency of the
+// message queue but this also test that the target cpu will still receive
+// message despite some IPI being dropped while the target is executing the
+// interrupt handler (this will certainly happen in systems with a lot of cpus).
+//
+// The current cpu will make the other cpu send it __TEST messages through
+// REMOTE_CALL messages.
+
+static uint32_t overload_test_num_messages_per_core = 32;
+static bool volatile overload_test_ready = false;
+static bool volatile ipi_sent = false;
+
+static void overload_test_wait_and_send_messages(void * arg) {
+    uint32_t const dest = (uint32_t)arg;
+
+    while (!overload_test_ready) {
+        cpu_pause();
+    }
+
+    for (uint32_t i = 0; i < overload_test_num_messages_per_core; ++i) {
+        send_ipm(dest, __TEST, NULL, 0);
+        ipi_sent = true;
+    }
+}
+
+static uint32_t *num_received_msg_per_core = NULL;
+static void overload_test_message_callback(struct ipm_message_t const * msg) {
+    num_received_msg_per_core[msg->sender_id] ++;
+}
+
+static bool overload_test_all_messages_received(void) {
+    uint8_t const ncpus = acpi_get_number_cpus();
+    for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
+        if (cpu == this_cpu_var(cpu_id)) {
+            continue;
+        } else if (num_received_msg_per_core[cpu] !=
+            overload_test_num_messages_per_core) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool do_ipm_overload_test(bool const disable_interrupts) {
+    uint8_t const ncpus = acpi_get_number_cpus();
+    num_received_msg_per_core = kmalloc(ncpus *
+        sizeof(*num_received_msg_per_core));
+    overload_test_ready = false;
+    ipi_sent = false;
+
+    TEST_ASSERT(ncpus > 1);
+
+    TEST_TAG_CALLBACK = overload_test_message_callback;
+
+    struct remote_call_t call = {
+        .func = overload_test_wait_and_send_messages,
+        .arg = (void*)(uint32_t)this_cpu_var(cpu_id),
+    };
+
+    for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
+        if (cpu == this_cpu_var(cpu_id)) {
+            continue;
+        }
+        exec_remote_call(cpu, &call);
+    }
+
+    if (disable_interrupts) {
+        cpu_set_interrupt_flag(false);
+    }
+    overload_test_ready = true;
+
+    if (disable_interrupts) {
+        // Wait for at least one IPI to be sent to this cpu while interrupts are
+        // disabled.
+        while (!ipi_sent) {
+            lapic_sleep(50);
+        }
+        // We missed at least one IPI while interrupts were disabled on this
+        // core. Enable them again and resume the test as normal.
+        cpu_set_interrupt_flag(true);
+    }
+
+    while (!overload_test_all_messages_received()) {
+        lapic_sleep(50);
+    }
+
+    kfree(num_received_msg_per_core);
+    return true;
+}
+
+static bool ipm_overload_test(void) {
+    return do_ipm_overload_test(false);
+}
+
+static bool ipm_while_interrupt_flag_clear_test(void) {
+    return do_ipm_overload_test(true);
+}
+
 void ipm_test(void) {
     TEST_FWK_RUN(ipm_simple_test);
     TEST_FWK_RUN(ipm_remote_call_test);
+    TEST_FWK_RUN(ipm_overload_test);
+    TEST_FWK_RUN(ipm_while_interrupt_flag_clear_test);
 }

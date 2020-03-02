@@ -74,7 +74,7 @@ $(BUILD_DIR)/$(KERNEL_LIB_NAME): $(OBJ_FILES)
 
 # Given a .o under the $(BUILD_DIR), it should depend on the *.c, or *.s, in the
 # $(SRC_DIR).
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c $(HEADER_FILES)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c $(SRC_DIR)/%.test $(HEADER_FILES)
 	$(CC) -o $@ -c $< $(KERNEL_CFLAGS)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.s
