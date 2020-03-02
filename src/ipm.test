@@ -1,0 +1,35 @@
+#include <test.h>
+
+static bool volatile simple_test_message_received = false;
+static uint8_t simple_test_sender_id = 0;
+static void simple_test_callback(struct ipm_message_t const * const msg) {
+    simple_test_message_received = msg->tag == __TEST &&
+        msg->sender_id == simple_test_sender_id;
+}
+
+static bool ipm_simple_test(void) {
+    simple_test_sender_id = this_cpu_var(cpu_id);
+    TEST_TAG_CALLBACK = simple_test_callback;
+
+    // Enable interrupts on the current cpu as it will send a message to itself.
+    cpu_set_interrupt_flag(true);
+    for (uint8_t cpu = 0; cpu < acpi_get_number_cpus(); ++cpu) {
+        simple_test_message_received = false;
+        send_ipm(cpu, __TEST, NULL, 0);
+
+        uint8_t iter = 0;
+        uint8_t const max_iters = 100;
+        while (!simple_test_message_received) {
+            lapic_sleep(10);
+            ++iter;
+            if (iter > max_iters) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+void ipm_test(void) {
+    TEST_FWK_RUN(ipm_simple_test);
+}

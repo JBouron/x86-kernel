@@ -62,7 +62,7 @@ static void init_desc(union interrupt_descriptor_t * const desc,
 
 // This is the IDT. For now it only contains the architectural
 // exception/interrupt handlers.
-#define IDT_SIZE 33
+#define IDT_SIZE 34
 union interrupt_descriptor_t IDT[IDT_SIZE] __attribute__((aligned (8)));
 
 // Array of global callback per vector.

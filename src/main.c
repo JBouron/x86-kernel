@@ -24,6 +24,7 @@
 #include <ioapic.h>
 #include <smp.h>
 #include <percpu.h>
+#include <ipm.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -47,6 +48,7 @@ void test_kernel(void) {
     ioapic_test();
     smp_test();
     percpu_test();
+    ipm_test();
 
     print_test_summary();
 }
@@ -104,6 +106,10 @@ void kernel_main(struct multiboot_info const * const multiboot_info) {
     // inhibit any INIT IPI on the BSP which makes it impossible to execute
     // init_aps test from APs.
     resign_bsp();
+
+    // Initialize IPM mechanism before waking the APs up so that they can use
+    // it ASAP.
+    init_ipm();
 
     // Wake up Application Processors.
     init_aps();
