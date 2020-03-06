@@ -32,7 +32,9 @@ static void process_messages(void) {
     // until all messages have been processed.
     lock_message_queue();
     while (list_size(head)) {
-        struct ipm_message_t * const msg = list_first_entry(head, struct ipm_message_t, msg_queue);
+        // Get the first message in the queue and remove it.
+        struct ipm_message_t * const msg =
+            list_first_entry(head, struct ipm_message_t, msg_queue);
         struct list_node * const node = &msg->msg_queue;
         list_del(node);
 
@@ -54,6 +56,10 @@ static void process_messages(void) {
                 break;
             }
 
+        }
+
+        if (msg->receiver_dealloc) {
+            kfree(msg);
         }
 
         // Re-acquire the lock before the next iteration since the condition

@@ -28,6 +28,10 @@ struct ipm_message_t {
     enum ipm_tag_t tag;
     // The APIC ID of the cpu who sent this message.
     uint8_t sender_id;
+    // Indicate if the receiver of this message should perform the deallocation
+    // of the struct ipm_message_t. If true, the receiving cpu will call kfree
+    // with a pointer on this structure after processing the message.
+    bool receiver_dealloc;
     // Any data associated with the message. This field is optional and can be
     // set to NULL if unused.
     void * data;
