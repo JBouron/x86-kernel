@@ -481,4 +481,18 @@ void kfree(void * const addr) {
     spinlock_unlock(&KMALLOC_LOCK);
 }
 
+// Compute the number of total bytes currently allocated through kmalloc.
+size_t kmalloc_total_allocated(void) {
+    spinlock_lock(&KMALLOC_LOCK);
+
+    size_t tot = 0;
+    struct group_t *group;
+    list_for_each_entry(group, &GROUP_LIST, group_list) {
+        tot += group->size - group->free;
+    }
+
+    spinlock_unlock(&KMALLOC_LOCK);
+    return tot;
+}
+
 #include <kmalloc.test>

@@ -11,5 +11,8 @@ void * kmalloc(size_t const size);
 // allocated buffer.
 void kfree(void * const addr);
 
+// Compute the number of total bytes currently allocated through kmalloc.
+size_t kmalloc_total_allocated(void);
+
 // Execute memory allocation tests.
 void kmalloc_test(void);
