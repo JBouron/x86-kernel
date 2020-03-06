@@ -137,12 +137,21 @@ static struct group_t * create_group(size_t const size) {
     return group;
 }
 
+// Check if a group is empty, that is there are no allocated bytes in the
+// physical memory area it describes.
+// @param group: The group to test.
+// @return: true if `group` is empty, false otherwise.
+static inline bool group_is_empty(struct group_t const * const group) {
+    // A group is empty if all of its bytes are free.
+    return group->size == group->free;
+}
+
 // Deallocate a group.
 // @param group: The group to de-allocate.
 // Note: The group must not contain any allocated data.
 static void free_group(struct group_t * const group) {
     // Check that nothing is left in the group before getting rid of it.
-    ASSERT(group->size == group->free);
+    ASSERT(group_is_empty(group));
     
     // Unmap the pages used by the group.
     void * const addr = (void*)group;
@@ -411,7 +420,6 @@ static void * do_kmalloc(struct list_node * group_list, size_t const size) {
             return addr;
         }
     }
-
     // Either we do not have a group right now or no group is big enough to
     // contain the allocation. Try to allocate a new one.
     uint32_t const num_pages = ceil_x_over_y_u32(size + sizeof(group) +
@@ -437,6 +445,16 @@ static void do_kfree(struct list_node * group_list, void * const addr) {
     list_for_each_entry(group, group_list, group_list) {
         if (addr_in_group(group, addr)) {
             kfree_in_group(group, addr);
+
+            // If removing the allocation from the group makes it empty,
+            // deallocate the group to free physical frames.
+            if (group_is_empty(group)) {
+                // Remote the group from the group list before freeing it. Note:
+                // This is safe to do so in the loop since we will return
+                // anyway.
+                list_del(&group->group_list);
+                free_group(group);
+            }
             return;
         }
     }

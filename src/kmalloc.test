@@ -10,7 +10,7 @@ static bool kmalloc_create_group_test(void) {
         struct group_t * const group = create_group(num_pages);
 
         // The entire group should be available.
-        TEST_ASSERT(group->size == group->free);
+        TEST_ASSERT(group_is_empty(group));
         TEST_ASSERT(group->num_pages == num_pages);
 
         // Make sure the size is correct.
@@ -453,7 +453,7 @@ static bool end_to_end_group_alloc_test(void) {
     size_t const num_pages = 4;
     struct group_t * const group = create_group(num_pages);
 
-    TEST_ASSERT(group->size == group->free);
+    TEST_ASSERT(group_is_empty(group));
 
     uint32_t const num_allocs = 64;
     void * addr[num_allocs];
@@ -583,9 +583,13 @@ static bool do_kfree_test(void) {
     TEST_ASSERT(group->free == group->size - alloc_size - HEADER_SIZE);
 
     do_kfree(&groups, addr);
-    TEST_ASSERT(group->free == group->size);
+    
+    // Since this was the only allocation in the group, upon freeing the memory,
+    // the group got deleted to free up some physical frames.
+    TEST_ASSERT(!list_size(&groups));
 
-    free_all_groups(&groups);
+    // No need to call free_all_groups here, as the memory allocator took care
+    // of that for us.
     return true;
 }
 
