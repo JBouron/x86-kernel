@@ -154,8 +154,18 @@ static bool do_ipm_overload_test(bool const disable_interrupts) {
     if (disable_interrupts) {
         // Wait for at least one IPI to be sent to this cpu while interrupts are
         // disabled.
-        while (!ipi_sent) {
-            lapic_sleep(50);
+        bool done = false;
+        uint32_t const expected_num_messages = (ncpus - 1) *
+            overload_test_num_messages_per_core;
+        while (!done) {
+            lock_message_queue();
+            size_t const queue_size = list_size(&this_cpu_var(message_queue));
+            unlock_message_queue();
+            if (queue_size == expected_num_messages) {
+                break;
+            } else {
+                lapic_sleep(50);
+            }
         }
         // We missed at least one IPI while interrupts were disabled on this
         // core. Enable them again and resume the test as normal.
@@ -178,9 +188,88 @@ static bool ipm_while_interrupt_flag_clear_test(void) {
     return do_ipm_overload_test(true);
 }
 
+
+static bool *ipm_broadcast_test_recv = NULL;
+static void ipm_broadcast_test_test_message_callback(
+    __attribute__((unused)) struct ipm_message_t const * msg) {
+    ipm_broadcast_test_recv[this_cpu_var(cpu_id)] = true;
+}
+
+static bool ipm_broadcast_test(void) {
+    uint8_t const ncpus = acpi_get_number_cpus();
+    ipm_broadcast_test_recv = kmalloc(ncpus * sizeof(*ipm_broadcast_test_recv));
+    TEST_TAG_CALLBACK = ipm_broadcast_test_test_message_callback;
+    
+    broadcast_ipm(__TEST, NULL, 0);
+
+    uint8_t iters = 0;
+    uint8_t max_iters = 100;
+    bool done = false;
+    while (!done) {
+        if (++iters > max_iters) {
+            kfree(ipm_broadcast_test_recv);
+            return false;
+        }
+        lapic_sleep(50);
+
+        done = true;
+        for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
+            if (cpu == this_cpu_var(cpu_id)) {
+                continue;
+            } else if (!ipm_broadcast_test_recv[cpu]) {
+                done = false;
+                break;
+            }
+        }
+    }
+    kfree(ipm_broadcast_test_recv);
+    return true;
+}
+
+static bool ipm_broadcast_remote_call_test(void) {
+    uint8_t const ncpus = acpi_get_number_cpus();
+    ipm_broadcast_test_recv = kmalloc(ncpus * sizeof(*ipm_broadcast_test_recv));
+
+    TEST_TAG_CALLBACK = NULL;
+
+    struct remote_call_t call = {
+        // Re-use the ipm_broadcast_test_test_message_callback function from the
+        // ipm_broadcast_test.
+        .func = (void*)ipm_broadcast_test_test_message_callback,
+        .arg = NULL,
+    };
+
+    broadcast_remote_call(&call);
+
+    uint8_t iters = 0;
+    uint8_t max_iters = 100;
+    bool done = false;
+    while (!done) {
+        if (++iters > max_iters) {
+            kfree(ipm_broadcast_test_recv);
+            return false;
+        }
+        lapic_sleep(50);
+
+        done = true;
+        for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
+            if (cpu == this_cpu_var(cpu_id)) {
+                continue;
+            } else if (!ipm_broadcast_test_recv[cpu]) {
+                done = false;
+                break;
+            }
+        }
+    }
+    kfree(ipm_broadcast_test_recv);
+    return true;
+}
+
 void ipm_test(void) {
     TEST_FWK_RUN(ipm_simple_test);
     TEST_FWK_RUN(ipm_remote_call_test);
     TEST_FWK_RUN(ipm_overload_test);
     TEST_FWK_RUN(ipm_while_interrupt_flag_clear_test);
+    TEST_FWK_RUN(ipm_broadcast_test);
+    TEST_FWK_RUN(ipm_broadcast_remote_call_test);
 }

@@ -107,37 +107,86 @@ static struct ipm_message_t * alloc_message(enum ipm_tag_t const tag,
     struct ipm_message_t * const message = kmalloc(sizeof(*message));
     message->tag = tag;
     message->sender_id = this_cpu_var(cpu_id);
+    // By default make the receiving cpu deallocate the ipm_message_t. This is
+    // because the sender has no idea when a particular message has been
+    // procesed by the destination.
+    message->receiver_dealloc = true;
     message->data = data;
     message->len = len;
     list_init(&message->msg_queue);
     return message;
 }
 
-void send_ipm(uint8_t const cpu,
-              enum ipm_tag_t const tag,
-              void * const data,
-              size_t const len) {
-    struct ipm_message_t * const message = alloc_message(tag, data, len);
+// Enqueue a message on a cpu's message queue.
+// @param message: The message to enqueue.
+static void enqueue_message(struct ipm_message_t * const message,
+                            uint8_t const cpu) {
     struct list_node * const message_queue = &cpu_var(message_queue, cpu);
-
     // Atomically append the message to the remote cpu's queue.
     struct spinlock_t * const lock = &cpu_var(message_queue_lock, cpu);
     spinlock_lock(lock);
     list_add_tail(message_queue, &message->msg_queue);
     spinlock_unlock(lock);
-
     LOG("[%u] Sending message to %u\n", this_cpu_var(cpu_id), cpu);
+}
+
+// Send an IPM.
+// @param cpu: The remote cpu to send the message to. If this field is
+// IPI_BROADCAST then send the IPM to all cpus except the current one.
+// @param tag: The tag of the message.
+// @param data: The data of the message. NULL if not applicable.
+// @param len: The length of the data area.
+// Note: This function will wait for the send to be successful before returning.
+static void do_send_ipm(uint8_t const cpu,
+                        enum ipm_tag_t const tag,
+                        void * const data,
+                        size_t const len) {
+    uint8_t const ncpus = acpi_get_number_cpus();
+    bool const is_broadcast = cpu == IPI_BROADCAST;
+
+    uint8_t const start = is_broadcast ? 0 : cpu;
+    uint8_t const end = is_broadcast ? ncpus : cpu + 1;
+    for (uint8_t i = start; i < end; ++i) {
+        if (is_broadcast && i == this_cpu_var(cpu_id)) {
+            // Don't send the message to ourselves if we request a broadcast.
+            continue;
+        }
+        struct ipm_message_t * const message = alloc_message(tag, data, len);
+        enqueue_message(message, i);
+    }
 
     // Now notify the remote cpu that a new message is in its message queue.
     // Even if many other cpus are trying to send an IPI to this particular
     // remote core, some IPIs may be dropped but the remote cpu will recieve at
     // least one, which is enough anyway.
+    // Note: If the message is broadcast, the cpu will be IPI_BROADCAST and
+    // therefore, the IPI will be sent to all cpus.
     lapic_send_ipi(cpu, IPM_VECTOR);
+}
+
+void send_ipm(uint8_t const cpu,
+              enum ipm_tag_t const tag,
+              void * const data,
+              size_t const len) {
+    do_send_ipm(cpu, tag, data, len);
+}
+
+void broadcast_ipm(enum ipm_tag_t const tag,
+                   void * const data,
+                   size_t const len) {
+    // Rather than calling do_send_ipm for each cpu, call do_send_ipm with the
+    // "broadcast cpu id". This way we use only a single IPI to notify all cpus
+    // at once. This is cheaper than sending one IPI per cpu.
+    do_send_ipm(IPI_BROADCAST, tag, data, len);
 }
 
 void exec_remote_call(uint8_t const cpu,
                       struct remote_call_t const * const call) {
     send_ipm(cpu, REMOTE_CALL, (void*)call, sizeof(call));
+}
+
+void broadcast_remote_call(struct remote_call_t const * const call) {
+    broadcast_ipm(REMOTE_CALL, (void*)call, sizeof(call));
 }
 
 #include <ipm.test>

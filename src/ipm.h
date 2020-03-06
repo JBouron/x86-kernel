@@ -65,6 +65,15 @@ void send_ipm(uint8_t const cpu,
               void * const data,
               size_t const len);
 
+// Broadcast an IPM to all cpus on the system (except the current one).
+// @param tag: The tag of the message.
+// @param data: The data of the message. NULL if not applicable.
+// @param len: The length of the data area.
+// Note: This function will wait for the send to be successful before returning.
+void broadcast_ipm(enum ipm_tag_t const tag,
+                   void * const data,
+                   size_t const len);
+
 // Remote calls
 // ============
 //      The IPM mechanism provides a way to execute function calls on remote cpu
@@ -91,6 +100,17 @@ struct remote_call_t {
 // function returns.
 void exec_remote_call(uint8_t const cpu,
                       struct remote_call_t const * const call);
+
+// Execute a function on all cpus on the system, except this one.
+// @param call: struct remote_call_t containing information about the remote
+// call to carry out on the remote cpu.
+// Note: This function will return once the message has been sent to the remote
+// cpu. However there is no guarantee that the remote calls complete before this
+// function returns.
+// Note: The arg field of the struct remote_call_t will be shared between all
+// cpus, meaning that it is up to the user to use mutual exclusion mechanism if
+// needed.
+void broadcast_remote_call(struct remote_call_t const * const call);
 
 // Execute IPM related tests.
 void ipm_test(void);
