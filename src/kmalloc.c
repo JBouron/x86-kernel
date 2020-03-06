@@ -400,7 +400,7 @@ static void kfree_in_group(struct group_t * const group, void * const addr) {
 static void * do_kmalloc(struct list_node * group_list, size_t const size) {
     struct group_t * group;
     list_for_each_entry(group, group_list, group_list) {
-        if (group->size < size) {
+        if (group->free < size) {
             // The group does not have enough space to allocate that much.
             continue;
         }
