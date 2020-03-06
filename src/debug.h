@@ -10,7 +10,9 @@
 #define __stringify(x...)   __stringify_1(x)
 
 // The logging function is no less that the tty_printf function.
-#define LOG tty_printf
+#define LOG(...) tty_printf(__VA_ARGS__)
+#define WARN(format, ...) tty_printf("\033[33m" format "\033[39m", __VA_ARGS__)
+#define ERR(format, ...) tty_printf("\033[31m" format "\033[39m", __VA_ARGS__)
 
 // Panic the kernel, output the error message an dump some states into the tty.
 #define PANIC(...) \
