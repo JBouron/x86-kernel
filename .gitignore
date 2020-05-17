@@ -55,3 +55,6 @@ kernel.iso
 build/
 build_dir/
 TODO
+
+# ignore is a dir containing things that should not get pushed.
+ignore
