@@ -3,6 +3,7 @@
 #include <list.h>
 #include <lock.h>
 #include <percpu.h>
+#include <atomic.h>
 
 // To make communication between cores easier, the kernel provide a mechanism of
 // Inter-Processor-Messaging (IPM).
@@ -78,17 +79,11 @@ void broadcast_ipm(enum ipm_tag_t const tag,
 // ============
 //      The IPM mechanism provides a way to execute function calls on remote cpu
 // through a REMOTE_CALL message. A REMOTE_CALL message contains information
-// about the call to be performed in it data field. This information is encoded
-// in a struct remote_call_t.
-// Upon processing the message, the remote cpu will execute the function call.
-
-// Structure holding information for a remote call.
-struct remote_call_t {
-    // The function to call on the remote processor.
-    void (*func)(void*);
-    // The argument to pass to the above function.
-    void *arg;
-};
+// about the call to be performed in it data field.
+// Upon processing the message, the remote cpu will execute the function call
+// while still being in the interrupt context. As a result:
+//  - Interrupts are disabled while calling the function.
+//  - The function to execute must be fast.
 
 // Execute a function call on a remote processor.
 // @param cpu: The APIC ID of the cpu on which the remote call is to be
@@ -99,7 +94,9 @@ struct remote_call_t {
 // cpu. However there is no guarantee that the remote call completes before this
 // function returns.
 void exec_remote_call(uint8_t const cpu,
-                      struct remote_call_t const * const call);
+                      void (*func)(void*),
+                      void * const arg,
+                      bool const wait);
 
 // Execute a function on all cpus on the system, except this one.
 // @param call: struct remote_call_t containing information about the remote
@@ -110,7 +107,9 @@ void exec_remote_call(uint8_t const cpu,
 // Note: The arg field of the struct remote_call_t will be shared between all
 // cpus, meaning that it is up to the user to use mutual exclusion mechanism if
 // needed.
-void broadcast_remote_call(struct remote_call_t const * const call);
+void broadcast_remote_call(void (*func)(void*),
+                           void * const arg,
+                           bool const wait);
 
 // Execute IPM related tests.
 void ipm_test(void);

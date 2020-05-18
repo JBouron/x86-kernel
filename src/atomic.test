@@ -49,43 +49,19 @@ static bool atomic_add_stress_test(void) {
         cpu_var(atomic_test_helper_done, cpu) = (cpu == this_cpu)?true : false;
     }
 
-    struct atomic_test_helper_args_t args = {
-        .target = &atomic,
-        .N = 1000,
-        .mode = 0,
-    };
-
-    struct remote_call_t const rem_call = {
-        .func = _atomic_test_helper,
-        .arg = &args,
-    };
-    broadcast_remote_call(&rem_call);
-
     int32_t expected_value = 0;
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
         expected_value += 1000 * ((cpu == this_cpu) ? 0 : cpu);
     }
 
-    uint32_t const steps = 0;
-    uint32_t const max_steps = 50;
-    bool success = false;
-    while (!success && (steps < max_steps)) {
-        success = true;
-        for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
-            bool const done = cpu_var(atomic_test_helper_done, cpu);
-            if (!done) {
-                success = false;
-                break;
-            }
-        }
-        lapic_sleep(10);
-    }
-    if (steps == max_steps) {
-        // Timed out while waiting for all cpus to complete their task.
-        return false;
-    } else {
-        return atomic_read(&atomic) == expected_value;
-    }
+    struct atomic_test_helper_args_t args = {
+        .target = &atomic,
+        .N = 1000,
+        .mode = 0,
+    };
+    broadcast_remote_call(_atomic_test_helper, &args, true);
+
+    return atomic_read(&atomic) == expected_value;
 }
 
 // Test the basic functionality of atomic_fetch_and_add, that is:
@@ -117,43 +93,19 @@ static bool atomic_fetch_and_add_stress_test(void) {
         cpu_var(atomic_test_helper_done, cpu) = (cpu == this_cpu)?true : false;
     }
 
-    struct atomic_test_helper_args_t args = {
-        .target = &atomic,
-        .N = 1000,
-        .mode = 1,
-    };
-
-    struct remote_call_t const rem_call = {
-        .func = _atomic_test_helper,
-        .arg = &args,
-    };
-    broadcast_remote_call(&rem_call);
-
     int32_t expected_value = 0;
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
         expected_value += 1000 * ((cpu == this_cpu) ? 0 : cpu);
     }
 
-    uint32_t const steps = 0;
-    uint32_t const max_steps = 50;
-    bool success = false;
-    while (!success && (steps < max_steps)) {
-        success = true;
-        for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
-            bool const done = cpu_var(atomic_test_helper_done, cpu);
-            if (!done) {
-                success = false;
-                break;
-            }
-        }
-        lapic_sleep(10);
-    }
-    if (steps == max_steps) {
-        // Timed out while waiting for all cpus to complete their task.
-        return false;
-    } else {
-        return atomic_read(&atomic) == expected_value;
-    }
+    struct atomic_test_helper_args_t args = {
+        .target = &atomic,
+        .N = 1000,
+        .mode = 1,
+    };
+    broadcast_remote_call(_atomic_test_helper, &args, true);
+
+    return atomic_read(&atomic) == expected_value;
 }
 
 static bool atomic_dec_and_test_basic_test(void) {
@@ -190,52 +142,29 @@ static bool atomic_dec_and_test_stress_test(void) {
         cpu_var(atomic_test_helper_done, cpu) = (cpu == this_cpu)?true : false;
     }
 
-    struct remote_call_t const rem_call = {
-        .func = _atomic_do_dec_and_test,
-        .arg = &atomic,
-    };
-    broadcast_remote_call(&rem_call);
+    broadcast_remote_call(_atomic_do_dec_and_test, &atomic, true);
 
-    uint32_t const steps = 0;
-    uint32_t const max_steps = 50;
-    bool success = false;
-    while (!success && (steps < max_steps)) {
-        success = true;
-        for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
-            bool const done = cpu_var(atomic_test_helper_done, cpu);
-            if (!done) {
-                success = false;
-                break;
-            }
-        }
-        lapic_sleep(10);
-    }
-    if (steps == max_steps) {
-        // Timed out while waiting for all cpus to complete their task.
-        return false;
-    } else {
-        // Make sure that only a single cpu got `true` from atomic_dec_and_test.
-        bool foundTrue = false;
-        for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
-            if (cpu != this_cpu) {
-                bool const res = cpu_var(atomic_do_and_test_result, cpu);
-                if (res) {
-                    // This cpu got `true` when calling atomic_dec_and_test on
-                    // the atomic_t.
-                    if (foundTrue) {
-                        // If foundTrue is true, that means that two different
-                        // cpus got `true` when calling atomic_dec_and_test.
-                        // This should not happen.
-                        return false;
-                    } else {
-                        foundTrue = true;
-                    }
+    // Make sure that only a single cpu got `true` from atomic_dec_and_test.
+    bool foundTrue = false;
+    for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
+        if (cpu != this_cpu) {
+            bool const res = cpu_var(atomic_do_and_test_result, cpu);
+            if (res) {
+                // This cpu got `true` when calling atomic_dec_and_test on
+                // the atomic_t.
+                if (foundTrue) {
+                    // If foundTrue is true, that means that two different
+                    // cpus got `true` when calling atomic_dec_and_test.
+                    // This should not happen.
+                    return false;
+                } else {
+                    foundTrue = true;
                 }
             }
         }
-        // We expect exactly one true from all the calls to atomic_dec_and_test.
-        return foundTrue && (atomic_read(&atomic) == 0);
     }
+    // We expect exactly one true from all the calls to atomic_dec_and_test.
+    return foundTrue && (atomic_read(&atomic) == 0);
 }
 
 void atomic_test(void) {

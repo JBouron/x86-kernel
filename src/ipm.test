@@ -49,31 +49,19 @@ static bool ipm_remote_call_test(void) {
     // STI since we will send a message to ourselves.
     cpu_set_interrupt_flag(true);
 
-    struct remote_call_t call = {
-        .func = remote_call_func,
-        .arg = NULL,
-    };
-
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
         // Read the TSC to get a somewhat unique value for each cpu.
         uint32_t const val = read_tsc() & 0xFFFFFFFFULL;
-        call.arg = (void*)val;
 
         // Make sure that the value of the remote call flag is set to something
         // different that `val`.
         remote_call_flag = ~val;
 
-        exec_remote_call(cpu, &call);
+        exec_remote_call(cpu, remote_call_func, (void*)val, true);
 
-        uint8_t iter = 0;
-        uint8_t const max_iters = 100;
-        while (remote_call_flag != val) {
-            lapic_sleep(10);
-            ++iter;
-            if (iter > max_iters) {
-                return false;
-            }
-        }
+        // We called exec_remote_call with wait = true, therefore upon returning
+        // from this function, the following must be true.
+        TEST_ASSERT(remote_call_flag == val);
     }
 
     return true;
@@ -134,16 +122,14 @@ static bool do_ipm_overload_test(bool const disable_interrupts) {
 
     TEST_TAG_CALLBACK = overload_test_message_callback;
 
-    struct remote_call_t call = {
-        .func = overload_test_wait_and_send_messages,
-        .arg = (void*)(uint32_t)this_cpu_var(cpu_id),
-    };
-
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
         if (cpu == this_cpu_var(cpu_id)) {
             continue;
         }
-        exec_remote_call(cpu, &call);
+        exec_remote_call(cpu,
+                         overload_test_wait_and_send_messages,
+                         (void*)(uint32_t)this_cpu_var(cpu_id),
+                         false);
     }
 
     if (disable_interrupts) {
@@ -232,34 +218,17 @@ static bool ipm_broadcast_remote_call_test(void) {
 
     TEST_TAG_CALLBACK = NULL;
 
-    struct remote_call_t call = {
-        // Re-use the ipm_broadcast_test_test_message_callback function from the
-        // ipm_broadcast_test.
-        .func = (void*)ipm_broadcast_test_test_message_callback,
-        .arg = NULL,
-    };
+    // Re-use the ipm_broadcast_test_test_message_callback function from the
+    // ipm_broadcast_test.
+    broadcast_remote_call((void*)ipm_broadcast_test_test_message_callback,
+                          NULL,
+                          true);
 
-    broadcast_remote_call(&call);
-
-    uint8_t iters = 0;
-    uint8_t max_iters = 100;
-    bool done = false;
-    while (!done) {
-        if (++iters > max_iters) {
-            kfree(ipm_broadcast_test_recv);
-            return false;
-        }
-        lapic_sleep(50);
-
-        done = true;
-        for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
-            if (cpu == this_cpu_var(cpu_id)) {
-                continue;
-            } else if (!ipm_broadcast_test_recv[cpu]) {
-                done = false;
-                break;
-            }
-        }
+    for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
+        if (cpu == this_cpu_var(cpu_id)) {
+            continue;
+        } 
+        TEST_ASSERT(ipm_broadcast_test_recv[cpu]);
     }
     kfree(ipm_broadcast_test_recv);
     return true;

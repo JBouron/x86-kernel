@@ -9,6 +9,21 @@
 // in the queue.
 #define IPM_VECTOR  33
 
+// This structure contains all the state necesasry to execute a remote function.
+// This represents the payload of an IPM message with tag REMOTE_CALL.
+// There is a single instance of this structure associated with a remote call,
+// this means that N remote cores executing the function will have access to the
+// same instance and therefore should not modify it.
+struct remote_call_data_t {
+    // The function to execute.
+    void (*func)(void*);
+    // The argument to pass to the function upon execution.
+    void *arg;
+    // A ref count of this instance. If the ref_counts become 0 then it is the
+    // responsibility of the core that updated it to 0 to free this structure.
+    atomic_t ref_count;
+};
+
 // Lock the message queue of the current CPU.
 static void lock_message_queue(void) {
     spinlock_lock(&this_cpu_var(message_queue_lock));
@@ -22,6 +37,25 @@ static void unlock_message_queue(void) {
 // Used for testing purposes only. This callback is called whenever a message
 // with __TEST tag is received.
 static void (*TEST_TAG_CALLBACK)(struct ipm_message_t const *) = NULL;
+
+// Handle a remote call from an IPM message.
+// @param call: The struct remote_call_data_t associated with the remote call.
+static void handle_remote_call(struct remote_call_data_t * const call) {
+    if(atomic_read(&call->ref_count) == 0) {
+        // There is a problem here, the ref_count of the call is 0, which means
+        // all targeted cpus have executed this call already and the sender
+        // might have moved on. Hence, we are not supposed to execute !
+        PANIC("Try to exec with ref_count = 0");
+    }
+    call->func(call->arg);
+    if (atomic_dec_and_test(&call->ref_count)) {
+        // This is the job of this cpu to free the remote_call_data_t.
+        kfree(call);
+    }
+    // WARNING: Even if we did not free the remote_call_data_t ourselves, we
+    // cannot use `call` anymore, as it might have been freed by somebody else
+    // at this point.
+}
 
 // Process any message in this cpu's message queue.
 static void process_messages(void) {
@@ -51,8 +85,8 @@ static void process_messages(void) {
                 break;
             }
             case REMOTE_CALL : {
-                struct remote_call_t const * const call = msg->data;
-                call->func(call->arg);
+                struct remote_call_data_t * const call = msg->data;
+                handle_remote_call(call);
                 break;
             }
 
@@ -96,6 +130,8 @@ void init_ipm(void) {
 }
 
 // Dynamically allocate an ipm_message_t and initialize it to the given values.
+// Other fields in the struct are set to ""sane"" defaults, however it is
+// recommended to set them yourself!
 // @param tag: The tag of the message.
 // @param data: The data of the message.
 // @param len: The length of the data area of the message.
@@ -181,12 +217,55 @@ void broadcast_ipm(enum ipm_tag_t const tag,
 }
 
 void exec_remote_call(uint8_t const cpu,
-                      struct remote_call_t const * const call) {
-    send_ipm(cpu, REMOTE_CALL, (void*)call, sizeof(call));
+                      void (*func)(void*),
+                      void * const arg,
+                      bool const wait) {
+    // How to choose the reference count initial value ?
+    // ref_count == 1 => The remote core will execute the function and free the
+    // struct remote_call_data_t immediately after. This is good if we don't
+    // want to wait for the remote call to finish.
+    // ref_count == 2 => After executing the call, the remote core will dec the
+    // ref_count to 1, and therefore will not free the memroy. This is good if
+    // we want to wait for the call to finish, just wait for the ref_count to
+    // become one.
+    int32_t const ref_count_initial_val = wait ? 2 : 1;
+
+    struct remote_call_data_t *rem_data = kmalloc(sizeof(*rem_data));
+    rem_data->func = func;
+    rem_data->arg = arg;
+    atomic_init(&rem_data->ref_count, ref_count_initial_val);
+
+    send_ipm(cpu, REMOTE_CALL, rem_data, sizeof(rem_data));
+
+    if (wait) {
+        while (atomic_read(&rem_data->ref_count) != 1) {
+            cpu_pause();
+        }
+        kfree(rem_data);
+    }
 }
 
-void broadcast_remote_call(struct remote_call_t const * const call) {
-    broadcast_ipm(REMOTE_CALL, (void*)call, sizeof(call));
+void broadcast_remote_call(void (*func)(void*),
+                           void * const arg,
+                           bool const wait) {
+    // As in exec_remote_call, the initial value of the ref_count depends on
+    // whether or not we want for this cpu to wait for the remote calls to
+    // finish.
+    int32_t const ref_count_initial_val = acpi_get_number_cpus() - (wait?0:1);
+
+    struct remote_call_data_t *rem_data = kmalloc(sizeof(*rem_data));
+    rem_data->func = func;
+    rem_data->arg = arg;
+    atomic_init(&rem_data->ref_count, ref_count_initial_val);
+
+    broadcast_ipm(REMOTE_CALL, rem_data, sizeof(rem_data));
+
+    if (wait) {
+        while (atomic_read(&rem_data->ref_count) != 1) {
+            cpu_pause();
+        }
+        kfree(rem_data);
+    }
 }
 
 #include <ipm.test>
