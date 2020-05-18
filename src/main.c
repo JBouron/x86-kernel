@@ -25,6 +25,7 @@
 #include <smp.h>
 #include <percpu.h>
 #include <ipm.h>
+#include <atomic.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -49,6 +50,7 @@ void test_kernel(void) {
     smp_test();
     percpu_test();
     ipm_test();
+    atomic_test();
 
     print_test_summary();
 }
