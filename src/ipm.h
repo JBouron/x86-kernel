@@ -88,25 +88,22 @@ void broadcast_ipm(enum ipm_tag_t const tag,
 // Execute a function call on a remote processor.
 // @param cpu: The APIC ID of the cpu on which the remote call is to be
 // performed. Can be the current cpu.
-// @param call: struct remote_call_t containing information about the remote
-// call to carry out on the remote cpu.
-// Note: This function will return once the message has been sent to the remote
-// cpu. However there is no guarantee that the remote call completes before this
-// function returns.
+// @param func: A pointer to the function to be executed on the remote core.
+// @param arg: The argument to pass to the function when executing remotely.
+// @param wait: If true, this function will only return once the remote core
+// executed the function. If false, this function will return immediately after
+// sending the REMOTE_CALL message to the remote core.
 void exec_remote_call(uint8_t const cpu,
                       void (*func)(void*),
                       void * const arg,
                       bool const wait);
 
 // Execute a function on all cpus on the system, except this one.
-// @param call: struct remote_call_t containing information about the remote
-// call to carry out on the remote cpu.
-// Note: This function will return once the message has been sent to the remote
-// cpu. However there is no guarantee that the remote calls complete before this
-// function returns.
-// Note: The arg field of the struct remote_call_t will be shared between all
-// cpus, meaning that it is up to the user to use mutual exclusion mechanism if
-// needed.
+// @param func: A pointer to the function to be executed on the remote cores.
+// @param arg: The argument to pass to the function when executing remotely.
+// @param wait: If true, this function will only return once the all remote
+// cores executed the function. If false, this function will return immediately
+// after sending the REMOTE_CALL message to the remote core.
 void broadcast_remote_call(void (*func)(void*),
                            void * const arg,
                            bool const wait);
