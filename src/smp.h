@@ -51,5 +51,10 @@ STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, stack_segments) == 0x2C,"");
 // fully initialized.
 void init_aps(void);
 
+// Returns whether or not Application Processors are currently online i.e.
+// running.
+// @return: true if the APs are online, false otherwise.
+bool aps_are_online(void);
+
 // Execute tests related to smp.
 void smp_test(void);

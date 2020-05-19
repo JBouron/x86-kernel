@@ -83,6 +83,9 @@
 //     At the bottom of every stack is a lock that an AP _must_ acquire and hold
 // while using the stack. The lock is a 16-bit word.
 
+// Indicate if the Application Processors are currently online or not.
+static bool APS_ARE_ONLINE = false;
+
 // ap_entry_point is the entry point function of AP cores. This is the very
 // first function/instruction executed by APs at wake up.
 extern void ap_entry_point(void);
@@ -478,6 +481,10 @@ void ap_finalize_start_up(void) {
 // This is useful for testing.
 // @param target: The function that should be called by the APs after wake up.
 static void do_init_aps(void (*target)(void)) {
+    // In case we reset the APs, consider them offline until the wake up
+    // sequence is completed.
+    APS_ARE_ONLINE = false;
+
     // Create the trampoline.
     void * const ap_entry_point = create_trampoline(target);
 
@@ -520,6 +527,7 @@ static void do_init_aps(void (*target)(void)) {
         lapic_sleep(10);
     }
 
+    APS_ARE_ONLINE = true;
     LOG("All APs online!\n");
 
     // Reset the APS_ONLINE global variable, in case we ever reset the APs and
@@ -531,7 +539,10 @@ static void do_init_aps(void (*target)(void)) {
     // frame and the stack frames.
     cleanup_ap_wakeup_routine_allocs(ap_entry_point);
     paging_unmap(func_addr, PAGE_SIZE);
+}
 
+bool aps_are_online(void) {
+    return APS_ARE_ONLINE;
 }
 
 void init_aps(void) {
