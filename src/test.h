@@ -1,6 +1,7 @@
 #pragma once
 #include <types.h>
 #include <debug.h>
+#include <lapic.h>
 
 // A testing function is simply a function retuning a boolean indicating
 // success/failure.
@@ -32,3 +33,16 @@ void print_test_summary(void);
             FAILURE \
         }\
     } while(0)
+
+#define TEST_WAIT_FOR(cond, timeout)    \
+    do {                                \
+        uint32_t remaining = timeout;   \
+        while (!(cond)) {               \
+            if (!remaining && timeout) {\
+                BREAK();                \
+                FAILURE                 \
+            }                           \
+            lapic_sleep(1);             \
+            remaining --;               \
+        }                               \
+    } while (0)
