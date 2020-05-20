@@ -1,7 +1,7 @@
 #include <macro.h>
 
 #void spinlock_lock(struct spinlock_t * const lock);
-ASM_FUNC_DEF(spinlock_lock):
+ASM_FUNC_DEF(_spinlock_lock):
     mov     0x4(%esp), %edx
     jmp     test
 retry_test:
@@ -20,7 +20,7 @@ test:
     ret
 
 #void spinlock_unlock(struct spinlock_t * const lock);
-ASM_FUNC_DEF(spinlock_unlock):
+ASM_FUNC_DEF(_spinlock_unlock):
     mov     0x4(%esp), %edx
     movb    $0x0, (%edx)
     ret
