@@ -400,6 +400,10 @@ static void kfree_in_group(struct group_t * const group, void * const addr) {
     insert_in_free_list(group, node);
 }
 
+// The spinlock that must be held while performing any operation in the dynamic
+// memory allocator.
+DECLARE_SPINLOCK(KMALLOC_LOCK);
+
 // Allocate memory in the first group available in `group_list`.
 // @param group_list: A linked list of groups to try to allocate into. The
 // particular group that will contain the allocation is the first group (in the
@@ -422,9 +426,19 @@ static void * do_kmalloc(struct list_node * group_list, size_t const size) {
     }
     // Either we do not have a group right now or no group is big enough to
     // contain the allocation. Try to allocate a new one.
+
+    // Unlock the KMALLOC_LOCK while we are allocating a new group. The reason
+    // is that create_group will modify the page tables and therefore may
+    // execute a TLB shootdown. This could cause a deadlock if remote cpus need
+    // to acquire the kmalloc lock while processing their messages (if another
+    // message is enqueued alongside the TLB-shootdown message).
+    spinlock_unlock(&KMALLOC_LOCK);
+
     uint32_t const num_pages = ceil_x_over_y_u32(size + sizeof(group) +
         HEADER_SIZE, PAGE_SIZE);
     group = create_group(num_pages);
+
+    spinlock_lock(&KMALLOC_LOCK);
 
     // Add the group to the group list.
     list_add_tail(group_list, &group->group_list);
@@ -453,17 +467,22 @@ static void do_kfree(struct list_node * group_list, void * const addr) {
                 // This is safe to do so in the loop since we will return
                 // anyway.
                 list_del(&group->group_list);
+
+                // Unlock the KMALLOC_LOCK while we are allocating a new group.
+                // The reason is that free_group will modify the page tables
+                // and therefore may execute a TLB shootdown. This could cause a
+                // deadlock if remote cpus need to acquire the kmalloc lock
+                // while processing their messages (if another message is
+                // enqueued alongside the TLB-shootdown message).
+                spinlock_unlock(&KMALLOC_LOCK);
                 free_group(group);
+                spinlock_lock(&KMALLOC_LOCK);
             }
             return;
         }
     }
     PANIC("Unknow pointer to free.");
 }
-
-// The spinlock that must be held while performing any operation in the dynamic
-// memory allocator.
-DECLARE_SPINLOCK(KMALLOC_LOCK);
 
 // The global kernel list of groups.
 struct list_node GROUP_LIST;

@@ -530,7 +530,11 @@ static bool do_kmalloc_test_create_group(void) {
     list_init(&groups);
 
     uint32_t alloc_size = 32;
+    // This is necessary as do_kmalloc expects the caller to hold the
+    // KMALLOC_LOCK.
+    spinlock_lock(&KMALLOC_LOCK);
     void * addr = do_kmalloc(&groups, alloc_size);
+    spinlock_unlock(&KMALLOC_LOCK);
 
     // Even though the list of group is empty the alloc must succeed and crate
     // a new group.
@@ -549,7 +553,9 @@ static bool do_kmalloc_test_create_group(void) {
     // first group. Therefore we expect the do_kmalloc to create a second group
     // using to pages.
     alloc_size = PAGE_SIZE;
+    spinlock_lock(&KMALLOC_LOCK);
     addr = do_kmalloc(&groups, alloc_size);
+    spinlock_unlock(&KMALLOC_LOCK);
 
     TEST_ASSERT(addr);
     TEST_ASSERT(list_size(&groups) == 2);
@@ -559,6 +565,7 @@ static bool do_kmalloc_test_create_group(void) {
     TEST_ASSERT(group->free == group->size - alloc_size - HEADER_SIZE);
 
     free_all_groups(&groups);
+
     return true;
 }
 
@@ -567,7 +574,9 @@ static bool do_kfree_test(void) {
     list_init(&groups);
 
     uint32_t alloc_size = 32;
+    spinlock_lock(&KMALLOC_LOCK);
     void * addr = do_kmalloc(&groups, alloc_size);
+    spinlock_unlock(&KMALLOC_LOCK);
 
     // Even though the list of group is empty the alloc must succeed and crate
     // a new group.
@@ -582,7 +591,9 @@ static bool do_kfree_test(void) {
     TEST_ASSERT(group->num_pages == 1);
     TEST_ASSERT(group->free == group->size - alloc_size - HEADER_SIZE);
 
+    spinlock_lock(&KMALLOC_LOCK);
     do_kfree(&groups, addr);
+    spinlock_unlock(&KMALLOC_LOCK);
     
     // Since this was the only allocation in the group, upon freeing the memory,
     // the group got deleted to free up some physical frames.
