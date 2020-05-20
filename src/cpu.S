@@ -420,3 +420,12 @@ ASM_FUNC_DEF(cpu_apic_id):
     mov     %ebx, %eax
     pop     %ebx
     ret
+
+
+//bool interrupts_enabled(void);
+ASM_FUNC_DEF(interrupts_enabled):
+    pushf
+    pop     %eax
+    and     $(1 << 9), %eax
+    shr     $9, %eax
+    ret

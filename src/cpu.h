@@ -223,5 +223,9 @@ void *cpu_read_esp(void);
 // Read the APIC ID of the calling processor.
 uint8_t cpu_apic_id(void);
 
+// Return whether or not interrupts are enabled on this cpu.
+// @return: true if the interrupts are enabled, false otherwise.
+bool interrupts_enabled(void);
+
 // Execute tests on CPU related functions.
 void cpu_test(void);
