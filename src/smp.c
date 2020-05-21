@@ -197,8 +197,11 @@ static void * create_data_frame(void (*target)(void)) {
 
     data_frame->num_stacks = 0;
 
-    // Try to allocate `nframes` physical frames.
-    for (uint32_t i = 0; i < nframes; ++i) {
+    // Try to allocate `nframes` physical frames. Stop before in case we reached
+    // the maximum number of stacks allowed (testing only).
+    for (uint32_t i = 0;
+         i < nframes && data_frame->num_stacks < AP_WAKEUP_ROUTINE_MAX_STACKS;
+         ++i) {
         // Try to allocate a new stack frame under 1MiB.
         void * const frame = alloc_low_mem_stack_frame();
 
