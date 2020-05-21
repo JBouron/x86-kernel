@@ -20,7 +20,11 @@
 enum ipm_tag_t {
     // This tag is used for testing only!
     __TEST,
+    // Execute a remote function call on a cpu.
     REMOTE_CALL,
+    // Indicate a remote cpu that it needs to flush its TLB. For now a
+    // TLB_SHOOTDOWN message will flush the entire TLB of the remote cpu.
+    TLB_SHOOTDOWN,
 };
 
 // The structure of a message.
@@ -107,6 +111,11 @@ void exec_remote_call(uint8_t const cpu,
 void broadcast_remote_call(void (*func)(void*),
                            void * const arg,
                            bool const wait);
+
+// Execute a TLB Shootdown. This function will send out TLB_SHOOTDOWN message to
+// each cpu (except self) on the system and only return when all cpus have
+// acknowleged the message.
+void exec_tlb_shootdown(void);
 
 // Execute IPM related tests.
 void ipm_test(void);

@@ -5,6 +5,8 @@
 #include <math.h>
 #include <kernel_map.h>
 #include <lock.h>
+#include <ipm.h>
+#include <smp.h>
 
 // This is the definition of an entry of a page directory.
 union pde_t {
@@ -466,6 +468,14 @@ static uint32_t page_offset(void const * const addr) {
     return (uint32_t)addr & 0xFFF;
 }
 
+// Execute a TLB-Shootdown if required, that is if other cpus on the system are
+// online.
+static void maybe_to_tlb_shootdown(void) {
+    if (aps_are_online()) {
+        exec_tlb_shootdown();
+    }
+}
+
 // Map a virtual memory region to a physical one.
 // @param paddr: The physical address to map the virtual address to.
 // @param vaddr: The virtual address.
@@ -503,6 +513,7 @@ void paging_map(void const * const paddr,
     unlock_vaddr_space();
 
     cpu_invalidate_tlb();
+    maybe_to_tlb_shootdown();
 }
 
 // Unmap a virtual memory region.
@@ -520,19 +531,24 @@ static void do_paging_unmap(void const * const vaddr,
     for (size_t i = 0; i < num_frames; ++i) {
         unmap_page(start_virt + i * PAGE_SIZE, free_phy_frame);
     }
-    cpu_invalidate_tlb();
 }
 
 void paging_unmap(void const * const vaddr, size_t const len) {
     lock_vaddr_space();
     do_paging_unmap(vaddr, len, false);
     unlock_vaddr_space();
+
+    cpu_invalidate_tlb();
+    maybe_to_tlb_shootdown();
 }
 
 void paging_unmap_and_free_frames(void const * const vaddr, size_t const len) {
     lock_vaddr_space();
     do_paging_unmap(vaddr, len, true);
     unlock_vaddr_space();
+
+    cpu_invalidate_tlb();
+    maybe_to_tlb_shootdown();
 }
 
 // Check if a virtual page is currently mapped to a frame in physical memory in

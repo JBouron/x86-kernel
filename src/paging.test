@@ -1,5 +1,9 @@
 #include <test.h>
 #include <interrupt.h>
+#include <percpu.h>
+#include <ipm.h>
+#include <cpu.h>
+#include <acpi.h>
 
 // Test the result of create_recursive_entry.
 static bool paging_create_recursive_entry_test(void) {
@@ -418,6 +422,71 @@ static bool paging_non_aligned_addrs(void) {
     return true;
 }
 
+// TLB shootdown test.
+
+static void *test_tlb_shootdown_vaddr = NULL;
+static void *test_tlb_shootdown_paddr = NULL;
+static bool test_tlb_shootdown_remote_got_page_fault = false;
+
+static void _paging_test_tlb_shootdown_page_fault_handler(
+    struct interrupt_frame_t const * const frame) {
+    ASSERT(frame);
+    LOG("[%u] Page fault\n", this_cpu_var(cpu_id));
+
+    // We need to remap the page here, otherwise we will triple page-fault.
+    paging_map(test_tlb_shootdown_paddr,
+               test_tlb_shootdown_vaddr,
+               PAGE_SIZE,
+               VM_WRITE);
+
+    test_tlb_shootdown_remote_got_page_fault = true;
+}
+
+static void _paging_test_tlb_shootdown_writer(void * arg) {
+    uint32_t const value = (uint32_t)arg;
+    // Volatile is required here to make sure we are writing to memory and not
+    // cache.
+    uint32_t volatile *ptr = test_tlb_shootdown_vaddr;
+    *ptr = value;
+}
+
+static bool paging_tlb_shootdown_test(void) {
+    test_tlb_shootdown_paddr = alloc_frame();
+    test_tlb_shootdown_vaddr = paging_find_contiguous_non_mapped_pages(0x0, 1);
+
+    paging_map(test_tlb_shootdown_paddr,
+               test_tlb_shootdown_vaddr,
+               PAGE_SIZE,
+               VM_WRITE);
+
+    // We have a write map vaddr -> paddr. Start the other cpu to continuously
+    // write to this location.
+
+    // Register the temporary page fault handler for the test.
+    interrupt_register_global_callback(14,
+        _paging_test_tlb_shootdown_page_fault_handler);
+
+    uint8_t const cpu = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+    uint32_t const val = 0xBEEFBABE;
+    exec_remote_call(cpu, _paging_test_tlb_shootdown_writer, (void*)val, true);
+
+    // Wait for the writer function to start on the remote cpu.
+    TEST_ASSERT(*(uint32_t*)test_tlb_shootdown_vaddr == val);
+
+    // The remote cpu is writing in a loop. Remove the mapping.
+    paging_unmap(test_tlb_shootdown_vaddr, PAGE_SIZE);
+
+    // Wait for the remote cpu to get a page fault. Note: We need to enable
+    // interrupts here as the remote cpu will map the faulting page in the page
+    // fault handler and try to send us a TLB_SHOOTDOWN message to which we must
+    // ack.
+    cpu_set_interrupt_flag(true);
+    exec_remote_call(cpu, _paging_test_tlb_shootdown_writer, (void*)val, true);
+    TEST_ASSERT(test_tlb_shootdown_remote_got_page_fault);
+    paging_unmap_and_free_frames(test_tlb_shootdown_vaddr, PAGE_SIZE);
+    return true;
+}
+
 void paging_test(void) {
     TEST_FWK_RUN(paging_create_recursive_entry_test);
     TEST_FWK_RUN(paging_get_curr_page_dir_vaddr_test);
@@ -434,4 +503,5 @@ void paging_test(void) {
     TEST_FWK_RUN(paging_find_contiguous_non_mapped_pages_test);
     TEST_FWK_RUN(paging_idempotency_test);
     TEST_FWK_RUN(paging_non_aligned_addrs);
+    TEST_FWK_RUN(paging_tlb_shootdown_test);
 }

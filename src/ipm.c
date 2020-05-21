@@ -89,7 +89,15 @@ static void process_messages(void) {
                 handle_remote_call(call);
                 break;
             }
-
+            case TLB_SHOOTDOWN : {
+                // See exec_tlb_shootdown() for more information about how
+                // TLB-shootdowns are implemented in this kernel.
+                atomic_t * const wait = (atomic_t*)msg->data;
+                LOG("[%u] TLB_SHOOTDOWN from %u", this_cpu_var(cpu_id), msg->sender_id);
+                cpu_invalidate_tlb();
+                atomic_dec(wait);
+                break;
+            }
         }
 
         if (msg->receiver_dealloc) {
@@ -161,7 +169,16 @@ static void enqueue_message(struct ipm_message_t * const message,
     // Atomically append the message to the remote cpu's queue.
     struct spinlock_t * const lock = &cpu_var(message_queue_lock, cpu);
     spinlock_lock(lock);
-    list_add_tail(message_queue, &message->msg_queue);
+
+    if (message->tag == TLB_SHOOTDOWN) {
+        // TLB_SHOOTDOWNs are critical and should be handled as soon as
+        // possible. Therefore enqueue them at the head of the message queue of
+        // the destination.
+        list_add(message_queue, &message->msg_queue);
+    } else {
+        list_add_tail(message_queue, &message->msg_queue);
+    }
+
     spinlock_unlock(lock);
     LOG("[%u] Sending message to %u\n", this_cpu_var(cpu_id), cpu);
 }
@@ -265,6 +282,64 @@ void broadcast_remote_call(void (*func)(void*),
             cpu_pause();
         }
         kfree(rem_data);
+    }
+}
+
+void exec_tlb_shootdown(void) {
+    // TLB-Shootdowns are implemented as follows:
+    // For each remote cpu:
+    //  1. Send an IPM message with tag = TLB_SHOOTDOWN. The data contains a
+    //  pointer to an atomic_t initialized to 1.
+    //  2. Wait for the atomic_t to become 0, this indicate that the remtoe cpu
+    //  flushed its TLB.
+    //
+    // Upon receiving a TLB_SHOOTDOWN message, a core flushes its TLB and
+    // decreases the value of the atomic_t passed through the data of the
+    // message.
+
+    atomic_t wait;
+
+    // We _must_ statically allocate the message here as kmalloc could
+    // potentially require a new group and therefore map a new page and execute
+    // a TLB shootdown leading to an infinite loop.
+    struct ipm_message_t tlb_message = {
+        .tag = TLB_SHOOTDOWN,
+        .sender_id = this_cpu_var(cpu_id),
+        .receiver_dealloc = false,
+        .data = &wait,
+        .len = sizeof(wait),
+    };
+
+    // For now, the TLB shootdown message is sent to each cpu sequentially. This
+    // is because of a limitation of IPM messages that can only be enqueued in a
+    // single message queue at any time. This is slow but will do for now.
+    for (uint8_t cpu = 0; cpu < acpi_get_number_cpus(); ++cpu) {
+        if (cpu == this_cpu_var(cpu_id)) {
+            continue;
+        }
+
+        atomic_init(&wait, 1);
+        list_init(&tlb_message.msg_queue);
+
+        // We need to manually enqueue and raise the IPI here as it is normally
+        // done by send_ipm() which we cannot use here (because of the dynamic
+        // allocation).
+        enqueue_message(&tlb_message, cpu);
+        lapic_send_ipi(cpu, IPM_VECTOR);
+
+        // Now wait for the remote cpu to acknowlege the TLB_SHOOTDOWN message.
+        // WARNING: While waiting for the remote CPU to acknowlege, we _MUST_
+        // re-enable interrupts. This is to avoid a deadlock if the remote cpu
+        // tries to send us a TLB_SHOOTDOWN message in the meantime.
+        bool const irqs = interrupts_enabled();
+        cpu_set_interrupt_flag(true);
+        lapic_eoi();
+
+        while (atomic_read(&wait)) {
+            cpu_pause();
+        }
+
+        cpu_set_interrupt_flag(irqs);
     }
 }
 
