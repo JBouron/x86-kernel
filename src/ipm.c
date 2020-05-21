@@ -93,7 +93,6 @@ static void process_messages(void) {
                 // See exec_tlb_shootdown() for more information about how
                 // TLB-shootdowns are implemented in this kernel.
                 atomic_t * const wait = (atomic_t*)msg->data;
-                LOG("[%u] TLB_SHOOTDOWN from %u", this_cpu_var(cpu_id), msg->sender_id);
                 cpu_invalidate_tlb();
                 atomic_dec(wait);
                 break;
