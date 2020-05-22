@@ -170,7 +170,7 @@ static void enqueue_message(struct ipm_message * const message,
                             uint8_t const cpu) {
     struct list_node * const message_queue = &cpu_var(message_queue, cpu);
     // Atomically append the message to the remote cpu's queue.
-    struct spinlock * const lock = &cpu_var(message_queue_lock, cpu);
+    spinlock_t * const lock = &cpu_var(message_queue_lock, cpu);
     spinlock_lock(lock);
 
     if (message->tag == TLB_SHOOTDOWN) {

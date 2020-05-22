@@ -4,7 +4,7 @@
 
 // This file contains the definitions of spinlock_lock and spinlock_unlock.
 
-void spinlock_lock(struct spinlock * const lock) {
+void spinlock_lock(spinlock_t * const lock) {
     // We don't have a way to atomically acquire a lock and disable interrupts,
     // therefore disable interrupts even before trying to acquire the lock.
     bool const irq = interrupts_enabled();
@@ -16,7 +16,7 @@ void spinlock_lock(struct spinlock * const lock) {
     lock->interrupts_enabled = irq;
 }
 
-void spinlock_unlock(struct spinlock * const lock) {
+void spinlock_unlock(spinlock_t * const lock) {
     // Get back the saved IF from the lock.
     bool const interrupts = lock->interrupts_enabled;
 

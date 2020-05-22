@@ -56,7 +56,7 @@ DECLARE_PER_CPU(struct list_node, message_queue);
 // Since multiple cpus can try to send a message to the same destination
 // concurrently, the message queue needs a lock to protect it against race
 // conditions.
-DECLARE_PER_CPU(struct spinlock, message_queue_lock);
+DECLARE_PER_CPU(spinlock_t, message_queue_lock);
 
 // Initialize IPM related data i.e. per-cpu variables related to IPM. This must
 // be done by a single cpu (not necessarily the BSP) _before_ attempting to send
