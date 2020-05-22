@@ -454,10 +454,6 @@ void ap_initialize_state(void) {
     // Start by enabling the cache.
     cpu_enable_cache();
 
-    // This AP is still using the temporary GDT from the ap wake up procedure at
-    // this point. Switch to the real GDT.
-    ap_init_segmentation();
-
     // Initialize interrupts on this AP as well as the LAPIC.
     ap_interrupt_init();
     ap_init_lapic();

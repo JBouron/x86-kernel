@@ -351,6 +351,11 @@ target_paging:
     # Note: Since we are in higher half we can now call functions without
     # resorting to absolute calls tricks.
 
+    # This AP is still using the temporary GDT from the ap wake up procedure at
+    # this point. Switch to the real GDT. After this function returns, the cpu
+    # can access percpu variables.
+    call    ap_init_segmentation
+
     # Allocate a new, bigger stack in higher half kernel for this cpu.
     call    ap_alloc_higher_half_stack
 
@@ -377,7 +382,7 @@ target_paging:
 
     push    %ecx
 
-    # Initialize the remaining CPU states (GDT, IDT, ...).
+    # Initialize the remaining CPU states (IDT, LAPIC, ...).
     call    ap_initialize_state
 
     # Jump to the final start up routine. This routine is not supposed to
@@ -387,7 +392,7 @@ target_paging:
 
 limbo:
     # That should never happen. But if somehow an AP returns and ends up here
-    # then lock it up.
+    # then lock it up. Goodbye Mr. Cobb.
     cli
     hlt
     jmp limbo
