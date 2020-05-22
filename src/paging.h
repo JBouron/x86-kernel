@@ -52,6 +52,21 @@ void paging_unmap_and_free_frames(void const * const vaddr, size_t const len);
 void *paging_find_contiguous_non_mapped_pages(void * const start_addr,
                                               size_t const npages);
 
+// Maps physical frames to virtual memory above a certain address. The mapping
+// will be continous in the virtual address space. Notes: The frames will not
+// necessarily mapped at `start_addr` exactly but this function guarantees it
+// will be mapped to an address >= start_addr.
+// @param start_addr: The min virtual address to map the frames to.
+// @param frames: An array containing the physical frames to be mapped to
+// virtual memory.
+// @param npages: The number of physical frames to mapped.
+// @param flags: The flags to use when mapping the physical frames.
+// @return: The start virtual address of the memory region.
+void *paging_map_frames_above(void * const start_addr,
+                              void ** frames,
+                              size_t const npages,
+                              uint32_t const flags);
+
 // Get the physical address of the kernel's page directory.
 // @return: The physical address of the kernel's page directory.
 void const * get_kernel_page_dir_phy_addr(void);

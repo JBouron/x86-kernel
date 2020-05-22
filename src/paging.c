@@ -486,16 +486,15 @@ static void maybe_to_tlb_shootdown(void) {
 // Note: The addresses do not have to be 4KiB aligned, the mapping function will
 // take care of that. However they need to have the same page offset (lower 12
 // bits).
-void paging_map(void const * const paddr,
-                void const * const vaddr,
-                size_t const len,
-                uint32_t const flags) {
+// Note: This function assumes that the virtual address space is locked.
+static void do_paging_map(void const * const paddr,
+                          void const * const vaddr,
+                          size_t const len,
+                          uint32_t const flags) {
     // This function accepts addresses that are not page aligned. However they
     // at least need to share the same page offset, otherwise there is probably
     // an issue in the caller.
     ASSERT(page_offset(paddr) == page_offset(vaddr));
-
-    lock_vaddr_space();
 
     // Align the start addresses to page aligned addresses. Account for the
     // potentially increased size.
@@ -510,6 +509,14 @@ void paging_map(void const * const paddr,
         void const * const vchunk = start_virt + i * PAGE_SIZE;
         map_page(get_curr_page_dir_vaddr(), pchunk, vchunk, flags);
     }
+}
+
+void paging_map(void const * const paddr,
+                void const * const vaddr,
+                size_t const len,
+                uint32_t const flags) {
+    lock_vaddr_space();
+    do_paging_map(paddr, vaddr, len, flags);
     unlock_vaddr_space();
 
     cpu_invalidate_tlb();
@@ -622,24 +629,52 @@ static uint32_t compute_hole_size(void const * const vaddr) {
 
 // Find a memory region in the current virtual address space with at least a
 // certain number of contiguous pages non mapped.
+// This function assumes the virtual address space is locked.
 // @param start_addr: The start address to search from.
 // @parma npages: The minimum number of contiguous non mapped pages to look for.
 // @return: The start virtual address of the memory region.
-void *paging_find_contiguous_non_mapped_pages(void * const start_addr,
-                                              size_t const npages) {
-    lock_vaddr_space();
+static void *do_paging_find_contiguous_non_mapped_pages(void * const start_addr,
+                                                        size_t const npages) {
     void * ptr = find_next_non_mapped_page(start_addr);
     bool done = false;
     while (!done) {
         uint32_t const hole = compute_hole_size(ptr);
         if (hole >= npages) {
-            unlock_vaddr_space();
             return ptr;
         }
         ptr = find_next_non_mapped_page(ptr + PAGE_SIZE);
     }
     PANIC("No hole big enough");
     return NULL;
+}
+
+void *paging_find_contiguous_non_mapped_pages(void * const start_addr,
+                                              size_t const npages) {
+    lock_vaddr_space();
+    void * const res = do_paging_find_contiguous_non_mapped_pages(start_addr,
+        npages);
+    unlock_vaddr_space();
+    return res;
+}
+
+void *paging_map_frames_above(void * const start_addr,
+                              void ** frames,
+                              size_t const npages,
+                              uint32_t const flags) {
+    lock_vaddr_space();
+    void * const start = do_paging_find_contiguous_non_mapped_pages(start_addr,
+        npages);
+    for (size_t i = 0; i < npages; ++i) {
+        void const * const frame = frames[i];
+        do_paging_map(frame, start + i * PAGE_SIZE, PAGE_SIZE, flags);
+    }
+    unlock_vaddr_space();
+
+    // TLB invalidation must be done outside the critical section.
+    cpu_invalidate_tlb();
+    maybe_to_tlb_shootdown();
+
+    return start;
 }
 
 void const * get_kernel_page_dir_phy_addr(void) {
