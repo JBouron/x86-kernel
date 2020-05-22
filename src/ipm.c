@@ -5,10 +5,6 @@
 #include <debug.h>
 #include <kmalloc.h>
 
-// Vector 33 is reserved to the IPM handler. This handler will process messages
-// in the queue.
-#define IPM_VECTOR  33
-
 // This structure contains all the state necesasry to execute a remote function.
 // This represents the payload of an IPM message with tag REMOTE_CALL.
 // There is a single instance of this structure associated with a remote call,
@@ -47,7 +43,15 @@ static void handle_remote_call(struct remote_call_data_t * const call) {
         // might have moved on. Hence, we are not supposed to execute !
         PANIC("Try to exec with ref_count = 0");
     }
+
+    // Enable interrupts when running the function. This is necessary to avoid
+    // deadlocks if the function is looping and a critical message comes in (TLB
+    // for instance as the sender will wait for our ack).
+    bool const irqs = interrupts_enabled();
+    cpu_set_interrupt_flag(true);
     call->func(call->arg);
+    cpu_set_interrupt_flag(irqs);
+
     if (atomic_dec_and_test(&call->ref_count)) {
         // This is the job of this cpu to free the remote_call_data_t.
         kfree(call);

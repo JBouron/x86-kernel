@@ -5,6 +5,7 @@
 #include <lapic.h>
 #include <lock.h>
 #include <percpu.h>
+#include <ipm.h>
 
 // Interrupt gate descriptor.
 union interrupt_descriptor_t {
@@ -84,6 +85,24 @@ void generic_interrupt_handler(struct interrupt_frame_t const * const frame) {
     // to us.
     ASSERT(vector < IDT_SIZE);
 
+    // The IPM mechanism might re-enable interrupt for a short time (for remote
+    // calls for instance). Re-enabling interrupts requires signaling interrupt
+    // servicing completion (i.e. lapic_eoi()). The IPM could do it itself, but
+    // then this function/handler would need to figure out if it actually did to
+    // avoid calling lapic_eoi() twice (and possibly messing up).
+    // Instead, signal the end of interrupt before handling an interrupt of
+    // vector == IPM_VECTOR so that the IPM handler can enable interrupts
+    // without worrying about the EOI register. Later, after the IPM handler is
+    // called we know that we can skip the lapic_eoi().
+    // Note: The Intel manual says:
+    //  "This write [EOI] must occur at the end of the handler routine, sometime
+    //  before the IRET instruction."
+    // However it seems that doing it early does no create any issue, and Linux
+    // does it early as well for IPIs.
+    if (frame->vector == IPM_VECTOR) {
+        lapic_eoi();
+    }
+
     int_callback_t callback = NULL;
 
     // Check for local callback first.
@@ -106,7 +125,11 @@ void generic_interrupt_handler(struct interrupt_frame_t const * const frame) {
         LOG("eflags = %x\n", frame->eflags);
         PANIC("Unexpected interrupt in kernel\n");
     }
-    lapic_eoi();
+
+    if (frame->vector != IPM_VECTOR) {
+        // This was done already for IPM interrupts.
+        lapic_eoi();
+    }
 }
 
 // Disable the legacy Programable Interrupt Controller. This is important as it

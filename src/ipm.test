@@ -83,12 +83,6 @@ static bool volatile ipi_sent = false;
 static void overload_test_wait_and_send_messages(void * arg) {
     uint32_t const dest = (uint32_t)arg;
 
-    // FIXME: We need to enable interrupts here as we might end up in a
-    // situation where one of the other remote cpu sends us a TLB_SHOOTDOWN and
-    // waits for us to ack.
-    lapic_eoi();
-    cpu_set_interrupt_flag(true);
-
     while (!overload_test_ready) {
         cpu_pause();
     }
@@ -97,7 +91,6 @@ static void overload_test_wait_and_send_messages(void * arg) {
         send_ipm(dest, __TEST, NULL, 0);
         ipi_sent = true;
     }
-    cpu_set_interrupt_flag(false);
 }
 
 static uint32_t *num_received_msg_per_core = NULL;
@@ -239,6 +232,51 @@ static bool ipm_broadcast_remote_call_test(void) {
     return true;
 }
 
+// IPM no deadlock test. In this test we check that remote call do not create
+// deadlocks if two cores are calling functions on each other.
+// The cpu running the test chooses two cores.
+// Each of those cores run the function _ipm_no_deadlock_test_function.
+// _ipm_no_deadlock_test_function is a loop that remotely execute
+// _ipm_no_deadlock_test_signal on the other core. ipm_no_deadlock_test_rounds
+// times.
+// _ipm_no_deadlock_test_signal simply increment a cpu private variable.
+//
+// The cpu running the test waits for this variable to become == to
+// ipm_no_deadlock_test_rounds on both cpus.
+
+static uint32_t ipm_no_deadlock_test_rounds = 1024;
+DECLARE_PER_CPU(uint32_t volatile, signal);
+static void _ipm_no_deadlock_test_signal(void * arg) {
+    this_cpu_var(signal) ++;
+}
+
+static void _ipm_no_deadlock_test_function(void * arg) {
+    uint8_t const target_cpu = (uint32_t)arg;
+    for (uint32_t i = 0; i < ipm_no_deadlock_test_rounds; ++i) {
+        exec_remote_call(target_cpu, _ipm_no_deadlock_test_signal, NULL, true);
+    }
+}
+
+#define next_cpu(cpu) ((cpu+1)%acpi_get_number_cpus())
+
+static bool ipm_no_deadlock_test(void) {
+    TEST_ASSERT(acpi_get_number_cpus() >= 3);
+
+    uint32_t const cpu1 = next_cpu(this_cpu_var(cpu_id));
+    uint32_t const cpu2 = next_cpu(cpu1);
+    ASSERT(this_cpu_var(cpu_id) != cpu1);
+    ASSERT(this_cpu_var(cpu_id) != cpu2);
+
+    exec_remote_call(cpu1, _ipm_no_deadlock_test_function, (void*)cpu2, false);
+    exec_remote_call(cpu2, _ipm_no_deadlock_test_function, (void*)cpu1, false);
+    
+    TEST_WAIT_FOR(cpu_var(signal, cpu1) != ipm_no_deadlock_test_rounds, 2000);
+    TEST_WAIT_FOR(cpu_var(signal, cpu2) != ipm_no_deadlock_test_rounds, 2000);
+    return true;
+}
+
+#undef next_cpu
+
 void ipm_test(void) {
     TEST_FWK_RUN(ipm_simple_test);
     TEST_FWK_RUN(ipm_remote_call_test);
@@ -246,4 +284,5 @@ void ipm_test(void) {
     TEST_FWK_RUN(ipm_while_interrupt_flag_clear_test);
     TEST_FWK_RUN(ipm_broadcast_test);
     TEST_FWK_RUN(ipm_broadcast_remote_call_test);
+    TEST_FWK_RUN(ipm_no_deadlock_test);
 }

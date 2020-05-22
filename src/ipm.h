@@ -16,6 +16,10 @@
 // IPIs are set to maskable, such that a core will not receive IPM message in a
 // middle of a section judged non re-entrant.
 
+// Vector 33 is reserved to the IPM handler. This handler will process messages
+// in the queue.
+#define IPM_VECTOR  33
+
 // Each message is associated a tag indicating its nature.
 enum ipm_tag_t {
     // This tag is used for testing only!
