@@ -99,6 +99,7 @@ struct node_t {
 // Allocate a new group. The new group is initially empty.
 // @param size: The size of the group in pages.
 // @return: The virtual address of the new group.
+// Note: This function assumes that KMALLOC_LOCK is not held.
 static struct group_t * create_group(size_t const size) {
     // The group must reside in kernel memory.
     void * const low = KERNEL_PHY_OFFSET;
@@ -151,6 +152,7 @@ static inline bool group_is_empty(struct group_t const * const group) {
 // Deallocate a group.
 // @param group: The group to de-allocate.
 // Note: The group must not contain any allocated data.
+// Note: This function assumes that KMALLOC_LOCK is not held.
 static void free_group(struct group_t * const group) {
     // Check that nothing is left in the group before getting rid of it.
     ASSERT(group_is_empty(group));
@@ -402,17 +404,14 @@ static void kfree_in_group(struct group_t * const group, void * const addr) {
     insert_in_free_list(group, node);
 }
 
-// The spinlock that must be held while performing any operation in the dynamic
-// memory allocator.
-DECLARE_SPINLOCK(KMALLOC_LOCK);
-
 // Allocate memory in the first group available in `group_list`.
 // @param group_list: A linked list of groups to try to allocate into. The
 // particular group that will contain the allocation is the first group (in the
 // order of this list) that can hold the requested amount.
 // @param size: The size of the allocation.
-// @return: The address of the allocated memory.
-static void * do_kmalloc(struct list_node * group_list, size_t const size) {
+// @return: The address of the allocated memory if the allocation is successful,
+// NULL if no group from the group_list can contain such an allocation.
+static void *try_allocation(struct list_node * group_list, size_t const size) {
     struct group_t * group;
     list_for_each_entry(group, group_list, group_list) {
         if (group->free < size) {
@@ -426,30 +425,73 @@ static void * do_kmalloc(struct list_node * group_list, size_t const size) {
             return addr;
         }
     }
-    // Either we do not have a group right now or no group is big enough to
-    // contain the allocation. Try to allocate a new one.
+    // Not enough space in all the group.
+    return NULL;
+}
 
-    // Unlock the KMALLOC_LOCK while we are allocating a new group. The reason
-    // is that create_group will modify the page tables and therefore may
-    // execute a TLB shootdown. This could cause a deadlock if remote cpus need
-    // to acquire the kmalloc lock while processing their messages (if another
-    // message is enqueued alongside the TLB-shootdown message).
-    spinlock_unlock(&KMALLOC_LOCK);
+// The spinlock that must be held while performing any operation in the dynamic
+// memory allocator.
+DECLARE_SPINLOCK(KMALLOC_LOCK);
 
-    uint32_t const num_pages = ceil_x_over_y_u32(size + sizeof(group) +
-        HEADER_SIZE, PAGE_SIZE);
-    group = create_group(num_pages);
+// Allocate memory in the first group available in `group_list`.
+// @param group_list: A linked list of groups to try to allocate into. The
+// particular group that will contain the allocation is the first group (in the
+// order of this list) that can hold the requested amount.
+// @param size: The size of the allocation.
+// @return: The address of the allocated memory.
+static void * do_kmalloc(struct list_node * group_list, size_t const size) {
+    void * const addr = try_allocation(group_list, size);
+    if (addr) {
+        return addr;
+    } else {
+        // Either we do not have a group right now or no group is big enough to
+        // contain the allocation. Try to allocate a new one.
 
-    spinlock_lock(&KMALLOC_LOCK);
+        // Unlock the KMALLOC_LOCK while we are allocating a new group. The
+        // reason is that create_group will modify the page tables and therefore
+        // may execute a TLB shootdown. This could cause a deadlock if remote
+        // cpus need to acquire the kmalloc lock while processing their messages
+        // (if another message is enqueued alongside the TLB-shootdown message).
+        spinlock_unlock(&KMALLOC_LOCK);
 
-    // Add the group to the group list.
-    list_add_tail(group_list, &group->group_list);
+        struct group_t * group;
+        uint32_t const num_pages = ceil_x_over_y_u32(size + sizeof(group) +
+            HEADER_SIZE, PAGE_SIZE);
+        group = create_group(num_pages);
 
-    // Since we allocated the group to at least hold this allocation we must be
-    // able to find a node in it.
-    void * const addr = kmalloc_in_group(group, size);
-    ASSERT(addr);
-    return addr;
+        spinlock_lock(&KMALLOC_LOCK);
+
+        // While we released the group, some space might have been freed in the
+        // existing group or another cpu created a new group. Check if we can
+        // allocate before actually adding the new group.
+        void * const addr = try_allocation(group_list, size);
+        if (addr) {
+            // The allocation was successful, no need to add the group.
+
+            // Note: Because free_group assumes that KMALLOC_LOCK is not held we
+            // need to release, call free_group and re-acquire KMALLOC_LOCK.
+            // This is ok here, the allocation has already been done.
+            spinlock_unlock(&KMALLOC_LOCK);
+            free_group(group);
+            spinlock_lock(&KMALLOC_LOCK);
+
+            return addr;
+        } else {
+            // There is still no space for the allocation, add the new group and
+            // allocate in it.
+
+            // Add the group to the group list.
+            list_add_tail(group_list, &group->group_list);
+
+            // Since we allocated the group to at least hold this allocation we
+            // must be able to find a node in it. Also we already know that all
+            // other group cannot hold such an allocation so only check this
+            // one.
+            void * const addr = kmalloc_in_group(group, size);
+            ASSERT(addr);
+            return addr;
+        }
+    }
 }
 
 // Free allocated memory.
