@@ -7,7 +7,7 @@ AS=/root/opt/cross/bin/i686-elf-as
 # Note: The -Wno-array-bounds is necessary as some physical pointer arithmetic
 # would trigger warning messages about an out-of-bounds access.
 KERNEL_CFLAGS=-O2 -g -Wall -Wextra -Werror -ffreestanding -nostdlib -I./src \
-	-static-libgcc -lgcc -Wno-array-bounds
+	-static-libgcc -lgcc -Wno-array-bounds -Wno-unused-parameter
 KERNEL_ASFLAGS=-O2 -g
 # The name of the linker script used to build the kernel image.
 LINKER_SCRIPT=linker.ld
