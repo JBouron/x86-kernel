@@ -77,6 +77,11 @@ void **PER_CPU_OFFSETS;
 // Initialize per-cpu variables.
 void init_percpu(void);
 
+// Return whether or not percpu has been initialized, that is this_cpu_var() and
+// cpu_var() can be used to access percpu variables.
+// @return: true if initialized, false otherwise.
+bool percpu_initialized(void);
+
 // Execute per-cpu variables related tests.
 void percpu_test(void);
 

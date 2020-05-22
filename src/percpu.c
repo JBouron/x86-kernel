@@ -31,8 +31,16 @@ static void allocate_per_cpu_areas(void) {
     }
 }
 
+// Has the percpu system been initialized ?
+static bool PERCPU_INITIALIZED = false;
+
 void init_percpu(void) {
     allocate_per_cpu_areas();
+    PERCPU_INITIALIZED = true;
+}
+
+bool percpu_initialized(void) {
+    return PERCPU_INITIALIZED;
 }
 
 #include <percpu.test>
