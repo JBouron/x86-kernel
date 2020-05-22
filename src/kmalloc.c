@@ -103,14 +103,16 @@ static struct group_t * create_group(size_t const size) {
     // The group must reside in kernel memory.
     void * const low = KERNEL_PHY_OFFSET;
     // Find `size` contiguous pages in kernel memory.
-    void * const pages = paging_find_contiguous_non_mapped_pages(low, size);
 
-    // We found available pages in kernel virtual memory, we now need to map
-    // them to actual physical frames.
+    // Allocate the requested amount of physical frames and map them to the
+    // virtual address space. All groups pages are allocated above
+    // KERNEL_PHY_OFFSET. This is to avoid filling the low addresses used by the
+    // SMP code.
+    void *frames[size];
     for (size_t i = 0; i < size; ++i) {
-        void const * const frame = alloc_frame();
-        paging_map(frame, pages + i * PAGE_SIZE, PAGE_SIZE, VM_WRITE);
+        frames[i] = alloc_frame();
     }
+    void * const pages = paging_map_frames_above(low, frames, size, VM_WRITE);
 
     // Zero the pages to avoid random garbage.
     memzero(pages, size * PAGE_SIZE);
