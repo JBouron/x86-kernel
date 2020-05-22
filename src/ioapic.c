@@ -14,7 +14,7 @@
 #define IOREDTBL(n) (0x10 + (n) * 2)
 
 // This is the memory mapped portion of the IO APIC.
-struct io_apic_t {
+struct io_apic {
     // The ioregsel selects a register to read from or write to in the IO APIC.
     struct {
         // The address of the register to read from/write to.
@@ -38,7 +38,7 @@ struct io_apic_t {
 DECLARE_SPINLOCK(IOAPIC_LOCK);
 
 // The virtual address of the current IO APIC. For now we assume only one.
-struct io_apic_t volatile * IO_APIC = NULL;
+struct io_apic volatile * IO_APIC = NULL;
 
 // Redirection entry:
 // The next type definitions are related to redirection entries.
@@ -88,7 +88,7 @@ enum trigger_mode_t {
 } __attribute__((packed));
 
 // The redirection entry format.
-struct redirection_entry_t {
+struct redirection_entry {
     union {
         struct {
             // Each redirection entry is 64 bits long. However, reading and
@@ -130,13 +130,13 @@ struct redirection_entry_t {
         };
     };
 } __attribute__((packed));
-STATIC_ASSERT(sizeof(struct redirection_entry_t) == 8, "");
+STATIC_ASSERT(sizeof(struct redirection_entry) == 8, "");
 
 // Check if a redirection entry is valid.
 // @param entry: The entry to test.
 // @return: true if entry is a valid redirection entry, false otherwise.
 static bool redirection_entry_is_valid(
-    struct redirection_entry_t const * const entry) {
+    struct redirection_entry const * const entry) {
     // Some of the delivery mode are only compatible with some trigger mode (or
     // vector).
     switch (entry->delivery_mode) {
@@ -176,7 +176,7 @@ static void write_register(uint8_t const reg, uint32_t const value) {
 
 // This struct describes the layout of the value returned when reading the
 // register IOAPICVER.
-struct ioapicver_t {
+struct ioapicver {
     union {
         uint32_t raw;
         struct {
@@ -199,7 +199,7 @@ struct ioapicver_t {
 // in the IOAPICVER register which indicates the entry number of the highest
 // entry.
 static uint8_t get_max_redirections(void) {
-    struct ioapicver_t const ioapicver = {
+    struct ioapicver const ioapicver = {
         .raw = read_register(IOAPICVER),
     };
     return ioapicver.max_redirections + 1;
@@ -209,7 +209,7 @@ static uint8_t get_max_redirections(void) {
 // @param index: The index of the entry to read in the redirection table.
 // @param dest [OUT]: Pointer to read the entry into.
 static void read_redirection(uint8_t const index,
-    struct redirection_entry_t * const dest) {
+    struct redirection_entry * const dest) {
     uint8_t const reg = IOREDTBL(index);
     dest->low = read_register(reg);
     dest->high = read_register(reg + 1);
@@ -219,7 +219,7 @@ static void read_redirection(uint8_t const index,
 // @param index: The index in the redirection table.
 // @param entry: The entry to be written.
 static void write_redirection(uint8_t const index,
-                              struct redirection_entry_t const * const entry) {
+                              struct redirection_entry const * const entry) {
     ASSERT(redirection_entry_is_valid(entry));
     uint8_t const reg = IOREDTBL(index);
 
@@ -227,7 +227,7 @@ static void write_redirection(uint8_t const index,
     // read the entire register, change the field and write it back. Since the
     // redirection entries have reserved fields, we need to proceed in this
     // manner.
-    struct redirection_entry_t curr_entry;
+    struct redirection_entry curr_entry;
     read_redirection(index, &curr_entry);
 
     // Mutate the fields of the current entry.
@@ -281,7 +281,7 @@ void redirect_isa_interrupt(uint8_t const isa_vector,
     // one of them.
     ASSERT(31 < new_vector);
 
-    struct redirection_entry_t redir;
+    struct redirection_entry redir;
     // Make sure to zero the struct before writing it. Failure to do so might
     // write some value in reserved bit which leads to undefined behavior.
     memzero(&redir, sizeof(redir));
@@ -314,7 +314,7 @@ void remove_redirection_for_isa_interrupt(uint8_t const isa_vector) {
     uint8_t const mappedisa = acpi_get_isa_interrupt_vector_mapping(isa_vector);
 
     // Read the current redirection entry for this ISA vector.
-    struct redirection_entry_t curr_entry;
+    struct redirection_entry curr_entry;
 
     // Atomically mask the interrupt.
     spinlock_lock(&IOAPIC_LOCK);

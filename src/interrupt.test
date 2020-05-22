@@ -63,7 +63,7 @@ uint8_t basic_interrupt_test_target = 0;
 // The actual test.
 static bool basic_interrupt_test(void) {
     // Save original IDTR.
-    struct idt_desc_t orig_idtr;
+    struct idt_desc orig_idtr;
     cpu_sidt(&orig_idtr);
 
     // Create a fake IDT.
@@ -72,7 +72,7 @@ static bool basic_interrupt_test(void) {
     uint32_t const offset = (uint32_t)&basic_interrupt_test_handler;
     init_desc(fake_idt, offset, kernel_code_selector(), 0);
     // Load the fake IDT.
-    struct idt_desc_t const desc = {
+    struct idt_desc const desc = {
         .base = fake_idt,
         .limit = (sizeof(fake_idt) - 1),
     };
@@ -108,7 +108,7 @@ static uint8_t callback_target = 0x0;
 // callback_cond holds the following truth statment from the callback:
 //   vector == 0 AND cs == kernel cs.
 static bool callback_conds = false;
-static void test_callback(struct interrupt_frame_t const * const frame) {
+static void test_callback(struct interrupt_frame const * const frame) {
     callback_conds = frame->vector == 0 &&
         frame->cs == kernel_code_selector().value;
     callback_target = 0xBB;
@@ -124,13 +124,13 @@ static bool interrupt_register_callback_test(void) {
 }
 
 static bool global_callback_called = false;
-static void global_callback(struct interrupt_frame_t const * const frame) {
+static void global_callback(struct interrupt_frame const * const frame) {
     ASSERT(frame);
     global_callback_called = true;
 }
 
 static bool local_callback_called = false;
-static void local_callback(struct interrupt_frame_t const * const frame) {
+static void local_callback(struct interrupt_frame const * const frame) {
     ASSERT(frame);
     local_callback_called = true;
 }

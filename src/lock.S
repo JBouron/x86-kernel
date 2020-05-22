@@ -1,6 +1,6 @@
 #include <macro.h>
 
-#void spinlock_lock(struct spinlock_t * const lock);
+#void spinlock_lock(struct spinlock * const lock);
 ASM_FUNC_DEF(_spinlock_lock):
     mov     0x4(%esp), %edx
     jmp     test
@@ -19,7 +19,7 @@ test:
     # The lock has been acquired.
     ret
 
-#void spinlock_unlock(struct spinlock_t * const lock);
+#void spinlock_unlock(struct spinlock * const lock);
 ASM_FUNC_DEF(_spinlock_unlock):
     mov     0x4(%esp), %edx
     movb    $0x0, (%edx)

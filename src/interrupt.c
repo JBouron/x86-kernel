@@ -79,7 +79,7 @@ extern uint32_t get_interrupt_handler(uint8_t const vector);
 // The generic interrupt handler. Eventually all the interrupts call the generic
 // handler.
 // @param frame: Information about the interrupt.
-void generic_interrupt_handler(struct interrupt_frame_t const * const frame) {
+void generic_interrupt_handler(struct interrupt_frame const * const frame) {
     uint8_t const vector = frame->vector;
     // A sanity check that the low level interrupt handler did not send garbage
     // to us.
@@ -155,7 +155,7 @@ void interrupt_init(void) {
     }
 
     // Load the IDT information into the IDTR of the cpu.
-    struct idt_desc_t const desc = {
+    struct idt_desc const desc = {
         .base = IDT,
         .limit = (IDT_SIZE * 8 - 1),
     };
@@ -174,7 +174,7 @@ void interrupt_init(void) {
 
 void ap_interrupt_init(void) {
     // Simply load IDT into the IDTR of this AP.
-    struct idt_desc_t const desc = {
+    struct idt_desc const desc = {
         .base = IDT,
         .limit = (IDT_SIZE * 8 - 1),
     };

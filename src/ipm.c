@@ -10,7 +10,7 @@
 // There is a single instance of this structure associated with a remote call,
 // this means that N remote cores executing the function will have access to the
 // same instance and therefore should not modify it.
-struct remote_call_data_t {
+struct remote_call_data {
     // The function to execute.
     void (*func)(void*);
     // The argument to pass to the function upon execution.
@@ -32,11 +32,11 @@ static void unlock_message_queue(void) {
 
 // Used for testing purposes only. This callback is called whenever a message
 // with __TEST tag is received.
-static void (*TEST_TAG_CALLBACK)(struct ipm_message_t const *) = NULL;
+static void (*TEST_TAG_CALLBACK)(struct ipm_message const *) = NULL;
 
 // Handle a remote call from an IPM message.
-// @param call: The struct remote_call_data_t associated with the remote call.
-static void handle_remote_call(struct remote_call_data_t * const call) {
+// @param call: The struct remote_call_data associated with the remote call.
+static void handle_remote_call(struct remote_call_data * const call) {
     if(atomic_read(&call->ref_count) == 0) {
         // There is a problem here, the ref_count of the call is 0, which means
         // all targeted cpus have executed this call already and the sender
@@ -71,8 +71,8 @@ static void process_messages(void) {
     lock_message_queue();
     while (list_size(head)) {
         // Get the first message in the queue and remove it.
-        struct ipm_message_t * const msg =
-            list_first_entry(head, struct ipm_message_t, msg_queue);
+        struct ipm_message * const msg =
+            list_first_entry(head, struct ipm_message, msg_queue);
         struct list_node * const node = &msg->msg_queue;
         list_del(node);
 
@@ -89,7 +89,7 @@ static void process_messages(void) {
                 break;
             }
             case REMOTE_CALL : {
-                struct remote_call_data_t * const call = msg->data;
+                struct remote_call_data * const call = msg->data;
                 handle_remote_call(call);
                 break;
             }
@@ -118,7 +118,7 @@ static void process_messages(void) {
 // function.
 // @param frame: The interrput frame. This is of very little use in this
 // handler.
-static void ipm_handler(struct interrupt_frame_t const * const frame) {
+static void ipm_handler(struct interrupt_frame const * const frame) {
     ASSERT(frame);
     // Jump to the process_messages function to processes any message(s) in the
     // message queue.
@@ -146,12 +146,12 @@ void init_ipm(void) {
 // @param tag: The tag of the message.
 // @param data: The data of the message.
 // @param len: The length of the data area of the message.
-// @return: A pointer on an allocated struct ipm_message_t initialized to the
+// @return: A pointer on an allocated struct ipm_message initialized to the
 // values above.
-static struct ipm_message_t * alloc_message(enum ipm_tag_t const tag,
+static struct ipm_message * alloc_message(enum ipm_tag_t const tag,
                                             void * const data,
                                             size_t const len) {
-    struct ipm_message_t * const message = kmalloc(sizeof(*message));
+    struct ipm_message * const message = kmalloc(sizeof(*message));
     message->tag = tag;
     message->sender_id = this_cpu_var(cpu_id);
     // By default make the receiving cpu deallocate the ipm_message_t. This is
@@ -166,11 +166,11 @@ static struct ipm_message_t * alloc_message(enum ipm_tag_t const tag,
 
 // Enqueue a message on a cpu's message queue.
 // @param message: The message to enqueue.
-static void enqueue_message(struct ipm_message_t * const message,
+static void enqueue_message(struct ipm_message * const message,
                             uint8_t const cpu) {
     struct list_node * const message_queue = &cpu_var(message_queue, cpu);
     // Atomically append the message to the remote cpu's queue.
-    struct spinlock_t * const lock = &cpu_var(message_queue_lock, cpu);
+    struct spinlock * const lock = &cpu_var(message_queue_lock, cpu);
     spinlock_lock(lock);
 
     if (message->tag == TLB_SHOOTDOWN) {
@@ -207,7 +207,7 @@ static void do_send_ipm(uint8_t const cpu,
             // Don't send the message to ourselves if we request a broadcast.
             continue;
         }
-        struct ipm_message_t * const message = alloc_message(tag, data, len);
+        struct ipm_message * const message = alloc_message(tag, data, len);
         enqueue_message(message, i);
     }
 
@@ -242,7 +242,7 @@ void exec_remote_call(uint8_t const cpu,
                       bool const wait) {
     // How to choose the reference count initial value ?
     // ref_count == 1 => The remote core will execute the function and free the
-    // struct remote_call_data_t immediately after. This is good if we don't
+    // struct remote_call_data immediately after. This is good if we don't
     // want to wait for the remote call to finish.
     // ref_count == 2 => After executing the call, the remote core will dec the
     // ref_count to 1, and therefore will not free the memroy. This is good if
@@ -250,7 +250,7 @@ void exec_remote_call(uint8_t const cpu,
     // become one.
     int32_t const ref_count_initial_val = wait ? 2 : 1;
 
-    struct remote_call_data_t *rem_data = kmalloc(sizeof(*rem_data));
+    struct remote_call_data *rem_data = kmalloc(sizeof(*rem_data));
     rem_data->func = func;
     rem_data->arg = arg;
     atomic_init(&rem_data->ref_count, ref_count_initial_val);
@@ -273,7 +273,7 @@ void broadcast_remote_call(void (*func)(void*),
     // finish.
     int32_t const ref_count_initial_val = acpi_get_number_cpus() - (wait?0:1);
 
-    struct remote_call_data_t *rem_data = kmalloc(sizeof(*rem_data));
+    struct remote_call_data *rem_data = kmalloc(sizeof(*rem_data));
     rem_data->func = func;
     rem_data->arg = arg;
     atomic_init(&rem_data->ref_count, ref_count_initial_val);
@@ -305,7 +305,7 @@ void exec_tlb_shootdown(void) {
     // We _must_ statically allocate the message here as kmalloc could
     // potentially require a new group and therefore map a new page and execute
     // a TLB shootdown leading to an infinite loop.
-    struct ipm_message_t tlb_message = {
+    struct ipm_message tlb_message = {
         .tag = TLB_SHOOTDOWN,
         .sender_id = this_cpu_var(cpu_id),
         .receiver_dealloc = false,

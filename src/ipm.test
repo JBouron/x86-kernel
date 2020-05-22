@@ -2,7 +2,7 @@
 
 static bool volatile simple_test_message_received = false;
 static uint8_t simple_test_sender_id = 0;
-static void simple_test_callback(struct ipm_message_t const * const msg) {
+static void simple_test_callback(struct ipm_message const * const msg) {
     simple_test_message_received = msg->tag == __TEST &&
         msg->sender_id == simple_test_sender_id;
 }
@@ -94,7 +94,7 @@ static void overload_test_wait_and_send_messages(void * arg) {
 }
 
 static uint32_t *num_received_msg_per_core = NULL;
-static void overload_test_message_callback(struct ipm_message_t const * msg) {
+static void overload_test_message_callback(struct ipm_message const * msg) {
     num_received_msg_per_core[msg->sender_id] ++;
 }
 
@@ -175,7 +175,7 @@ static bool ipm_while_interrupt_flag_clear_test(void) {
 
 static bool *ipm_broadcast_test_recv = NULL;
 static void ipm_broadcast_test_test_message_callback(
-    __attribute__((unused)) struct ipm_message_t const * msg) {
+    __attribute__((unused)) struct ipm_message const * msg) {
     ipm_broadcast_test_recv[this_cpu_var(cpu_id)] = true;
 }
 

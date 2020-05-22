@@ -67,10 +67,10 @@ union status_t {
 } __attribute__((packed));
 // The status struct should be a single byte so that casting from/to uint8_t is
 // easy.
-STATIC_ASSERT(sizeof(union status_t) == 1, "struct status_t should be 1 byte");
+STATIC_ASSERT(sizeof(union status_t) == 1, "struct status should be 1 byte");
 
 // Get the status of the serial controller.
-// @return: Current status in a struct status_t format.
+// @return: Current status in a struct status format.
 static union status_t get_status(void) {
     uint8_t const line_status_reg = read_register(LINE_STATUS);
     union status_t const status = {
@@ -190,7 +190,7 @@ static size_t serial_read(uint8_t * const buf, size_t const len) {
 }
 
 // The serial I/O stream.
-struct io_stream_t SERIAL_STREAM = {
+struct io_stream SERIAL_STREAM = {
     .read = serial_read,
     .write = serial_write,
 };

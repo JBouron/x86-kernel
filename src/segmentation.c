@@ -100,7 +100,7 @@ static uint16_t const PERCPU_SEG_START_INDEX = 3;
 // @param size: The total size in bytes of the GDT.
 static void load_gdt(union segment_descriptor_t* const gdt, size_t const size) {
     ASSERT(gdt);
-    struct gdt_desc_t const table_desc = {
+    struct gdt_desc const table_desc = {
         .base = gdt,
         .limit = size - 1,
     };
@@ -202,7 +202,7 @@ union segment_selector_t kernel_code_selector(void) {
     return sel;
 }
 
-void initialize_trampoline_gdt(struct ap_boot_data_frame_t * const data_frame) {
+void initialize_trampoline_gdt(struct ap_boot_data_frame * const data_frame) {
     // Per documentation of the AP start up procedure, the APs use a temporary
     // GDT to enter protected mode. The content of this GDT is as follows:
     //      GDT[0] = <NULL entry>

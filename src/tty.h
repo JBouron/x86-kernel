@@ -8,8 +8,8 @@
 // Initialize the tty with both an input and output stream.
 // @param input_stream: The input stream to be used by the tty.
 // @param output_stream: The output stream to be used by the tty.
-void tty_init(struct i_stream_t const * const input_stream,
-              struct o_stream_t const * const output_stream);
+void tty_init(struct i_stream const * const input_stream,
+              struct o_stream const * const output_stream);
 
 // Print a formatted string to the output stream.
 // @param fmt: The format string.

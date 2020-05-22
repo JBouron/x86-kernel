@@ -12,7 +12,7 @@ static size_t fake_write(uint8_t const * const buf, size_t const len) {
     return len;
 }
 
-static struct o_stream_t FAKE_OUTPUT_STREAM = {
+static struct o_stream FAKE_OUTPUT_STREAM = {
     .read = NULL,
     .write = fake_write,
 };
@@ -20,8 +20,8 @@ static struct o_stream_t FAKE_OUTPUT_STREAM = {
 // Since the test might conflict with the state of the actual tty, we need to
 // save it before running a test case and restore it afterward.
 #define TTY_TEST_SETUP()                                        \
-    struct i_stream_t const * const __old_is = INPUT_STREAM;    \
-    struct o_stream_t const * const __old_os = OUTPUT_STREAM;   \
+    struct i_stream const * const __old_is = INPUT_STREAM;    \
+    struct o_stream const * const __old_os = OUTPUT_STREAM;   \
     OUTPUT_STREAM = &FAKE_OUTPUT_STREAM;                        \
     FAKE_BUFFER_CURSOR = 0;                                     \
     memzero(FAKE_BUFFER, FAKE_BUFFER_SIZE);

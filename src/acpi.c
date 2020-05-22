@@ -28,10 +28,10 @@
 // the bytes of the header (or table in certain cases) adds up to 0 mod 256.
 
 // Forward decl of the RSDT to be able to reference to it in the RSDP struct.
-struct rsdt_t;
+struct rsdt;
 
 // This is the layout of the RSDP.
-struct rsdp_desc_t {
+struct rsdp_desc {
     // The signature of the RSDP, this _must_ be equal to "RSD PTR ".
     char const signature[8];
     // The checksum of the RSDP. Computed by summing the bytes of this struct.
@@ -42,11 +42,11 @@ struct rsdp_desc_t {
     // now.
     uint8_t const revision;
     // The physical address of the RSDT.
-    struct rsdt_t const * const rsdt_addr;
+    struct rsdt const * const rsdt_addr;
 } __attribute__ ((packed));
 
 // All System Description Table start with a header as follows:
-struct sdt_header_t {
+struct sdt_header {
     // The signature of the table, that is its nature. Can be "APIC", ...
     char const signature[4];
     // The length of the table INCLUDING this header.
@@ -65,12 +65,12 @@ struct sdt_header_t {
 } __attribute__((packed));
 
 // The layout of the Root System Description Table (RSDT).
-struct rsdt_t {
+struct rsdt {
     // As all tables in the ACPI the RSDT starts with an SDT header.
-    struct sdt_header_t const header;
+    struct sdt_header const header;
     // The pointers to the tables referenced by the RSDT. Note that this field
     // has a variable length.
-    struct sdt_header_t const * const tables[0];
+    struct sdt_header const * const tables[0];
 } __attribute__((packed));
 
 // APIC SDT:
@@ -81,9 +81,9 @@ struct rsdt_t {
 
 // The MADT layout describing APIC related information of the system. The MADT
 // is just a fancy name for the SDT of the APIC subsytem.
-struct madt_t {
+struct madt {
     // The common header of the SDT.
-    struct sdt_header_t const header;
+    struct sdt_header const header;
     // The local APIC physical address.
     void * const local_apic_addr;
     // Flags. If this field is set to 1 it means that dual 8259 legacy PICs
@@ -104,7 +104,7 @@ enum madt_entry_type_t {
 STATIC_ASSERT(sizeof(enum madt_entry_type_t) == sizeof(uint8_t), "");
 
 // An entry of the MADT table.
-struct madt_entry_header_t {
+struct madt_entry_header {
     // Type of the entry.
     enum madt_entry_type_t const type;
     // The length in bytes of the entry INCLUDING this header.
@@ -115,9 +115,9 @@ struct madt_entry_header_t {
 // the MADT entry header is PROC_LOCAL_APIC (0).
 // This entry describes information about the local APIC of a core in the
 // system.
-struct madt_local_apic_entry_t {
+struct madt_local_apic_entry {
     // The header of the MADT entry.
-    struct madt_entry_header_t const header;
+    struct madt_entry_header const header;
     // The ID of the processor in ACPI.
     uint8_t const acpi_processor_id;
     // The ID of the processor in the APIC.
@@ -130,9 +130,9 @@ struct madt_local_apic_entry_t {
 
 // This structure describes the layout of an MADT entry when the type of  the
 // entry is IO_APIC.
-struct madt_ioapic_entry_t {
+struct madt_ioapic_entry {
     // The header of the MADT entry.
-    struct madt_entry_header_t const header;
+    struct madt_entry_header const header;
     // The ID of the IO APIC described by this entry.
     uint8_t const ioapic_id;
     // Reserved.
@@ -143,9 +143,9 @@ struct madt_ioapic_entry_t {
     uint32_t const global_sys_int_base;
 } __attribute__((packed));
 
-struct madt_int_src_override_entry_t {
+struct madt_int_src_override_entry {
     // The header of the MADT entry.
-    struct madt_entry_header_t const header;
+    struct madt_entry_header const header;
     uint8_t const bus;
     uint8_t const source_irq;
     uint32_t const global_system_interrupt;
@@ -169,7 +169,7 @@ static bool verify_checksum_raw(uint8_t const * const ptr, size_t const len) {
 // Compute and verify the checksum of an RSDP.
 // @param rsdp: The RSDP to verify the checksum for.
 // @return: true if the checksum of the RSDP is valid, false otherwise.
-static bool verify_rsdp_desc_checksum(struct rsdp_desc_t const * const rsdp) {
+static bool verify_rsdp_desc_checksum(struct rsdp_desc const * const rsdp) {
     uint8_t const * const bytes = (uint8_t const*) rsdp;
     // The checksm of an RSDP is computed by summing all the byte of the
     // rsdp_desc_t structure.
@@ -179,7 +179,7 @@ static bool verify_rsdp_desc_checksum(struct rsdp_desc_t const * const rsdp) {
 // Compute and verify the checksum of an SDT.
 // @param rsdp: The SDT to verify the checksum for.
 // @return: true if the checksum of the SDT is valid, false otherwise.
-static bool verify_sdt_checksum(struct sdt_header_t const * const sdt) {
+static bool verify_sdt_checksum(struct sdt_header const * const sdt) {
     uint8_t const * const bytes = (uint8_t const*) sdt;
     // Unlike with an RSDP, computing the checksum of an SDT uses all the bytes
     // of the _table_ that is the header AND the data following it.
@@ -188,7 +188,7 @@ static bool verify_sdt_checksum(struct sdt_header_t const * const sdt) {
 
 // Find the RSDP in low memory.
 // @return: A virtual address pointing to the RSDP.
-struct rsdp_desc_t const * find_rsdp_desc(void) {
+struct rsdp_desc const * find_rsdp_desc(void) {
     // Since the EBDA has been mapped to higher half there is no need to map any
     // additional page here.
     void const * const ebda_start = to_virt((void*)0x000A0000);
@@ -207,7 +207,7 @@ struct rsdp_desc_t const * find_rsdp_desc(void) {
 // @return: A dynamically allocated char *, NULL terminated, containing the
 // signature of SDT. Note that this char * must be free by the caller of this
 // function.
-static char * get_sdt_signature(struct sdt_header_t const * const sdt) {
+static char * get_sdt_signature(struct sdt_header const * const sdt) {
     char * const str = kmalloc(sizeof(sdt->signature) + 1);
     // The allocation above will already memzero the string.
     strncpy(sdt->signature, str, sizeof(sdt->signature));
@@ -218,14 +218,14 @@ static char * get_sdt_signature(struct sdt_header_t const * const sdt) {
 // physical pointers following the header of the RSDT.
 // @param rsdt: The RSDT.
 // @return: The number of pointer following RSDT's header.
-static uint32_t number_of_tables_for_rsdt(struct rsdt_t const * const rsdt) {
+static uint32_t number_of_tables_for_rsdt(struct rsdt const * const rsdt) {
     // After the SDT header, the RSDT contains N pointers to other SDTs. Since
     // we know the size of an SDT header and the total size of the RSDT, the
     // number of pointer can be computed as follows:
     return (rsdt->header.length - sizeof(rsdt->header)) / 4;
 }
 
-static void map_table(struct sdt_header_t const * const table) {
+static void map_table(struct sdt_header const * const table) {
     // The goal here is to id map the table, however to this end we need to know
     // its length first. Therefore with first map the header bytes, read the
     // length, and then map the rest.
@@ -233,19 +233,19 @@ static void map_table(struct sdt_header_t const * const table) {
     paging_map(table, table, table->length, 0);
 }
 
-static void unmap_table(struct sdt_header_t const * const table) {
+static void unmap_table(struct sdt_header const * const table) {
     paging_unmap(table, table->length);
 }
 
 // A callback to be called when parsing the ACPI information.
-typedef void (*parser_callback)(struct sdt_header_t const * const);
+typedef void (*parser_callback)(struct sdt_header const * const);
 
 // Parse the ACPI info and invoke a callback for every SDT found.
 // @param callback: A function pointer to be called for every SDT. This function
 // is expected to take a callback as argument.
 static void parse_acpi_info(parser_callback const callback) {
     // Find the RSDP in memory.
-    struct rsdp_desc_t const * const rsdp = find_rsdp_desc();
+    struct rsdp_desc const * const rsdp = find_rsdp_desc();
     if (!rsdp) {
         PANIC("Could not find RSDP");
     }
@@ -263,7 +263,7 @@ static void parse_acpi_info(parser_callback const callback) {
     LOG("RSDP found at %p\n", rsdp);
 
     // Get a pointer to the Root System Description Table from the RSDP.
-    struct rsdt_t const * const rsdt = rsdp->rsdt_addr;
+    struct rsdt const * const rsdt = rsdp->rsdt_addr;
 
     // The pointer above is a physical pointer and therefore needs to be mapped
     // before parsing.
@@ -276,7 +276,7 @@ static void parse_acpi_info(parser_callback const callback) {
     // Iterate over the array of pointers to SDTs. Call the callback for each
     // SDT.
     for (uint32_t i = 0; i < n_tables; ++i) {
-        struct sdt_header_t const * const sdt = rsdt->tables[i];
+        struct sdt_header const * const sdt = rsdt->tables[i];
         // ID map the SDT to virtual memory.
         map_table(sdt);
 
@@ -321,7 +321,7 @@ static void * IO_APIC_ADDR = NULL;
 uint16_t NCPUS = 0;
 
 static void process_madt_local_apic_entry(
-    struct madt_local_apic_entry_t const * const entry) {
+    struct madt_local_apic_entry const * const entry) {
     LOG("   acpi proc id = %u\n", entry->acpi_processor_id);
     LOG("   apic id      = %u\n", entry->apic_id);
     LOG("   flags        = %u\n", entry->flags);
@@ -333,7 +333,7 @@ static void process_madt_local_apic_entry(
 }
 
 static void process_madt_ioapic_entry(
-    struct madt_ioapic_entry_t const * const entry) {
+    struct madt_ioapic_entry const * const entry) {
     LOG("   ioapic_id           = %u\n", entry->ioapic_id);
     LOG("   ioapic_addr         = %x\n", entry->ioapic_addr);
     LOG("   global_sys_int_base = %x\n", entry->global_sys_int_base);
@@ -355,7 +355,7 @@ static uint8_t isa_vector_mapping[] = {
 };
 
 static void process_madt_int_src_override_entry(
-    struct madt_int_src_override_entry_t const * const entry) {
+    struct madt_int_src_override_entry const * const entry) {
     LOG("   bus                     = %u\n", entry->bus);
     LOG("   source_irq              = %u\n", entry->source_irq);
     LOG("   global_system_interrupt = %u\n", entry->global_system_interrupt);
@@ -370,7 +370,7 @@ static void process_madt_int_src_override_entry(
 
 // Parses an MADT.
 // @param madt: The MADT to parse.
-static void process_madt(struct madt_t const * const madt) {
+static void process_madt(struct madt const * const madt) {
     LOG("MADT is at %p\n", madt);
 
     // Compute the start and end of the MADT data.
@@ -380,7 +380,7 @@ static void process_madt(struct madt_t const * const madt) {
 
     // Parse the entries of the MADT.
     while (ptr < end_of_madt) {
-        struct madt_entry_header_t const * const header = ptr;
+        struct madt_entry_header const * const header = ptr;
         LOG("MADT[%u] is %s:\n", index, get_madt_type_str(header->type));
 
         switch (header->type) {
@@ -405,12 +405,12 @@ static void process_madt(struct madt_t const * const madt) {
 
 // React to an ACPI SDT (or MADT) and parses further. Ignores any other table.
 // @param sdt: The SDT to check.
-static void acpi_table_callback(struct sdt_header_t const * const sdt) {
+static void acpi_table_callback(struct sdt_header const * const sdt) {
     char * const signature = get_sdt_signature(sdt);
 
     LOG("Found SDT at %p, signature = %s\n", sdt, signature);
     if (streq(signature, "APIC")) {
-        struct madt_t const * const madt = (void*)sdt;
+        struct madt const * const madt = (void*)sdt;
         process_madt(madt);
     }
     kfree(signature);

@@ -9,7 +9,7 @@ void ap_interrupt_init(void);
 
 // This contain information about the interrupt that triggered the call to the
 // handler/callback.
-struct interrupt_frame_t {
+struct interrupt_frame {
     // The value of EFLAGS at the time of the interrupt.
     uint32_t eflags;
     // The value of CS at the time of the interrupt.
@@ -38,7 +38,7 @@ struct interrupt_frame_t {
 // raised.
 
 // An high-level callback for an interrupt.
-typedef void (*int_callback_t)(struct interrupt_frame_t const *);
+typedef void (*int_callback_t)(struct interrupt_frame const *);
 
 // Register a global callback for an interrupt vector.
 // @param vector: The vector that should trigger the interrupt callback once

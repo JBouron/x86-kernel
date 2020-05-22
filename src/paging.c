@@ -68,12 +68,12 @@ union pte_t {
 STATIC_ASSERT(sizeof(union pte_t) == 4, "");
 
 // A page directory structure.
-struct page_dir_t {
+struct page_dir {
     union pde_t entry[1024];
 };
 
 // A page table structure.
-struct page_table_t {
+struct page_table {
     union pte_t entry[1024];
 };
 
@@ -96,14 +96,14 @@ static bool compare_ptes(union pte_t const a, union pte_t const b) {
 
 // Allocate a new page directory.
 // @return: The _physical_ address of the freshly allocated page directory.
-static struct page_dir_t * alloc_page_dir(void) {
-    return (struct page_dir_t*) alloc_frame();
+static struct page_dir * alloc_page_dir(void) {
+    return (struct page_dir*) alloc_frame();
 }
 
 // Allocate a new page table.
 // @return: The _physical_ address of the freshly allocated page table.
-static struct page_table_t * alloc_page_table(void) {
-    return (struct page_table_t*) alloc_frame();
+static struct page_table * alloc_page_table(void) {
+    return (struct page_table*) alloc_frame();
 }
 
 // For now we have only a single virtual address space shared by all cpus. When
@@ -123,12 +123,12 @@ static void unlock_vaddr_space(void) {
 }
 
 // The _physical_ address of the kernel page directory.
-static struct page_dir_t * KERNEL_PAGE_DIR = 0x0;
+static struct page_dir * KERNEL_PAGE_DIR = 0x0;
 
 // Create the recursive entry on the last entry of a page directory.
 // @param page_dir: The page directory in which the recursive entry will be
 // created. Note: This needs to be a _physical_ address.
-static void create_recursive_entry(struct page_dir_t * const page_dir) {
+static void create_recursive_entry(struct page_dir * const page_dir) {
     // For now this function will not work if paging has already been enabled.
     // TODO :#:
     union pde_t recursive_entry;
@@ -152,10 +152,10 @@ static void create_recursive_entry(struct page_dir_t * const page_dir) {
 // @return: The virtual address of the page directory.
 // Note: This function will not work if paging is disabled or CR3 does not
 // contain a valid page directory with a recursive entry.
-static struct page_dir_t * get_curr_page_dir_vaddr(void) {
+static struct page_dir * get_curr_page_dir_vaddr(void) {
     ASSERT(cpu_paging_enabled());
     uint32_t const vaddr = (1023 << 22) | (1023 << 12);
-    return (struct page_dir_t *) vaddr;
+    return (struct page_dir *) vaddr;
 }
 
 // Get the virtual address "pointing" to a page table under the current page
@@ -164,9 +164,9 @@ static struct page_dir_t * get_curr_page_dir_vaddr(void) {
 // @return: The virtual address of the page table.
 // Note: This function will not work if paging is disabled or CR3 does not
 // contain a valid page directory with a recursive entry.
-static struct page_table_t * get_page_table_vaddr(uint16_t const table_index) {
+static struct page_table * get_page_table_vaddr(uint16_t const table_index) {
     uint32_t const vaddr = (1023 << 22) | (((uint32_t)table_index) << 12);
-    return (struct page_table_t *) vaddr;
+    return (struct page_table *) vaddr;
 }
 
 // Remove the identity mapping created during paging initialization.
@@ -175,7 +175,7 @@ static struct page_table_t * get_page_table_vaddr(uint16_t const table_index) {
 static void remove_identity_mapping(void) {
     // Since we are now using paging, we need to use the recursive entry to
     // modify the page directory.
-    struct page_dir_t * const page_dir = get_curr_page_dir_vaddr();
+    struct page_dir * const page_dir = get_curr_page_dir_vaddr();
     uint32_t const num_frames = ceil_x_over_y_u32(
         (uint32_t)to_phys(KERNEL_END_ADDR), PAGE_SIZE);
     // Compute the number of page tables that will need to be allocated.
@@ -215,7 +215,7 @@ static inline uint16_t pte_index(void const * const vaddr) {
 // Note: Even though this function works whether or not paging is enabled, once
 // paging is enabled, the page_dir parameter must be the virtual address of the
 // page directory currently loaded in CR3, otherwise the behavior is undefined.
-static void map_page(struct page_dir_t * const page_dir,
+static void map_page(struct page_dir * const page_dir,
                      void const * const paddr,
                      void const * const vaddr,
                      uint32_t const flags) {
@@ -232,7 +232,7 @@ static void map_page(struct page_dir_t * const page_dir,
     if (!page_dir->entry[pde_idx].present) {
         // The table for this index is not present, we need to allocate it and
         // set it up.
-        struct page_table_t * const new_table = alloc_page_table();
+        struct page_table * const new_table = alloc_page_table();
         page_table_allocated = true;
         union pde_t pde;
         // Try to be as inclusive as possible for the PDE. The PTEs will
@@ -254,9 +254,9 @@ static void map_page(struct page_dir_t * const page_dir,
         page_dir->entry[pde_idx] = pde;
     }
 
-    struct page_table_t * const page_table = cpu_paging_enabled() ?
+    struct page_table * const page_table = cpu_paging_enabled() ?
         get_page_table_vaddr(pde_idx) :
-        (struct page_table_t*)(page_dir->entry[pde_idx].page_table_addr << 12);
+        (struct page_table*)(page_dir->entry[pde_idx].page_table_addr << 12);
 
     if (page_table_allocated) {
         // If the page table has been freshly allocated zero it, this is to
@@ -301,7 +301,7 @@ static void map_page(struct page_dir_t * const page_dir,
 // in virtual memory.
 // @param pd: The _physical_ address (paging is not yet enabled) of the page
 // directory of the kernel.
-static void create_identity_and_higher_half_mappings(struct page_dir_t * pd) {
+static void create_identity_and_higher_half_mappings(struct page_dir * pd) {
     // Map the virtual addresses KERNEL_PHY_OFFSET -> KERNEL_END_ADDR to 0x0 ->
     // <whatever the size of the kernel is>.
     void const * const start = KERNEL_PHY_OFFSET;
@@ -356,7 +356,7 @@ void init_paging(void const * const esp) {
     // used the higher-half mapping only.
 
     // Allocate a page directory for the kernel itself.
-    struct page_dir_t * const page_dir = alloc_page_dir();
+    struct page_dir * const page_dir = alloc_page_dir();
     memzero(page_dir, PAGE_SIZE);
 
     // Create both mappings.
@@ -369,7 +369,7 @@ void init_paging(void const * const esp) {
 
     // Set the global variable containing the physical address of the kernel's
     // page directory.
-    *(struct page_dir_t**)to_phys(&KERNEL_PAGE_DIR) = page_dir;
+    *(struct page_dir**)to_phys(&KERNEL_PAGE_DIR) = page_dir;
 
     // Load the page dir in CR3 and enable paging.
     cpu_set_cr3(page_dir);
@@ -395,7 +395,7 @@ void init_paging(void const * const esp) {
     // uses a linear address which is equivalent to physical address. However
     // this won't work once we get rid of the identity mapping. Therefore we
     // need to fixup the base address in the GDTR.
-    struct gdt_desc_t gdtr;
+    struct gdt_desc gdtr;
     cpu_sgdt(&gdtr);
     gdtr.base = to_virt(gdtr.base);
     cpu_lgdt(&gdtr);
@@ -410,7 +410,7 @@ void init_paging(void const * const esp) {
 // set to 0.
 // @param table: The page table to test.
 // @return: true if the page table is empty, false otherwise.
-static bool page_table_is_empty(struct page_table_t const * const table) {
+static bool page_table_is_empty(struct page_table const * const table) {
     for (uint16_t i = 0; i < 1024; ++i) {
         if (table->entry[i].present) {
             return false;
@@ -423,14 +423,14 @@ static bool page_table_is_empty(struct page_table_t const * const table) {
 // @param vaddr: The address of the virtual page. Must be 4Kib aligned.
 static void unmap_page(void const * const vaddr, bool const free_phy_frame) {
     ASSERT(is_4kib_aligned(vaddr));
-    struct page_dir_t * const page_dir = get_curr_page_dir_vaddr();
+    struct page_dir * const page_dir = get_curr_page_dir_vaddr();
 
     uint32_t const pde_idx = pde_index(vaddr);
     if (!page_dir->entry[pde_idx].present) {
         PANIC("Address %p is not mapped.", vaddr);
     }
 
-    struct page_table_t * const page_table = get_page_table_vaddr(pde_idx);
+    struct page_table * const page_table = get_page_table_vaddr(pde_idx);
     uint32_t const pte_idx = pte_index(vaddr);
 
     // The entry should be present, otherwise we have a conflict.
@@ -565,13 +565,13 @@ void paging_unmap_and_free_frames(void const * const vaddr, size_t const len) {
 // @return: true if vaddr is mapped, false otherwise.
 static bool page_is_mapped(void const * const vaddr) {
     ASSERT(is_4kib_aligned(vaddr));
-    struct page_dir_t const * const page_dir = get_curr_page_dir_vaddr();
+    struct page_dir const * const page_dir = get_curr_page_dir_vaddr();
     uint32_t const pde_idx = pde_index(vaddr);
     uint32_t const pte_idx = pte_index(vaddr);
     if (!page_dir->entry[pde_idx].present) {
         return false;
     }
-    struct page_table_t const * const table = get_page_table_vaddr(pde_idx);
+    struct page_table const * const table = get_page_table_vaddr(pde_idx);
     return table->entry[pte_idx].present;
 }
 
@@ -598,7 +598,7 @@ static void * find_next_non_mapped_page(void * const start) {
 // @param vaddr: The start address to compute the size of the hole from.
 // @return: The size of the hole in number of pages.
 static uint32_t compute_hole_size(void const * const vaddr) {
-    struct page_dir_t const * const page_dir = get_curr_page_dir_vaddr();
+    struct page_dir const * const page_dir = get_curr_page_dir_vaddr();
     uint32_t const start_pde_idx = pde_index(vaddr);
     uint32_t count = 0;
 
@@ -613,7 +613,7 @@ static uint32_t compute_hole_size(void const * const vaddr) {
             continue;
         }
 
-        struct page_table_t const * const page_table = get_page_table_vaddr(i);
+        struct page_table const * const page_table = get_page_table_vaddr(i);
         uint16_t const start_pte_idx = i==start_pde_idx ? pte_index(vaddr) : 0;
         for (uint16_t j = start_pte_idx; j < 1024; ++j) {
             if (!page_table->entry[j].present) {

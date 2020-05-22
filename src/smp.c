@@ -159,7 +159,7 @@ static void * create_data_frame(void (*target)(void)) {
 
     // The data frame has its layout defined by the ap_boot_data_frame_t
     // structure.
-    struct ap_boot_data_frame_t * const data_frame = phy_frame;
+    struct ap_boot_data_frame * const data_frame = phy_frame;
 
     // Initialize the flat code and data segments in the temporary GDT located
     // in the data frame that will be used by the APs when switching to
@@ -335,7 +335,7 @@ static void * create_trampoline(void (*target)(void)) {
 // @param code: The physical address of the frame containing the AP wake up
 // code.
 static void cleanup_ap_wakeup_routine_allocs(void * const code_frame) {
-    struct ap_boot_data_frame_t * const data_frame =
+    struct ap_boot_data_frame * const data_frame =
         get_data_frame_addr_from_frame(code_frame);
 
     // Unmap the frame containing the AP wake up code.

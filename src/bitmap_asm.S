@@ -15,7 +15,7 @@ assert_bounds:
 in_range:
     ret
 
-//void bitmap_set(struct bitmap_t * const bitmap, uint32_t const index);
+//void bitmap_set(struct bitmap * const bitmap, uint32_t const index);
 ASM_FUNC_DEF(bitmap_set):
     push    %ebp
     mov     %esp, %ebp    
@@ -50,7 +50,7 @@ end:
     pop     %ebp
     ret
 
-//void bitmap_unset(struct bitmap_t * const bitmap, uint32_t const index);
+//void bitmap_unset(struct bitmap * const bitmap, uint32_t const index);
 ASM_FUNC_DEF(bitmap_unset):
     push    %ebp
     mov     %esp, %ebp    
@@ -85,7 +85,7 @@ end2:
     pop     %ebp
     ret
 
-//uint32_t bitmap_set_next_bit(struct bitmap_t * const bitmap);
+//uint32_t bitmap_set_next_bit(struct bitmap * const bitmap);
 ASM_FUNC_DEF(bitmap_set_next_bit):
     push    %ebp
     mov     %esp, %ebp
@@ -139,7 +139,7 @@ found:
     pop     %ebp
     ret
     
-//bool bitmap_get_bit(struct bitmap_t const * const bitmap, uint32_t const idx);
+//bool bitmap_get_bit(struct bitmap const * const bitmap, uint32_t const idx);
 ASM_FUNC_DEF(bitmap_get_bit):
     push    %ebp
     mov     %esp, %ebp    
@@ -165,7 +165,7 @@ ASM_FUNC_DEF(bitmap_get_bit):
     pop     %ebp
     ret
 
-//bool bitmap_is_full(struct bitmap_t const * const bitmap);
+//bool bitmap_is_full(struct bitmap const * const bitmap);
 ASM_FUNC_DEF(bitmap_is_full):
     mov     0x4(%esp), %eax
     cmp     $0x0, 0x4(%eax)

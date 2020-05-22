@@ -3,16 +3,16 @@
 #include <cpu.h>
 
 #define IOAPIC_TEST_SETUP()                         \
-    struct io_apic_t FAKE;                          \
-    struct io_apic_t volatile * __old = IO_APIC;    \
-    IO_APIC = (struct io_apic_t volatile*)&FAKE;
+    struct io_apic FAKE;                          \
+    struct io_apic volatile * __old = IO_APIC;    \
+    IO_APIC = (struct io_apic volatile*)&FAKE;
 
 #define IOAPIC_TEST_TEARDOWN() \
     IO_APIC = __old;
 
 // Simple test that the apic version returned by the IOAPICVER register is 0x11.
 static bool ioapic_ioapicver_test(void) {
-    struct ioapicver_t const ioapicver = {
+    struct ioapicver const ioapicver = {
         .raw = read_register(IOAPICVER),
     };
     return ioapicver.apic_version == 0x11;
@@ -61,7 +61,7 @@ static volatile bool pit_interrupt_received = false;
 
 // The handler for the redirected PIT.
 static void ioapic_redirection_test_handler(
-    struct interrupt_frame_t const * const frame) {
+    struct interrupt_frame const * const frame) {
     LOG("Received PIT interrupt on vector %u\n", frame->vector);
 
     // Set the success flag.

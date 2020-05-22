@@ -5,12 +5,12 @@
 #include <memory.h>
 #include <interrupt.h>
 #include <acpi.h>
-// lapic_def.c contains the definition of the struct lapic_t.
+// lapic_def.c contains the definition of the struct lapic.
 #include <lapic_def.c>
 
 // This is the LAPIC address for the current CPU. It is initialized in
 // init_lapic.
-static volatile struct lapic_t *LAPIC;
+static volatile struct lapic *LAPIC;
 
 // The IA32_APIC_BASE_MSR gives out information about the LAPIC, including its
 // base address.
@@ -71,7 +71,7 @@ static volatile uint32_t current_at_pit_interrupt = 0;
 
 // The handler to call on PIT underflow.
 static void calibrate_timer_pit_handler(
-    __attribute__((unused)) struct interrupt_frame_t const * const frame) {
+    __attribute__((unused)) struct interrupt_frame const * const frame) {
     num_underflows_remaining--;
     if (!num_underflows_remaining) {
         // This is the last underflow. Read out the LAPIC timer current value
@@ -169,7 +169,7 @@ void calibrate_timer(void) {
 }
 
 void init_lapic(void) {
-    LAPIC = (struct lapic_t *)get_lapic_base_addr();
+    LAPIC = (struct lapic *)get_lapic_base_addr();
     // Identity maps the LAPIC registers.
     uint32_t const flags = VM_WRITE | VM_WRITE_THROUGH | VM_CACHE_DISABLE;
     paging_map((void*)LAPIC, (void*)LAPIC, sizeof(*LAPIC), flags);
@@ -233,7 +233,7 @@ void lapic_sleep(uint32_t const msec) {
 // @param icr: The configuration to test.
 // @return: true if the configuration described by `icr` param is valid, false
 // otherwise.
-static bool icr_is_valid(struct icr_t const * const icr) {
+static bool icr_is_valid(struct icr const * const icr) {
     // Intel's manual contain a set of rules to follow when programming the
     // interrupt command register. Those rules can be found in chapter 10.6.1.
     if (icr->delivery_mode == SYSTEM_MANAGEMENT_INTERRUPT ||
@@ -275,7 +275,7 @@ static bool icr_is_valid(struct icr_t const * const icr) {
 // value passed as parameter.
 // @param icr: The configuration to write.
 // Note: This function will wait until the IPI has been sent.
-static void write_icr(struct icr_t const * const icr) {
+static void write_icr(struct icr const * const icr) {
     // Make sure the ICR is valid before writing it into the LAPIC.
     ASSERT(icr_is_valid(icr));
 
@@ -291,7 +291,7 @@ static void write_icr(struct icr_t const * const icr) {
 }
 
 void lapic_send_broadcast_init(void) {
-    struct icr_t icr;
+    struct icr icr;
     memzero(&icr, sizeof(icr));
 
     // Prepare an INIT IPI asserted. Vector must be 0 and the level must be 1
@@ -308,7 +308,7 @@ void lapic_send_broadcast_init(void) {
 }
 
 void lapic_send_broadcast_sipi(void const * const trampoline) {
-    struct icr_t icr;
+    struct icr icr;
     memzero(&icr, sizeof(icr));
 
     // Prepare an SIPI (aka StartUp IPI) to start the APs in a specific entry
@@ -332,7 +332,7 @@ void lapic_send_broadcast_sipi(void const * const trampoline) {
 }
 
 void lapic_send_ipi(uint8_t const dest_cpu, uint8_t const vector) {
-    struct icr_t icr;
+    struct icr icr;
     memzero(&icr, sizeof(icr));
 
     icr.vector = vector;

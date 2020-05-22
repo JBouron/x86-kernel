@@ -16,7 +16,7 @@
 // definition) bit can be optimized to use the BSF instruction (as it is
 // equivalent to find the first bit set in a word).
 
-void bitmap_init(struct bitmap_t * const bitmap,
+void bitmap_init(struct bitmap * const bitmap,
                  uint32_t const size,
                  uint32_t * const data,
                  bool const default_val) {
@@ -29,12 +29,12 @@ void bitmap_init(struct bitmap_t * const bitmap,
     }
 }
 
-void bitmap_reset(struct bitmap_t * const bitmap) {
+void bitmap_reset(struct bitmap * const bitmap) {
     bitmap->free = bitmap->size;
     memset(bitmap->data, ~((uint8_t)0), BITMAP_WORD_COUNT(bitmap->size) * 4);
 }
 
-void bitmap_set_all(struct bitmap_t * const bitmap) {
+void bitmap_set_all(struct bitmap * const bitmap) {
     bitmap->free = 0;
     memzero(bitmap->data, BITMAP_WORD_COUNT(bitmap->size) * 4);
 }

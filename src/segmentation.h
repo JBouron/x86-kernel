@@ -23,7 +23,7 @@ union segment_selector_t kernel_code_selector(void);
 
 // Initialize the temporary GDT used by the AP on start up.
 // @param data_frame: The data frame in which the GDT resides.
-void initialize_trampoline_gdt(struct ap_boot_data_frame_t * const data_frame);
+void initialize_trampoline_gdt(struct ap_boot_data_frame * const data_frame);
 
 // Allocate the final GDT and load it into the GDTR.
 // @param per_cpu_areas: Array containing one void* per cpu on the system

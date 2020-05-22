@@ -41,7 +41,7 @@ _interrupt_handler_common:
     call generic_interrupt_handler
     // The interrupt has been dealt with. We can now restore the registers and
     // return from the interrupt.
-    // Get rid of the struct interrupt_frame_t and the pointer in the stack.
+    // Get rid of the struct interrupt_frame and the pointer in the stack.
     add     $0x18, %esp
     // Restore the registers.
     popa

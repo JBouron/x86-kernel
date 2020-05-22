@@ -7,8 +7,8 @@ DECLARE_SPINLOCK(TTY_LOCK);
 
 
 // The input and output streams to be used by the tty.
-static struct i_stream_t const * INPUT_STREAM;
-static struct o_stream_t const * OUTPUT_STREAM;
+static struct i_stream const * INPUT_STREAM;
+static struct o_stream const * OUTPUT_STREAM;
 
 static void putc(char const chr) {
     OUTPUT_STREAM->write((uint8_t*)&chr, 1);
@@ -176,8 +176,8 @@ static void do_printf(const char * const fmt, va_list list) {
 // Initialize the tty with both an input and output stream.
 // @param input_stream: The input stream to be used by the tty.
 // @param output_stream: The output stream to be used by the tty.
-void tty_init(struct i_stream_t const * const input_stream,
-              struct o_stream_t const * const output_stream) {
+void tty_init(struct i_stream const * const input_stream,
+              struct o_stream const * const output_stream) {
     INPUT_STREAM = input_stream;
     OUTPUT_STREAM = output_stream;
 }

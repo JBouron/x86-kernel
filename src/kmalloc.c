@@ -49,7 +49,7 @@
 // back into the free list.
 
 // This is the structure describing a group of virtual pages.
-struct group_t {
+struct group {
     // The total size of the group in bytes.
     uint32_t size;
     // The number of pages used by the group.
@@ -63,7 +63,7 @@ struct group_t {
 } __attribute__((packed));
 
 // An allocation node.
-struct node_t {
+struct node {
     // The header of the node. This part is fixed and mandatory to all nodes.
     struct {
         // Indicates the type of the node: FREE or ALLOCATED.
@@ -89,18 +89,18 @@ struct node_t {
 #define ALLOCATED (1)
 
 // The size of a node header in bytes.
-#define HEADER_SIZE (sizeof((struct node_t*)NULL)->header)
+#define HEADER_SIZE (sizeof((struct node*)NULL)->header)
 // The minimum allocation size. The reason behind this minimum is that the
 // element of the free list is included in the data section of the node struct.
 // Therefore every node need at least this amount of memory to contain this
 // struct list_node in case it becomes a free node.
-#define MIN_SIZE    (sizeof(struct node_t) - HEADER_SIZE)
+#define MIN_SIZE    (sizeof(struct node) - HEADER_SIZE)
 
 // Allocate a new group. The new group is initially empty.
 // @param size: The size of the group in pages.
 // @return: The virtual address of the new group.
 // Note: This function assumes that KMALLOC_LOCK is not held.
-static struct group_t * create_group(size_t const size) {
+static struct group * create_group(size_t const size) {
     // The group must reside in kernel memory.
     void * const low = KERNEL_PHY_OFFSET;
     // Find `size` contiguous pages in kernel memory.
@@ -119,10 +119,10 @@ static struct group_t * create_group(size_t const size) {
     memzero(pages, size * PAGE_SIZE);
 
     // Initialize the new group.
-    struct group_t * const group = pages;
+    struct group * const group = pages;
 
     // Create a new free entry containing the entire group.
-    struct node_t * const free = pages + sizeof(*group);
+    struct node * const free = pages + sizeof(*group);
     free->header.tag = FREE;
     free->header.size = size * PAGE_SIZE - sizeof(*group) - HEADER_SIZE;
     list_init(&free->free);
@@ -144,7 +144,7 @@ static struct group_t * create_group(size_t const size) {
 // physical memory area it describes.
 // @param group: The group to test.
 // @return: true if `group` is empty, false otherwise.
-static inline bool group_is_empty(struct group_t const * const group) {
+static inline bool group_is_empty(struct group const * const group) {
     // A group is empty if all of its bytes are free.
     return group->size == group->free;
 }
@@ -153,7 +153,7 @@ static inline bool group_is_empty(struct group_t const * const group) {
 // @param group: The group to de-allocate.
 // Note: The group must not contain any allocated data.
 // Note: This function assumes that KMALLOC_LOCK is not held.
-static void free_group(struct group_t * const group) {
+static void free_group(struct group * const group) {
     // Check that nothing is left in the group before getting rid of it.
     ASSERT(group_is_empty(group));
     
@@ -166,7 +166,7 @@ static void free_group(struct group_t * const group) {
 // Get the address of the data for a given node.
 // @param node: The node to get the address of the data of.
 // @return: The address of the data.
-static void * node_data_start(struct node_t * const node) {
+static void * node_data_start(struct node * const node) {
     return node->data;
 }
 
@@ -175,9 +175,9 @@ static void * node_data_start(struct node_t * const node) {
 // @param size: The minimum size of the free node to look for.
 // @return: If such a free node exists then this function returns the virtual
 // address of the node, otherwise it returns NULL.
-static struct node_t * find_node_in_group(struct group_t const * const group,
+static struct node * find_node_in_group(struct group const * const group,
                                           size_t const size) {
-    struct node_t * ite = NULL;
+    struct node * ite = NULL;
     list_for_each_entry(ite, &group->free_head, free) {
         if (ite->header.size >= size) {
             return ite;
@@ -191,7 +191,7 @@ static struct node_t * find_node_in_group(struct group_t const * const group,
 // @param size: The size of the allocation.
 // @return: On success, returns the virtual address of the allocated memeory,
 // otherwise, returns NULL.
-static void * kmalloc_in_group(struct group_t * const group, size_t size) {
+static void * kmalloc_in_group(struct group * const group, size_t size) {
     if (list_empty(&group->free_head)) {
         // The group has no more free nodes, nothing to do here.
         return NULL;
@@ -204,7 +204,7 @@ static void * kmalloc_in_group(struct group_t * const group, size_t size) {
 
     // Find a free node in the current group that would be big enough to
     // contain `size` bytes.
-    struct node_t * const dest = find_node_in_group(group, size);
+    struct node * const dest = find_node_in_group(group, size);
     if (!dest) {
         // No such nodes exists, abort now.
         return NULL;
@@ -231,7 +231,7 @@ static void * kmalloc_in_group(struct group_t * const group, size_t size) {
     bool const new_free_node = dest->header.size - size >= sizeof(*dest);
     if (new_free_node) {
         // Initialize the new free node.
-        struct node_t* const node = data_start + size;
+        struct node* const node = data_start + size;
         node->header.tag = FREE;
         node->header.size = dest->header.size - size - HEADER_SIZE;
         list_init(&node->free);
@@ -263,7 +263,7 @@ static void * kmalloc_in_group(struct group_t * const group, size_t size) {
 // @param g: The group to test.
 // @param addr: The virtual address to test.
 // @return: true if addr is withing the group g, false otherwise.
-static bool addr_in_group(struct group_t const * const g,
+static bool addr_in_group(struct group const * const g,
                           void const * const addr) {
     return (void*)g <= addr && addr < (void*)g + g->num_pages * PAGE_SIZE;
 }
@@ -273,8 +273,8 @@ static bool addr_in_group(struct group_t const * const g,
 // @param b: The second node.
 // @return: true if a and b can be merged (in this order) to form a bigger node.
 // This is only the case if a and b are neighbours within the group.
-static bool can_merge(struct node_t const * const a,
-                      struct node_t const * const b) {
+static bool can_merge(struct node const * const a,
+                      struct node const * const b) {
     // We can merge a with b if a spans all the way to b.
     return (void*)a + a->header.size + HEADER_SIZE == (void*)b;
 }
@@ -283,32 +283,32 @@ static bool can_merge(struct node_t const * const a,
 // @param group: The group to test.
 // @param node: The node to test.
 // @return: true if the node is the first node in `group`s free list.
-static bool first_in_free_list(struct group_t const * const group,
-                               struct node_t const * const node) {
-    return node == list_first_entry(&group->free_head, struct node_t, free);
+static bool first_in_free_list(struct group const * const group,
+                               struct node const * const node) {
+    return node == list_first_entry(&group->free_head, struct node, free);
 }
 
 // Check if a node is the last entry in the free list of a group.
 // @param group: The group to test.
 // @param node: The node to test.
 // @return: true if the node is the last node in `group`s free list.
-static bool last_in_free_list(struct group_t const * const group,
-                              struct node_t const * const node) {
-    return node == list_last_entry(&group->free_head, struct node_t, free);
+static bool last_in_free_list(struct group const * const group,
+                              struct node const * const node) {
+    return node == list_last_entry(&group->free_head, struct node, free);
 }
 
 // Get the previous neighbour of a free node in the free list.
 // @param node: The node to get the neighbour from.
 // @return: The address of the `prev` neighbour of `node`.
-static struct node_t * prev_node(struct node_t const * const node) {
-    return list_entry(node->free.prev, struct node_t, free);
+static struct node * prev_node(struct node const * const node) {
+    return list_entry(node->free.prev, struct node, free);
 }
 
 // Get the next neighbour of a free node in the free list.
 // @param node: The node to get the neighbour from.
 // @return: The address of the `next` neighbour of `node`.
-static struct node_t * next_node(struct node_t const * const node) {
-    return list_entry(node->free.next, struct node_t, free);
+static struct node * next_node(struct node const * const node) {
+    return list_entry(node->free.next, struct node, free);
 }
 
 // Get the node corresponding to an allocated address.
@@ -318,16 +318,16 @@ static struct node_t * next_node(struct node_t const * const node) {
 // address. This means that it is not possible to give an address that points in
 // the middle of a node. It _must_ be the address of the very first byte of data
 // of a node.
-static struct node_t * node_for_addr(void * const addr) {
+static struct node * node_for_addr(void * const addr) {
     return addr - HEADER_SIZE;
 }
 
 // Try to merge a free node with its neighbour within a group.
 // @param group: The group.
 // @param node: The free node to merge (if applicable).
-static void merge_free_node(struct group_t * const group,
-                            struct node_t * node) {
-    struct node_t * const prev = prev_node(node);
+static void merge_free_node(struct group * const group,
+                            struct node * node) {
+    struct node * const prev = prev_node(node);
     if (!first_in_free_list(group, node)) {
         // This node is not the first node in the free list and therefore has a
         // neighbour before it (prev). Check if we can merge to two nodes to
@@ -351,7 +351,7 @@ static void merge_free_node(struct group_t * const group,
         // This node (or the resulting node after the merge above) is not at the
         // end of the list and therefore has a next neighbour with which it
         // might be able to merge. Do it if we can.
-        struct node_t * const next = next_node(node);
+        struct node * const next = next_node(node);
         merge_free_node(group, next);
     }
 }
@@ -361,8 +361,8 @@ static void merge_free_node(struct group_t * const group,
 // @parma node: The node to insert.
 // Note: The node need not to be marked FREE already, as this function will do
 // it.
-static void insert_in_free_list(struct group_t * const group,
-                                struct node_t * const node) {
+static void insert_in_free_list(struct group * const group,
+                                struct node * const node) {
     // Mark the node as FREE.
     node->header.tag = FREE;
 
@@ -392,11 +392,11 @@ static void insert_in_free_list(struct group_t * const group,
 // @param addr: The address of the allocated memory to free.
 // Note: The address _must_ point to the very first byte of the allocated
 // memory, giving an address in the middle will not work.
-static void kfree_in_group(struct group_t * const group, void * const addr) {
+static void kfree_in_group(struct group * const group, void * const addr) {
     ASSERT(addr_in_group(group, addr));
 
     // Get the node for the allocated data.
-    struct node_t * const node = node_for_addr(addr);
+    struct node * const node = node_for_addr(addr);
     ASSERT(node->header.tag == ALLOCATED);
 
     // Insert the node in the free list, this will mark it as FREE and
@@ -412,7 +412,7 @@ static void kfree_in_group(struct group_t * const group, void * const addr) {
 // @return: The address of the allocated memory if the allocation is successful,
 // NULL if no group from the group_list can contain such an allocation.
 static void *try_allocation(struct list_node * group_list, size_t const size) {
-    struct group_t * group;
+    struct group * group;
     list_for_each_entry(group, group_list, group_list) {
         if (group->free < size) {
             // The group does not have enough space to allocate that much.
@@ -454,7 +454,7 @@ static void * do_kmalloc(struct list_node * group_list, size_t const size) {
         // (if another message is enqueued alongside the TLB-shootdown message).
         spinlock_unlock(&KMALLOC_LOCK);
 
-        struct group_t * group;
+        struct group * group;
         uint32_t const num_pages = ceil_x_over_y_u32(size + sizeof(group) +
             HEADER_SIZE, PAGE_SIZE);
         group = create_group(num_pages);
@@ -499,7 +499,7 @@ static void * do_kmalloc(struct list_node * group_list, size_t const size) {
 // This function will look for the group containing the address to de-allocate.
 // @param addr: The address to de-allocated.
 static void do_kfree(struct list_node * group_list, void * const addr) {
-    struct group_t * group;
+    struct group * group;
     list_for_each_entry(group, group_list, group_list) {
         if (addr_in_group(group, addr)) {
             kfree_in_group(group, addr);
@@ -567,7 +567,7 @@ size_t kmalloc_total_allocated(void) {
     spinlock_lock(&KMALLOC_LOCK);
 
     size_t tot = 0;
-    struct group_t *group;
+    struct group *group;
     list_for_each_entry(group, &GROUP_LIST, group_list) {
         tot += group->size - group->free;
     }

@@ -73,7 +73,7 @@ void cpu_outw(uint16_t const port, uint16_t const word);
 uint8_t cpu_inb(uint16_t const port);
 
 // Desciptor for a GDT containing the size and base address of the GDT.
-struct gdt_desc_t {
+struct gdt_desc {
     // Limit is such that base+limit points to the latest valid byte of the GDT.
     // Therefore limit should have the form 8N - 1, for N being the number of
     // elements in the GDT.
@@ -84,11 +84,11 @@ struct gdt_desc_t {
 
 // Load a GDT for the cpu to use.
 // @param table_desc: Descriptor of the GDT containing size and base address.
-void cpu_lgdt(struct gdt_desc_t const * const table_desc);
+void cpu_lgdt(struct gdt_desc const * const table_desc);
 
 // Store the GDTR into a memory address.
 // @param dest: The destination to write the GDTR into.
-void cpu_sgdt(struct gdt_desc_t * const dest);
+void cpu_sgdt(struct gdt_desc * const dest);
 
 // Segment selector. This value is written in segment register to use a
 // particular segment.
@@ -158,7 +158,7 @@ union segment_selector_t cpu_read_ss(void);
 void cpu_set_interrupt_flag(bool const enable);
 
 // Desciptor for an IDT containing the size and base address of the IDT.
-struct idt_desc_t {
+struct idt_desc {
     // Limit is such that base+limit points to the latest valid byte of the IDT.
     // Therefore limit should have the form 8N - 1, for N being the number of
     // elements in the IDT.
@@ -169,11 +169,11 @@ struct idt_desc_t {
 
 // Write the LDTR register.
 // @param idt_desc: Descriptor for the IDT to use.
-void cpu_lidt(struct idt_desc_t const * const idt_desc);
+void cpu_lidt(struct idt_desc const * const idt_desc);
 
 // Read the current LDTR value.
 // @param dest: The destination to write LDTR into.
-void cpu_sidt(struct idt_desc_t * const dest);
+void cpu_sidt(struct idt_desc * const dest);
 
 // Insert an MFENCE instruction.
 void cpu_mfence(void);

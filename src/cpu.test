@@ -89,12 +89,12 @@ static bool cpuid_test(void) {
 // Test the LGDT and SGDT wrappers.
 static bool cpu_lgdt_sgdt_test(void) {
     // Save the current GDTR.
-    struct gdt_desc_t orig_gdt;
+    struct gdt_desc orig_gdt;
     cpu_sgdt(&orig_gdt);
 
     // The table does not have to be legit. As long as we don't change the
     // segment register their shadow values will still be used.
-    struct gdt_desc_t const fake_gdt = {
+    struct gdt_desc const fake_gdt = {
         .limit = 8 * 12 - 1,
         .base = (void*)0xDEADBEEF,
     };
@@ -102,7 +102,7 @@ static bool cpu_lgdt_sgdt_test(void) {
     // Load the fake GDT into the GDTR.
     cpu_lgdt(&fake_gdt);
     // Read the GDTR using SGDT.
-    struct gdt_desc_t gdtr;
+    struct gdt_desc gdtr;
     cpu_sgdt(&gdtr);
 
     // Restore the original GDTR.
@@ -117,12 +117,12 @@ static bool cpu_lgdt_sgdt_test(void) {
 // Test the LIDT and SIDT wrappers.
 static bool cpu_lidt_sidt_test(void) {
     // Save the current IDTR.
-    struct idt_desc_t orig_idt;
+    struct idt_desc orig_idt;
     cpu_sidt(&orig_idt);
 
     // The table does not have to be legit. As long as we don't enable the
     // interrupts when running the test we should be fine.
-    struct idt_desc_t const fake_idt = {
+    struct idt_desc const fake_idt = {
         .limit = 8 * 12 - 1,
         .base = (void*)0xDEADBEEF,
     };
@@ -130,7 +130,7 @@ static bool cpu_lidt_sidt_test(void) {
     // Load the fake GDT into the IDTR.
     cpu_lidt(&fake_idt);
     // Read the IDTR using SIDT.
-    struct idt_desc_t idtr;
+    struct idt_desc idtr;
     cpu_sidt(&idtr);
 
     // Restore the original IDTR.

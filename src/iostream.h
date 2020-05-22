@@ -3,7 +3,7 @@
 // This file describes the basic iostream structure abstracting basic I/O stream
 // devices (eg. no peek).
 
-struct io_stream_t {
+struct io_stream {
     // Read bytes from an input stream. Note that the read operation might be
     // blocking depending on the underlying implementation.
     // @param dest: The target buffer to read the stream into.
@@ -21,5 +21,5 @@ struct io_stream_t {
 
 // Define some short-hands for input stream (not implementing write) and output
 // streams (not implementing read).
-#define i_stream_t  io_stream_t
-#define o_stream_t  io_stream_t
+#define i_stream  io_stream
+#define o_stream  io_stream

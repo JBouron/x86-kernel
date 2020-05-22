@@ -16,7 +16,7 @@ DECLARE_SPINLOCK(FRAME_ALLOC_LOCK);
 // We use a bitmap to indicate the state of each physical frame in this range.
 // A 1 bit indicate that this frame is currently used ie. not available, a 0 bit
 // indicate that this frame is available for use ie. can be allocated.
-struct bitmap_t FRAME_BITMAP;
+struct bitmap FRAME_BITMAP;
 
 // The number of physical frames used for the bitmap.
 static uint32_t NUM_FRAMES_FOR_BITMAP = 0;
@@ -24,7 +24,7 @@ static uint32_t NUM_FRAMES_FOR_BITMAP = 0;
 // Get a pointer on the bitmap of the frame allocator.
 // @return: Either a physical or virtual pointer whether or not paging has been
 // enabled already.
-static struct bitmap_t *get_bitmap_addr(void) {
+static struct bitmap *get_bitmap_addr(void) {
     if (cpu_paging_enabled()) {
         spinlock_lock(&FRAME_ALLOC_LOCK);
         return &FRAME_BITMAP;
@@ -54,7 +54,7 @@ static uint32_t frame_index(void const * const ptr) {
 
 static void mark_memory_range(void const * const start,
                               void const * const end) {
-    struct bitmap_t * const bitmap = get_bitmap_addr();
+    struct bitmap * const bitmap = get_bitmap_addr();
     uint32_t const start_frame = frame_index(start);
     uint32_t const end_frame = frame_index(end);
     for (uint32_t i = start_frame; i <= end_frame; ++i) {
@@ -65,7 +65,7 @@ static void mark_memory_range(void const * const start,
 
 static void unmark_memory_range(void const * const start,
                                 void const * const end) {
-    struct bitmap_t * const bitmap = get_bitmap_addr();
+    struct bitmap * const bitmap = get_bitmap_addr();
     uint32_t const start_frame = frame_index(start);
     uint32_t const end_frame = frame_index(end);
     for (uint32_t i = start_frame; i <= end_frame; ++i) {
@@ -122,7 +122,7 @@ void init_frame_alloc(void) {
     // Executing this function without acquiring the FRAME_ALLOC_LOCK is safe as
     // we are doing this very early in the BSP boot sequence, hence APs are not
     // woken up yet.
-    struct bitmap_t * const bitmap = get_bitmap_addr();
+    struct bitmap * const bitmap = get_bitmap_addr();
 
     // First compute the number of bits required to keep track of the state of
     // _all_ the frames in RAM.
@@ -176,7 +176,7 @@ void init_frame_alloc(void) {
 void fixup_frame_alloc_to_virt(void) {
     // Paging has been enabled, we can now use a virtual pointer for the `data`
     // field of the bitmap.
-    struct bitmap_t * const bitmap = get_bitmap_addr();
+    struct bitmap * const bitmap = get_bitmap_addr();
 
     // APs are still not woken up, no need to acquire FRAME_ALLOC_LOCK.
 
@@ -204,7 +204,7 @@ void fixup_frame_alloc_to_virt(void) {
 }
 
 void *alloc_frame(void) {
-    struct bitmap_t * const bitmap = get_bitmap_addr();
+    struct bitmap * const bitmap = get_bitmap_addr();
     // Try to find the next free frame (that is the next free bit in the
     // bitmap). If no frame is available, panic, there is nothing to do.
     uint32_t const frame_idx = bitmap_set_next_bit(bitmap);
@@ -218,7 +218,7 @@ void *alloc_frame(void) {
 }
 
 void free_frame(void const * const ptr) {
-    struct bitmap_t * const bitmap = get_bitmap_addr();
+    struct bitmap * const bitmap = get_bitmap_addr();
 
     // The pointer is supposed to describe a physical frame and therefore should
     // be 4KiB aligned.
@@ -240,7 +240,7 @@ void free_frame(void const * const ptr) {
 }
 
 uint32_t frames_allocated(void) {
-    struct bitmap_t * const bitmap = get_bitmap_addr();
+    struct bitmap * const bitmap = get_bitmap_addr();
     uint32_t const n_allocs = bitmap->size - bitmap->free;
     spinlock_unlock(&FRAME_ALLOC_LOCK);
     return n_allocs;

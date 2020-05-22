@@ -184,7 +184,7 @@ static size_t stream_write(uint8_t const * const buf, size_t const length) {
 }
 
 // This is the public facing interface to the VGA matrix used to write.
-struct io_stream_t VGA_STREAM = {
+struct io_stream VGA_STREAM = {
     .read = NULL,
     .write = stream_write,
 };

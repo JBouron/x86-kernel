@@ -5,7 +5,7 @@
 
 // This is a mock version of the serial controller containing each register as
 // the real serial controller.
-struct fake_com_t {
+struct fake_com {
     uint8_t data;
     uint8_t interrupt_enable;
     uint8_t interrupt_id_fifo_ctrl;
@@ -15,7 +15,7 @@ struct fake_com_t {
     uint8_t modem_status;
     uint8_t scratch;
 };
-static struct fake_com_t FAKE_COM;
+static struct fake_com FAKE_COM;
 
 // Mock the outb instruction/function so that writes actually go to the fake
 // serial controller.

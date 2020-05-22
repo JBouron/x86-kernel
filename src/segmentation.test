@@ -50,7 +50,7 @@ static bool segmentation_init_segment_test(void) {
 static bool segmentation_data_segment_test(void) {
     // Since this test is modifying the GDTR we need to save it and restore it
     // later on.
-    struct gdt_desc_t orig_gdtr;
+    struct gdt_desc orig_gdtr;
     cpu_sgdt(&orig_gdtr);
     
     // The buffer that will be covered by the segment.
@@ -66,7 +66,7 @@ static bool segmentation_data_segment_test(void) {
     init_desc(fake_gdt + 1, (uint32_t)buffer, 1, false, 0);
     // Load the GDT. Note that since we are only changing gs in this test, the
     // other segments are still using the old GDT coming from the boot loader.
-    struct gdt_desc_t const table_desc = {
+    struct gdt_desc const table_desc = {
         .limit = (sizeof(union segment_descriptor_t) * 2) - 1,
         .base = fake_gdt,
     };
@@ -102,7 +102,7 @@ static bool segmentation_data_segment_test(void) {
 // This is more a check that an actual test. The goal here is to verify that the
 // flat-memory model has been correclty initialized.
 static bool segmentation_flat_model_initialized_test(void) {
-    struct gdt_desc_t gdtr;
+    struct gdt_desc gdtr;
     cpu_sgdt(&gdtr);
 
     // We expect 2 segments (for we do not have a userspace):

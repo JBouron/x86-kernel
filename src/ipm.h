@@ -32,13 +32,13 @@ enum ipm_tag_t {
 };
 
 // The structure of a message.
-struct ipm_message_t {
+struct ipm_message {
     // The tag of this message.
     enum ipm_tag_t tag;
     // The APIC ID of the cpu who sent this message.
     uint8_t sender_id;
     // Indicate if the receiver of this message should perform the deallocation
-    // of the struct ipm_message_t. If true, the receiving cpu will call kfree
+    // of the struct ipm_message. If true, the receiving cpu will call kfree
     // with a pointer on this structure after processing the message.
     bool receiver_dealloc;
     // Any data associated with the message. This field is optional and can be
@@ -56,7 +56,7 @@ DECLARE_PER_CPU(struct list_node, message_queue);
 // Since multiple cpus can try to send a message to the same destination
 // concurrently, the message queue needs a lock to protect it against race
 // conditions.
-DECLARE_PER_CPU(struct spinlock_t, message_queue_lock);
+DECLARE_PER_CPU(struct spinlock, message_queue_lock);
 
 // Initialize IPM related data i.e. per-cpu variables related to IPM. This must
 // be done by a single cpu (not necessarily the BSP) _before_ attempting to send

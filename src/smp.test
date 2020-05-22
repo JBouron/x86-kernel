@@ -4,7 +4,7 @@
 // right places.
 // @param data_frame: The date frame to check.
 // @return: True if the data frame is valid, false otherwise.
-static bool check_data_frame(struct ap_boot_data_frame_t * const data_frame) {
+static bool check_data_frame(struct ap_boot_data_frame * const data_frame) {
     // Use the TEST_ASSERT macro for early returns. Hacky bt does the trick.
     TEST_ASSERT(data_frame);
     TEST_ASSERT(is_under_1mib(data_frame));
@@ -54,7 +54,7 @@ static void _dummy(void) {
 // Test the create_data_frame() function, and check that the correct data is at
 // the correct place.
 static bool create_data_frame_test(void) {
-    struct ap_boot_data_frame_t * const data_frame = create_data_frame(&_dummy);
+    struct ap_boot_data_frame * const data_frame = create_data_frame(&_dummy);
     TEST_ASSERT(data_frame->wake_up_target == &_dummy);
     bool const valid = check_data_frame(data_frame);
     // Clean up.
@@ -106,7 +106,7 @@ static bool create_trampoline_test(void) {
     TEST_ASSERT((uint32_t)tramp < (1 << 16));
 
     // Check the data frame.
-    struct ap_boot_data_frame_t * const data_frame =
+    struct ap_boot_data_frame * const data_frame =
         get_data_frame_addr_from_frame(tramp);
     TEST_ASSERT(data_frame->wake_up_target == &_dummy);
     TEST_ASSERT(check_data_frame(data_frame));

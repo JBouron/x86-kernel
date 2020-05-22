@@ -6,11 +6,11 @@
 // This is the layout of the data frame used by APs to boot. This data frame
 // contains all the information and data structures required by an AP to boot
 // into the higher half kernel.
-struct ap_boot_data_frame_t {
+struct ap_boot_data_frame {
     // Instead of letting the APs to the computation of the GDT table
     // descriptor, let the BSP do it and store it into the data frame. This way
     // the APs only have to execute an lgdt with a pointer to this field.
-    struct gdt_desc_t gdt_desc;
+    struct gdt_desc gdt_desc;
     
     // APs are using a simple, temporary GDT when going into protected mode.
     // This GDT contains two flat segments: A data segment (index 1) and a code
@@ -40,12 +40,12 @@ struct ap_boot_data_frame_t {
 // routine, make sure that the offset are as expected. In case the change, the
 // assert(s) below would fail and give a hint that the assembly needs to change
 // as well.
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, gdt_desc) == 0, "");
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, page_dir_addr) == 0x1E, "");
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, wake_up_target) == 0x22, "");
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, stack_size) == 0x26, "");
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, num_stacks) == 0x28, "");
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame_t, stack_segments) == 0x2C,"");
+STATIC_ASSERT(offsetof(struct ap_boot_data_frame, gdt_desc) == 0, "");
+STATIC_ASSERT(offsetof(struct ap_boot_data_frame, page_dir_addr) == 0x1E, "");
+STATIC_ASSERT(offsetof(struct ap_boot_data_frame, wake_up_target) == 0x22, "");
+STATIC_ASSERT(offsetof(struct ap_boot_data_frame, stack_size) == 0x26, "");
+STATIC_ASSERT(offsetof(struct ap_boot_data_frame, num_stacks) == 0x28, "");
+STATIC_ASSERT(offsetof(struct ap_boot_data_frame, stack_segments) == 0x2C,"");
 
 // Wake up the Application Processors on the system and wait for them to be
 // fully initialized.

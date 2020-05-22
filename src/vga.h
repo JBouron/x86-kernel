@@ -5,7 +5,7 @@
 
 // The VGA matrix is abstracted by an io_stream where only the write operation
 // is available.
-extern struct io_stream_t VGA_STREAM;
+extern struct io_stream VGA_STREAM;
 
 // Initialize the VGA text matrix.
 void vga_init(void);

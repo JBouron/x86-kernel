@@ -7,7 +7,7 @@
 
 // Test the result of create_recursive_entry.
 static bool paging_create_recursive_entry_test(void) {
-    struct page_dir_t dir;
+    struct page_dir dir;
     memzero(&dir, sizeof(dir));
 
     // We use the virtual address for the dir here, but that is fine.
@@ -158,7 +158,7 @@ static volatile uint32_t error_codes[2];
 static void * allocated_frame_in_pagefault_handler = NULL;
 
 // The temporary page fault handler.
-static void dummy_pf_handler(struct interrupt_frame_t const * const frame) {
+static void dummy_pf_handler(struct interrupt_frame const * const frame) {
     void const * const cr2 = cpu_read_cr2();
 
     // Save the faulting addr and error code for this fault.
@@ -178,7 +178,7 @@ static void dummy_pf_handler(struct interrupt_frame_t const * const frame) {
         // Enable write bit on the second fault.
         uint32_t const pde_idx = pde_index(cr2);
         uint32_t const pte_idx = pte_index(cr2);
-        struct page_table_t * const page_table = get_page_table_vaddr(pde_idx);
+        struct page_table * const page_table = get_page_table_vaddr(pde_idx);
         page_table->entry[pte_idx].writable = 1;
         cpu_invalidate_tlb();
     }
@@ -429,7 +429,7 @@ static void *test_tlb_shootdown_paddr = NULL;
 static bool test_tlb_shootdown_remote_got_page_fault = false;
 
 static void _paging_test_tlb_shootdown_page_fault_handler(
-    struct interrupt_frame_t const * const frame) {
+    struct interrupt_frame const * const frame) {
     ASSERT(frame);
     LOG("[%u] Page fault\n", this_cpu_var(cpu_id));
 

@@ -80,7 +80,7 @@ enum destination_shorthand_t {
 // register area. This structure makes it easy to program the ICR but does not
 // reflect the physical layout of it (in practice the ICR is split into to
 // lapic_reg_32_t with a hole in between).
-struct icr_t {
+struct icr {
     union {
         struct {
             // The ICR is made up of two double words that need to be written in
@@ -126,13 +126,13 @@ struct icr_t {
     } __attribute__((packed));
     uint8_t padding[24];
 } __attribute__((packed));
-STATIC_ASSERT(sizeof(struct icr_t) == 32, "");
+STATIC_ASSERT(sizeof(struct icr) == 32, "");
 
 #define RESERVED    \
     uint64_t : 64;  \
     uint64_t : 64;
 
-struct lapic_t {
+struct lapic {
     RESERVED
     RESERVED
 
@@ -186,30 +186,30 @@ struct lapic_t {
     RESERVED
 } __attribute__((packed));
 // Make sure the registers are at the right offsets.
-STATIC_ASSERT(offsetof(struct lapic_t, local_apic_id) == 0x20, "");
-STATIC_ASSERT(offsetof(struct lapic_t, local_apic_version) == 0x30, "");
-STATIC_ASSERT(offsetof(struct lapic_t, task_priority) == 0x80, "");
-STATIC_ASSERT(offsetof(struct lapic_t, arbitration_priority) == 0x90, "");
-STATIC_ASSERT(offsetof(struct lapic_t, processor_priority) == 0xA0, "");
-STATIC_ASSERT(offsetof(struct lapic_t, eoi) == 0xB0, "");
-STATIC_ASSERT(offsetof(struct lapic_t, remote_read) == 0xC0, "");
-STATIC_ASSERT(offsetof(struct lapic_t, logical_destination) == 0xD0, "");
-STATIC_ASSERT(offsetof(struct lapic_t, destination_format) == 0xE0, "");
-STATIC_ASSERT(offsetof(struct lapic_t, spurious_interrupt_vector) == 0xF0, "");
-STATIC_ASSERT(offsetof(struct lapic_t, in_service) == 0x100, "");
-STATIC_ASSERT(offsetof(struct lapic_t, trigger_mode) == 0x180, "");
-STATIC_ASSERT(offsetof(struct lapic_t, interrupt_request) == 0x200, "");
-STATIC_ASSERT(offsetof(struct lapic_t, error_status) == 0x280, "");
-STATIC_ASSERT(offsetof(struct lapic_t, lvt_correctedd_machine_check_interrupt)
+STATIC_ASSERT(offsetof(struct lapic, local_apic_id) == 0x20, "");
+STATIC_ASSERT(offsetof(struct lapic, local_apic_version) == 0x30, "");
+STATIC_ASSERT(offsetof(struct lapic, task_priority) == 0x80, "");
+STATIC_ASSERT(offsetof(struct lapic, arbitration_priority) == 0x90, "");
+STATIC_ASSERT(offsetof(struct lapic, processor_priority) == 0xA0, "");
+STATIC_ASSERT(offsetof(struct lapic, eoi) == 0xB0, "");
+STATIC_ASSERT(offsetof(struct lapic, remote_read) == 0xC0, "");
+STATIC_ASSERT(offsetof(struct lapic, logical_destination) == 0xD0, "");
+STATIC_ASSERT(offsetof(struct lapic, destination_format) == 0xE0, "");
+STATIC_ASSERT(offsetof(struct lapic, spurious_interrupt_vector) == 0xF0, "");
+STATIC_ASSERT(offsetof(struct lapic, in_service) == 0x100, "");
+STATIC_ASSERT(offsetof(struct lapic, trigger_mode) == 0x180, "");
+STATIC_ASSERT(offsetof(struct lapic, interrupt_request) == 0x200, "");
+STATIC_ASSERT(offsetof(struct lapic, error_status) == 0x280, "");
+STATIC_ASSERT(offsetof(struct lapic, lvt_correctedd_machine_check_interrupt)
         == 0x2F0, "");
-STATIC_ASSERT(offsetof(struct lapic_t, interrupt_command) == 0x300, "");
-STATIC_ASSERT(offsetof(struct lapic_t, lvt_timer) == 0x320, "");
-STATIC_ASSERT(offsetof(struct lapic_t, lvt_thermal_sensor) == 0x330, "");
-STATIC_ASSERT(offsetof(struct lapic_t, lvt_performance_monitoring_counters)
+STATIC_ASSERT(offsetof(struct lapic, interrupt_command) == 0x300, "");
+STATIC_ASSERT(offsetof(struct lapic, lvt_timer) == 0x320, "");
+STATIC_ASSERT(offsetof(struct lapic, lvt_thermal_sensor) == 0x330, "");
+STATIC_ASSERT(offsetof(struct lapic, lvt_performance_monitoring_counters)
         == 0x340, "");
-STATIC_ASSERT(offsetof(struct lapic_t, lvt_lint0) == 0x350, "");
-STATIC_ASSERT(offsetof(struct lapic_t, lvt_lint1) == 0x360, "");
-STATIC_ASSERT(offsetof(struct lapic_t, lvt_error) == 0x370, "");
-STATIC_ASSERT(offsetof(struct lapic_t, initial_count) == 0x380, "");
-STATIC_ASSERT(offsetof(struct lapic_t, current_count) == 0x390, "");
-STATIC_ASSERT(offsetof(struct lapic_t, divide_configuration) == 0x3E0, "");
+STATIC_ASSERT(offsetof(struct lapic, lvt_lint0) == 0x350, "");
+STATIC_ASSERT(offsetof(struct lapic, lvt_lint1) == 0x360, "");
+STATIC_ASSERT(offsetof(struct lapic, lvt_error) == 0x370, "");
+STATIC_ASSERT(offsetof(struct lapic, initial_count) == 0x380, "");
+STATIC_ASSERT(offsetof(struct lapic, current_count) == 0x390, "");
+STATIC_ASSERT(offsetof(struct lapic, divide_configuration) == 0x3E0, "");

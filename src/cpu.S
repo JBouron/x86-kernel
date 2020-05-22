@@ -169,7 +169,7 @@ ASM_FUNC_DEF(cpu_inb):
     inb     %dx, %al
     ret
 
-//void cpu_lgdt(struct gdt_desc_t const * const table_desc);
+//void cpu_lgdt(struct gdt_desc const * const table_desc);
 ASM_FUNC_DEF(cpu_lgdt):
     mov     0x4(%esp), %eax
     // The following is not really clear. LGDT should take a memory address as
@@ -178,7 +178,7 @@ ASM_FUNC_DEF(cpu_lgdt):
     lgdt    (%eax)
     ret
 
-//void cpu_sgdt(struct gdt_desc_t * const dest);
+//void cpu_sgdt(struct gdt_desc * const dest);
 ASM_FUNC_DEF(cpu_sgdt):
     mov     0x4(%esp), %eax
     sgdt    (%eax)
@@ -289,7 +289,7 @@ disable:
     cli
     ret
 
-//void cpu_lidt(struct idt_desc_t const * const idt_desc);
+//void cpu_lidt(struct idt_desc const * const idt_desc);
 ASM_FUNC_DEF(cpu_lidt):
     mov     0x4(%esp), %eax
     // The following is not really clear. LIDT should take a memory address as
@@ -298,7 +298,7 @@ ASM_FUNC_DEF(cpu_lidt):
     lidt    (%eax)
     ret
 
-//void cpu_sidt(struct idt_desc_t * const dest);
+//void cpu_sidt(struct idt_desc * const dest);
 ASM_FUNC_DEF(cpu_sidt):
     mov     0x4(%esp), %eax
     sidt    (%eax)
