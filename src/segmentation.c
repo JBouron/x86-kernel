@@ -5,6 +5,8 @@
 #include <kernel_map.h>
 #include <kmalloc.h>
 #include <acpi.h>
+#include <percpu.h>
+#include <addr_space.h>
 
 union segment_descriptor_t {
     uint64_t value;
@@ -182,6 +184,10 @@ void ap_init_segmentation(void) {
 
     // Re-init all segment selectors on the current cpu.
     setup_segment_selectors(true);
+
+    // Paging has been enabled manually, use switch_to_addr_space() to set up
+    // all the state correctly now that we can use percpu variables.
+    switch_to_addr_space(get_kernel_addr_space());
 }
 
 union segment_selector_t kernel_data_selector(void) {
@@ -251,6 +257,11 @@ void switch_to_final_gdt(void **per_cpu_areas) {
 
     load_gdt(GDT, num_entries * sizeof(*GDT) - 1);
     setup_segment_selectors(true); 
+
+    // We couldn't set the curr_addr_space variable when initializing paging
+    // because percpu was not initialized. Set it now.
+    ASSERT(percpu_initialized());
+    switch_to_addr_space(get_kernel_addr_space());
 }
 
 #include <segmentation.test>

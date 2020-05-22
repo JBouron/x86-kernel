@@ -7,6 +7,7 @@
 #include <lock.h>
 #include <ipm.h>
 #include <smp.h>
+#include <addr_space.h>
 
 // This is the definition of an entry of a page directory.
 union pde_t {
@@ -105,25 +106,6 @@ static struct page_dir * alloc_page_dir(void) {
 static struct page_table * alloc_page_table(void) {
     return (struct page_table*) alloc_frame();
 }
-
-// For now we have only a single virtual address space shared by all cpus. When
-// mutating the virtual address space (that is page dir and tables) cpus must
-// hold the lock on it. For now make things simple and use a lock for any paging
-// operation.
-DECLARE_SPINLOCK(PAGING_LOCK);
-
-// Lock the current virtual address space.
-static void lock_vaddr_space(void) {
-    spinlock_lock(&PAGING_LOCK);
-}
-
-// Unlock the current virtual address space.
-static void unlock_vaddr_space(void) {
-    spinlock_unlock(&PAGING_LOCK);
-}
-
-// The _physical_ address of the kernel page directory.
-static struct page_dir * KERNEL_PAGE_DIR = 0x0;
 
 // Create the recursive entry on the last entry of a page directory.
 // @param page_dir: The page directory in which the recursive entry will be
@@ -367,12 +349,14 @@ void init_paging(void const * const esp) {
     // directories and page tables once paging is enabled.
     create_recursive_entry(page_dir);
 
-    // Set the global variable containing the physical address of the kernel's
-    // page directory.
-    *(struct page_dir**)to_phys(&KERNEL_PAGE_DIR) = page_dir;
+    // Initialize the kernel's struct addr_space with the frame we just
+    // allocated for the page directory.
+    init_kernel_addr_space(page_dir);
 
-    // Load the page dir in CR3 and enable paging.
-    cpu_set_cr3(page_dir);
+    // Switch to the kernel's address space.
+    switch_to_addr_space(get_kernel_addr_space());
+
+    // Enable the paging bit.
     cpu_enable_paging();
 
     // Paging has been enabled, EIP is using the higher half mapping but the
@@ -515,9 +499,9 @@ void paging_map(void const * const paddr,
                 void const * const vaddr,
                 size_t const len,
                 uint32_t const flags) {
-    lock_vaddr_space();
+    lock_curr_addr_space();
     do_paging_map(paddr, vaddr, len, flags);
-    unlock_vaddr_space();
+    unlock_curr_addr_space();
 
     cpu_invalidate_tlb();
     maybe_to_tlb_shootdown();
@@ -541,18 +525,18 @@ static void do_paging_unmap(void const * const vaddr,
 }
 
 void paging_unmap(void const * const vaddr, size_t const len) {
-    lock_vaddr_space();
+    lock_curr_addr_space();
     do_paging_unmap(vaddr, len, false);
-    unlock_vaddr_space();
+    unlock_curr_addr_space();
 
     cpu_invalidate_tlb();
     maybe_to_tlb_shootdown();
 }
 
 void paging_unmap_and_free_frames(void const * const vaddr, size_t const len) {
-    lock_vaddr_space();
+    lock_curr_addr_space();
     do_paging_unmap(vaddr, len, true);
-    unlock_vaddr_space();
+    unlock_curr_addr_space();
 
     cpu_invalidate_tlb();
     maybe_to_tlb_shootdown();
@@ -650,10 +634,10 @@ static void *do_paging_find_contiguous_non_mapped_pages(void * const start_addr,
 
 void *paging_find_contiguous_non_mapped_pages(void * const start_addr,
                                               size_t const npages) {
-    lock_vaddr_space();
+    lock_curr_addr_space();
     void * const res = do_paging_find_contiguous_non_mapped_pages(start_addr,
         npages);
-    unlock_vaddr_space();
+    unlock_curr_addr_space();
     return res;
 }
 
@@ -661,27 +645,20 @@ void *paging_map_frames_above(void * const start_addr,
                               void ** frames,
                               size_t const npages,
                               uint32_t const flags) {
-    lock_vaddr_space();
+    lock_curr_addr_space();
     void * const start = do_paging_find_contiguous_non_mapped_pages(start_addr,
         npages);
     for (size_t i = 0; i < npages; ++i) {
         void const * const frame = frames[i];
         do_paging_map(frame, start + i * PAGE_SIZE, PAGE_SIZE, flags);
     }
-    unlock_vaddr_space();
+    unlock_curr_addr_space();
 
     // TLB invalidation must be done outside the critical section.
     cpu_invalidate_tlb();
     maybe_to_tlb_shootdown();
 
     return start;
-}
-
-void const * get_kernel_page_dir_phy_addr(void) {
-    lock_vaddr_space();
-    void const * addr = KERNEL_PAGE_DIR;
-    unlock_vaddr_space();
-    return addr;
 }
 
 #include <paging.test>

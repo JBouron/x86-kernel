@@ -1,0 +1,7 @@
+#include <test.h>
+#include <frame_alloc.h>
+#include <paging.h>
+
+void addr_space_test(void) {
+
+}

@@ -67,9 +67,5 @@ void *paging_map_frames_above(void * const start_addr,
                               size_t const npages,
                               uint32_t const flags);
 
-// Get the physical address of the kernel's page directory.
-// @return: The physical address of the kernel's page directory.
-void const * get_kernel_page_dir_phy_addr(void);
-
 // Execute tests related to paging.
 void paging_test(void);

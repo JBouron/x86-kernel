@@ -10,6 +10,7 @@
 #include <kernel_map.h>
 #include <lock.h>
 #include <kmalloc.h>
+#include <addr_space.h>
 
 // Application Processor (AP) Start Up Algorithm
 // =============================================
