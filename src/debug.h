@@ -4,6 +4,7 @@
 // underlying buffer which should be VGA) should, obviously, never fail.
 #include <tty.h>
 #include <cpu.h>
+#include <percpu.h>
 
 // Macros coming from the linux kernel source code.
 #define __stringify_1(x...) #x
@@ -45,3 +46,14 @@ inline void PANIC_ASM(void) {
         volatile int i = 0;  \
         while(!i);           \
     } while (0);
+
+// Conditional break allowing to call BREAK() only if the cpu allows it (that is
+// when the cond_break variable is true).
+DECLARE_PER_CPU(bool, cond_break) = false;
+#define CBREAK()                                                \
+    do {                                                        \
+        if (percpu_initialized()&&this_cpu_var(cond_break)) {   \
+            BREAK();                                            \
+        }                                                       \
+    } while (0)
+
