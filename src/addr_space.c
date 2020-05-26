@@ -3,6 +3,7 @@
 #include <kmalloc.h>
 #include <frame_alloc.h>
 #include <paging.h>
+#include <acpi.h>
 
 // The kernel's address space needs to be statically allocated since it will be
 // used even before dynamic allocation is setup.
@@ -101,6 +102,35 @@ struct addr_space *create_new_addr_space(void) {
     paging_setup_new_page_dir(clone->page_dir_phy_addr);
 
     return clone;
+}
+
+void delete_addr_space(struct addr_space * const addr_space) {
+    if (addr_space == &KERNEL_ADDR_SPACE) {
+        // Nothing good can come out of this.
+        PANIC("Are you insane ?\n");
+    }
+
+    spinlock_lock(&addr_space->lock);
+
+    // Make sure that no cpu is currently using the address space. Note: For now
+    // there is no guarantee that remote cpus are not trying to switch to this
+    // address space. Care should be taken here FIXME.
+    uint32_t const ncpus = acpi_get_number_cpus();
+    for (uint32_t cpu = 0; cpu < ncpus; ++cpu) {
+        struct addr_space const * const cpu_as = cpu_var(curr_addr_space, cpu);
+        if (cpu_as == addr_space) {
+            PANIC("Tried to delete an address space used by cpu %d\n", cpu);
+        }
+    }
+
+    paging_delete_page_dir(addr_space->page_dir_phy_addr);
+
+    spinlock_unlock(&addr_space->lock);
+
+    // Address space must _always_ be created using the create_new_addr_space()
+    // which dynamically allocate the struct addr_space. The only exception is
+    // KERNEL_ADDR_SPACE but this one should _never_ be deleted.
+    kfree(addr_space);
 }
 
 #include <addr_space.test>

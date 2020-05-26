@@ -661,7 +661,7 @@ void *paging_map_frames_above(void * const start_addr,
     return start;
 }
 
-void paging_setup_new_page_dir(void * const page_dir) {
+void paging_setup_new_page_dir(void * const page_dir_phy_addr) {
     lock_curr_addr_space();
 
     void * const pd_addr = this_cpu_var(curr_addr_space)->page_dir_phy_addr;
@@ -673,14 +673,14 @@ void paging_setup_new_page_dir(void * const page_dir) {
     do_paging_map(pd_addr, pd_addr, PAGE_SIZE, 0);
     cpu_invalidate_tlb();
 
-    do_paging_map(page_dir, page_dir, PAGE_SIZE, VM_WRITE);
+    do_paging_map(page_dir_phy_addr, page_dir_phy_addr, PAGE_SIZE, VM_WRITE);
     cpu_invalidate_tlb();
 
-    memzero(page_dir, PAGE_SIZE);
+    memzero(page_dir_phy_addr, PAGE_SIZE);
 
     // Copy each entry in the new page directory.
     struct page_dir const * const curr_pd = pd_addr;
-    struct page_dir * const dest_pd = page_dir;
+    struct page_dir * const dest_pd = page_dir_phy_addr;
     uint16_t const start_idx = pde_index(KERNEL_PHY_OFFSET);
     for (uint16_t i = start_idx; i < 1023; ++i) {
         dest_pd->entry[i] = curr_pd->entry[i];
@@ -692,15 +692,41 @@ void paging_setup_new_page_dir(void * const page_dir) {
     // page_table_addr field instead of setting all the fields manually.
     union pde_t rec = curr_pd->entry[1023];
     ASSERT(rec.page_table_addr == (uint32_t)pd_addr >> 12);
-    rec.page_table_addr = ((uint32_t)page_dir) >> 12;
+    rec.page_table_addr = ((uint32_t)page_dir_phy_addr) >> 12;
     dest_pd->entry[1023] = rec;
 
-    do_paging_unmap(page_dir, PAGE_SIZE, false);
+    do_paging_unmap(page_dir_phy_addr, PAGE_SIZE, false);
     cpu_invalidate_tlb();
 
     do_paging_unmap(pd_addr, PAGE_SIZE, false);
     cpu_invalidate_tlb();
 
+    unlock_curr_addr_space();
+
+    maybe_to_tlb_shootdown();
+}
+
+void paging_delete_page_dir(void * const page_dir_phy_addr) {
+    lock_curr_addr_space();
+
+    do_paging_map(page_dir_phy_addr, page_dir_phy_addr, PAGE_SIZE, VM_WRITE);
+    cpu_invalidate_tlb();
+
+    struct page_dir * const page_dir = page_dir_phy_addr;
+
+    uint16_t const max_index = pde_index(KERNEL_PHY_OFFSET);
+    for (uint16_t i = 0; i < max_index; ++i) {
+        union pde_t pde = page_dir->entry[i];
+        if (pde.present) {
+            void * const page_table = (void*)(pde.page_table_addr << 12);
+            free_frame(page_table);
+        }
+    }
+
+    do_paging_map(page_dir_phy_addr, page_dir_phy_addr, PAGE_SIZE, VM_WRITE);
+    cpu_invalidate_tlb();
+
+    free_frame(page_dir_phy_addr);
     unlock_curr_addr_space();
 
     maybe_to_tlb_shootdown();

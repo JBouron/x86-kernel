@@ -49,5 +49,10 @@ void unlock_curr_addr_space(void);
 // @return: The struct addr_space associated with this new address space.
 struct addr_space *create_new_addr_space(void);
 
+// Delete an address space and de-allocate the physical frames it uses for its
+// page directory and page tables.
+// @param addr_space: The address space to be deleted.
+void delete_addr_space(struct addr_space * const addr_space);
+
 // Execute tests related to address space.
 void addr_space_test(void);

@@ -27,7 +27,7 @@ static bool create_new_addr_space_test(void) {
     paging_unmap(new_page_dir, PAGE_SIZE);
     paging_unmap(k_page_dir, PAGE_SIZE);
 
-    free_frame(new_addr_space->page_dir_phy_addr);
+    delete_addr_space(new_addr_space);
     return true;
 }
 
@@ -57,8 +57,14 @@ static bool switch_to_addr_space_test(void) {
     switch_to_addr_space(new_addr_space);
     TEST_ASSERT(*vaddr == 0xCAFEBABE);
 
-    switch_to_addr_space(get_kernel_addr_space());
+    // We need to manually free the physical frame `frame2` since
+    // delete_addr_space() will not do it for us.
+    paging_unmap_and_free_frames(vaddr, PAGE_SIZE);
 
+    switch_to_addr_space(get_kernel_addr_space());
+    paging_unmap_and_free_frames(vaddr, PAGE_SIZE);
+
+    delete_addr_space(new_addr_space);
     return true;
 }
 
