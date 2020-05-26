@@ -1,5 +1,8 @@
 #include <addr_space.h>
 #include <debug.h>
+#include <kmalloc.h>
+#include <frame_alloc.h>
+#include <paging.h>
 
 // The kernel's address space needs to be statically allocated since it will be
 // used even before dynamic allocation is setup.
@@ -7,11 +10,6 @@ struct addr_space KERNEL_ADDR_SPACE = {
     .lock = INIT_SPINLOCK(),
     .page_dir_phy_addr = NULL,
 };
-
-// Each cpu has the curr_addr_space variable which contains a pointer to the
-// struct addr_space associated with the address space that it is currently
-// using.
-DECLARE_PER_CPU(struct addr_space *, curr_addr_space);
 
 void switch_to_addr_space(struct addr_space * const addr_space) {
     ASSERT(addr_space->page_dir_phy_addr);
@@ -91,6 +89,18 @@ void unlock_curr_addr_space(void) {
     }
     
     spinlock_unlock(&addr_space->lock);
+}
+
+struct addr_space *create_new_addr_space(void) {
+    struct addr_space * clone = kmalloc(sizeof(*clone));
+    void * const page_dir = alloc_frame();
+    // FIXME: We should not do that manually.
+    clone->lock.lock = 0;
+    clone->page_dir_phy_addr = page_dir;
+
+    paging_setup_new_page_dir(clone->page_dir_phy_addr);
+
+    return clone;
 }
 
 #include <addr_space.test>

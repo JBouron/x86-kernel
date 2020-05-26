@@ -67,5 +67,11 @@ void *paging_map_frames_above(void * const start_addr,
                               size_t const npages,
                               uint32_t const flags);
 
+// Setup a new page directory. This function will initialized the page directory
+// with the entries used by the kernel as well as the recursive entry. Any
+// address below KERNEL_PHY_OFFSET is not mapped.
+// @param page_dir: The page directory to initialize.
+void paging_setup_new_page_dir(void * const page_dir);
+
 // Execute tests related to paging.
 void paging_test(void);

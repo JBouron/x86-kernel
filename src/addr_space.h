@@ -14,6 +14,11 @@ struct addr_space {
     void * page_dir_phy_addr;
 };
 
+// Each cpu has the curr_addr_space variable which contains a pointer to the
+// struct addr_space associated with the address space that it is currently
+// using.
+DECLARE_PER_CPU(struct addr_space *, curr_addr_space);
+
 // Switch to a new address space on the current cpu.
 // @param addr_space: The address space to switch to.
 // Note: This function can be called before percpu is initialized.
@@ -38,6 +43,11 @@ void lock_curr_addr_space(void);
 
 // Unlock the address space currently used on this core.
 void unlock_curr_addr_space(void);
+
+// Create a new address space. The address space initially contains the kernel
+// data (and mappings).
+// @return: The struct addr_space associated with this new address space.
+struct addr_space *create_new_addr_space(void);
 
 // Execute tests related to address space.
 void addr_space_test(void);

@@ -661,4 +661,49 @@ void *paging_map_frames_above(void * const start_addr,
     return start;
 }
 
+void paging_setup_new_page_dir(void * const page_dir) {
+    lock_curr_addr_space();
+
+    void * const pd_addr = this_cpu_var(curr_addr_space)->page_dir_phy_addr;
+
+    // Because we are using do_paging_map, we need to invalidate the TLB after
+    // each call. Failure to do so can lead to nasty bugs in which the cpu uses
+    // a stale TLB entries and corrupts memory.
+    // The TLB shootdown needs to be done outside the critical section however.
+    do_paging_map(pd_addr, pd_addr, PAGE_SIZE, 0);
+    cpu_invalidate_tlb();
+
+    do_paging_map(page_dir, page_dir, PAGE_SIZE, VM_WRITE);
+    cpu_invalidate_tlb();
+
+    memzero(page_dir, PAGE_SIZE);
+
+    // Copy each entry in the new page directory.
+    struct page_dir const * const curr_pd = pd_addr;
+    struct page_dir * const dest_pd = page_dir;
+    uint16_t const start_idx = pde_index(KERNEL_PHY_OFFSET);
+    for (uint16_t i = start_idx; i < 1023; ++i) {
+        dest_pd->entry[i] = curr_pd->entry[i];
+    }
+
+    // The last PDE is the recursive entry. This one cannot be simply copied as
+    // it needs to point to the frame of the page directory. To make it simple,
+    // take the recursive entry of the kernel page dir and simply change the
+    // page_table_addr field instead of setting all the fields manually.
+    union pde_t rec = curr_pd->entry[1023];
+    ASSERT(rec.page_table_addr == (uint32_t)pd_addr >> 12);
+    rec.page_table_addr = ((uint32_t)page_dir) >> 12;
+    dest_pd->entry[1023] = rec;
+
+    do_paging_unmap(page_dir, PAGE_SIZE, false);
+    cpu_invalidate_tlb();
+
+    do_paging_unmap(pd_addr, PAGE_SIZE, false);
+    cpu_invalidate_tlb();
+
+    unlock_curr_addr_space();
+
+    maybe_to_tlb_shootdown();
+}
+
 #include <paging.test>
