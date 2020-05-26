@@ -30,13 +30,15 @@ static bool paging_create_recursive_entry_test(void) {
 }
 
 static bool paging_get_curr_page_dir_vaddr_test(void) {
-    uint32_t const vaddr = (uint32_t)get_curr_page_dir_vaddr();
+    uint32_t const vaddr = (uint32_t)get_page_dir(get_curr_addr_space());
     return vaddr == 0xFFFFF000;
 }
 
 static bool paging_get_page_table_vaddr_test() {
     uint16_t const index = 0x1AB;
-    uint32_t const vaddr = (uint32_t)get_page_table_vaddr(index);
+    uint32_t const vaddr = (uint32_t)get_page_table(get_curr_addr_space(),
+                                                    NULL,
+                                                    index);
     TEST_ASSERT(vaddr >> 22 == 1023);
     TEST_ASSERT(((vaddr >> 12) & 0x3FF) == index);
     return true;
@@ -57,12 +59,13 @@ static bool _paging_map_page_page_table_test_runner(uint32_t const flags) {
     uint32_t const pde_idx = pde_index(vaddr);
     uint32_t const pte_idx = pte_index(vaddr);
 
-    map_page(get_curr_page_dir_vaddr(), paddr, vaddr, flags);
+    map_page_in(get_curr_addr_space(), paddr, vaddr, flags);
 
-    union pde_t const pde = get_curr_page_dir_vaddr()->entry[pde_idx];
-    union pte_t const pte = get_page_table_vaddr(pde_idx)->entry[pte_idx];
+    union pde_t const pde = get_page_dir(get_curr_addr_space())->entry[pde_idx];
+    union pte_t const pte =
+        get_page_table(get_curr_addr_space(), NULL, pde_idx)->entry[pte_idx];
 
-    unmap_page(vaddr, false);
+    unmap_page_in(get_curr_addr_space(), vaddr, false);
     cpu_invalidate_tlb();
 
 
@@ -178,7 +181,8 @@ static void dummy_pf_handler(struct interrupt_frame const * const frame) {
         // Enable write bit on the second fault.
         uint32_t const pde_idx = pde_index(cr2);
         uint32_t const pte_idx = pte_index(cr2);
-        struct page_table * const page_table = get_page_table_vaddr(pde_idx);
+        struct page_table * const page_table =
+            get_page_table(get_curr_addr_space(), NULL, pde_idx);
         page_table->entry[pte_idx].writable = 1;
         cpu_invalidate_tlb();
     }
@@ -302,22 +306,24 @@ static bool paging_unmap_frees_frames_test(void) {
 
 // Test for page_is_mapped.
 static bool paging_page_is_mapped_test(void) {
+    struct addr_space * const as = get_curr_addr_space();
     void const * const frame = alloc_frame();
 
-    TEST_ASSERT(!page_is_mapped(frame));
+    TEST_ASSERT(!page_is_mapped(as, frame));
     paging_map(frame, frame, PAGE_SIZE, 0);
-    TEST_ASSERT(page_is_mapped(frame));
+    TEST_ASSERT(page_is_mapped(as, frame));
 
     paging_unmap(frame, PAGE_SIZE);
-    TEST_ASSERT(!page_is_mapped(frame));
+    TEST_ASSERT(!page_is_mapped(as, frame));
     free_frame(frame);
     return true;
 }
 
 static bool paging_find_next_non_mapped_page_test(void) {
+    struct addr_space * const as = get_curr_addr_space();
     void * const frame = alloc_frame();
 
-    TEST_ASSERT(find_next_non_mapped_page(frame) == frame);
+    TEST_ASSERT(find_next_non_mapped_page(as, frame) == frame);
 
     // Now map some pages starting at address frame. Map 1, 2, ..., 8 pages and
     // check that find_next_non_mapped_page return the correct address.
@@ -326,7 +332,7 @@ static bool paging_find_next_non_mapped_page_test(void) {
         // This is the address of the page rigth after the one we mapped above.
         // This page should be non mapped.
         void * const exp_addr = frame + (i+1) * PAGE_SIZE;
-        TEST_ASSERT(find_next_non_mapped_page(frame) == exp_addr);
+        TEST_ASSERT(find_next_non_mapped_page(as, frame) == exp_addr);
     }
 
     // Cleanup.
@@ -339,12 +345,13 @@ static bool paging_find_next_non_mapped_page_test(void) {
 }
 
 static bool paging_compute_hole_size_test(void) {
+    struct addr_space * const as = get_curr_addr_space();
     void * const frame = alloc_frame();
 
     // If nothing is mapped in the lower half then we expect the hole starting
     // at address 0x0 to span all the way to the start of the kernel.
     uint32_t const num_frames_to_kernel = (uint32_t)KERNEL_PHY_OFFSET >> 12;
-    TEST_ASSERT(compute_hole_size(NULL) == num_frames_to_kernel);
+    TEST_ASSERT(compute_hole_size(as, NULL) == num_frames_to_kernel);
 
     // map the frame to its identity postion + at 3 pages after that.
     // essentially we are creating a hole between the two mapped pages of size 2
@@ -352,13 +359,13 @@ static bool paging_compute_hole_size_test(void) {
     paging_map(frame, frame, PAGE_SIZE, 0);
     paging_map(frame, frame + 3 * PAGE_SIZE, PAGE_SIZE, 0);
 
-    TEST_ASSERT(compute_hole_size(0x0) == (uint32_t)frame >> 12);
+    TEST_ASSERT(compute_hole_size(as, 0x0) == (uint32_t)frame >> 12);
 
-    TEST_ASSERT(!compute_hole_size(frame));
-    TEST_ASSERT(compute_hole_size(frame + PAGE_SIZE) == 2);
+    TEST_ASSERT(!compute_hole_size(as, frame));
+    TEST_ASSERT(compute_hole_size(as, frame + PAGE_SIZE) == 2);
 
     paging_map(frame, frame + 2 * PAGE_SIZE, PAGE_SIZE, 0);
-    TEST_ASSERT(compute_hole_size(frame + PAGE_SIZE) == 1);
+    TEST_ASSERT(compute_hole_size(as, frame + PAGE_SIZE) == 1);
 
     paging_unmap(frame, PAGE_SIZE);
     paging_unmap(frame + 2 * PAGE_SIZE, PAGE_SIZE);

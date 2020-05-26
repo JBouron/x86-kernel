@@ -14,10 +14,17 @@ struct addr_space {
     void * page_dir_phy_addr;
 };
 
-// Each cpu has the curr_addr_space variable which contains a pointer to the
-// struct addr_space associated with the address space that it is currently
-// using.
-DECLARE_PER_CPU(struct addr_space *, curr_addr_space);
+// Get a pointer on the address space currently used by the cpu.
+// @return: A pointer on the struct addr_space associated with the address space
+// used by the cpu.
+// Note: This function can be used in the following scenarios:
+//  - Before paging is enabled, in which case the function returns the physical
+//  address of KERNEL_ADDR_SPACE.
+//  - After paging is enabled but before percpu is initialized, in this case the
+//  function returns the virtual address of KERNEL_ADDR_SPACE.
+//  - After paging is enabled and percpu initialized, in this case the function
+//  will return the struct addr_space of the address space of the cpu.
+struct addr_space *get_curr_addr_space(void);
 
 // Switch to a new address space on the current cpu.
 // @param addr_space: The address space to switch to.

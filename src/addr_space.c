@@ -12,6 +12,25 @@ struct addr_space KERNEL_ADDR_SPACE = {
     .page_dir_phy_addr = NULL,
 };
 
+// Each cpu has the curr_addr_space variable which contains a pointer to the
+// struct addr_space associated with the address space that it is currently
+// using.
+DECLARE_PER_CPU(struct addr_space *, curr_addr_space);
+
+struct addr_space *get_curr_addr_space(void) {
+    if (!cpu_paging_enabled()) {
+        // We are very early in the boot process, return the physical address of
+        // KERNEL_ADDR_SPACE.
+        return to_phys(&KERNEL_ADDR_SPACE);
+    } else if (percpu_initialized()) {
+        return this_cpu_var(curr_addr_space);
+    } else {
+        // If percpu has not yet been enabled then we can only be in the kernel
+        // address space.
+        return &KERNEL_ADDR_SPACE;
+    }
+}
+
 void switch_to_addr_space(struct addr_space * const addr_space) {
     ASSERT(addr_space->page_dir_phy_addr);
 
