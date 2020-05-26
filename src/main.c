@@ -26,6 +26,7 @@
 #include <percpu.h>
 #include <ipm.h>
 #include <atomic.h>
+#include <addr_space.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -51,6 +52,7 @@ void test_kernel(void) {
     percpu_test();
     ipm_test();
     atomic_test();
+    addr_space_test();
 
     print_test_summary();
 }

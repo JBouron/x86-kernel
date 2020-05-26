@@ -2,6 +2,67 @@
 #include <frame_alloc.h>
 #include <paging.h>
 
-void addr_space_test(void) {
+static bool create_new_addr_space_test(void) {
+    return true;
+    struct addr_space * const new_addr_space = create_new_addr_space();
+    TEST_ASSERT(new_addr_space);
 
+    uint32_t const * const new_page_dir = new_addr_space->page_dir_phy_addr;
+    uint32_t const * const k_page_dir = get_kernel_page_dir_phy_addr();
+
+    paging_map(new_page_dir, new_page_dir, PAGE_SIZE, 0);
+    paging_map(k_page_dir, k_page_dir, PAGE_SIZE, 0);
+
+    uint32_t const start_idx = ((uint32_t)KERNEL_PHY_OFFSET) >> 22;
+    for (uint32_t i = start_idx; i < 1023; ++i) {
+        TEST_ASSERT(new_page_dir[i] == k_page_dir[i]);
+    }
+
+    // For the last entry (recursive entry) only the last 20 bits should differ
+    // and they should be the address of the page dir.
+    uint32_t last = k_page_dir[1023];
+    last = ((uint32_t)new_page_dir) | (last & 0xFFF);
+    TEST_ASSERT(new_page_dir[1023] == last);
+
+    paging_unmap(new_page_dir, PAGE_SIZE);
+    paging_unmap(k_page_dir, PAGE_SIZE);
+
+    free_frame(new_addr_space->page_dir_phy_addr);
+    return true;
+}
+
+static bool switch_to_addr_space_test(void) {
+    struct addr_space * const new_addr_space = create_new_addr_space();
+    TEST_ASSERT(new_addr_space);
+
+    void * const frame1 = alloc_frame();
+    void * const frame2 = alloc_frame();
+    uint32_t * const vaddr = (uint32_t*)0x1A000;
+
+    // Map in the kernel address space.
+    paging_map(frame1, vaddr, PAGE_SIZE, VM_WRITE);
+
+    // This write happens in the kernel addr space and therefore will be written
+    // to frame1.
+    *vaddr = 0xDEADBEEF;
+
+    switch_to_addr_space(new_addr_space);
+    paging_map(frame2, vaddr, PAGE_SIZE, VM_WRITE);
+
+    *vaddr = 0xCAFEBABE;
+
+    switch_to_addr_space(get_kernel_addr_space());
+    TEST_ASSERT(*vaddr == 0xDEADBEEF);
+
+    switch_to_addr_space(new_addr_space);
+    TEST_ASSERT(*vaddr == 0xCAFEBABE);
+
+    switch_to_addr_space(get_kernel_addr_space());
+
+    return true;
+}
+
+void addr_space_test(void) {
+    TEST_FWK_RUN(create_new_addr_space_test);
+    TEST_FWK_RUN(switch_to_addr_space_test);
 }
