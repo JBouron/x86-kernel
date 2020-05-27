@@ -591,9 +591,9 @@ void paging_unmap_in(struct addr_space * const addr_space,
 void paging_unmap_and_free_frames_in(struct addr_space * const addr_space,
                                      void const * const vaddr,
                                      size_t const len) {
-    lock_curr_addr_space();
+    lock_addr_space(addr_space);
     do_paging_unmap_in(addr_space, vaddr, len, true);
-    unlock_curr_addr_space();
+    unlock_addr_space(addr_space);
 
     cpu_invalidate_tlb();
     maybe_to_tlb_shootdown();
@@ -706,10 +706,11 @@ void *paging_find_contiguous_non_mapped_pages_in(
     void * const start_addr,
     size_t const npages) {
 
-    lock_curr_addr_space();
-    void * const res = do_paging_find_contiguous_non_mapped_pages_in(
-        get_curr_addr_space(), start_addr, npages);
-    unlock_curr_addr_space();
+    lock_addr_space(addr_space);
+    void * const res = do_paging_find_contiguous_non_mapped_pages_in(addr_space,
+                                                                     start_addr,
+                                                                     npages);
+    unlock_addr_space(addr_space);
     return res;
 }
 
@@ -718,14 +719,14 @@ void *paging_map_frames_above_in(struct addr_space * const addr_space,
                                  void ** frames,
                                  size_t const npages,
                                  uint32_t const flags) {
-    lock_curr_addr_space();
+    lock_addr_space(addr_space);
     void * const start = do_paging_find_contiguous_non_mapped_pages_in(
         addr_space, start_addr, npages);
     for (size_t i = 0; i < npages; ++i) {
         void const * const frame = frames[i];
         do_paging_map_in(addr_space, frame, start + i * PAGE_SIZE, PAGE_SIZE, flags);
     }
-    unlock_curr_addr_space();
+    unlock_addr_space(addr_space);
 
     // TLB invalidation must be done outside the critical section.
     cpu_invalidate_tlb();
@@ -735,9 +736,10 @@ void *paging_map_frames_above_in(struct addr_space * const addr_space,
 }
 
 void paging_setup_new_page_dir(void * const page_dir_phy_addr) {
-    lock_curr_addr_space();
+    struct addr_space * const curr_addr_space = get_curr_addr_space();
+    lock_addr_space(curr_addr_space);
 
-    void * const pd_addr = get_curr_addr_space()->page_dir_phy_addr;
+    void * const pd_addr = curr_addr_space->page_dir_phy_addr;
 
     // Because we are using do_paging_map, we need to invalidate the TLB after
     // each call. Failure to do so can lead to nasty bugs in which the cpu uses
@@ -774,13 +776,14 @@ void paging_setup_new_page_dir(void * const page_dir_phy_addr) {
     do_paging_unmap(pd_addr, PAGE_SIZE, false);
     cpu_invalidate_tlb();
 
-    unlock_curr_addr_space();
+    unlock_addr_space(curr_addr_space);
 
     maybe_to_tlb_shootdown();
 }
 
 void paging_delete_page_dir(void * const page_dir_phy_addr) {
-    lock_curr_addr_space();
+    struct addr_space * const curr_addr_space = get_curr_addr_space();
+    lock_addr_space(curr_addr_space);
 
     do_paging_map(page_dir_phy_addr, page_dir_phy_addr, PAGE_SIZE, VM_WRITE);
     cpu_invalidate_tlb();
@@ -800,7 +803,8 @@ void paging_delete_page_dir(void * const page_dir_phy_addr) {
     cpu_invalidate_tlb();
 
     free_frame(page_dir_phy_addr);
-    unlock_curr_addr_space();
+
+    unlock_addr_space(curr_addr_space);
 
     maybe_to_tlb_shootdown();
 }
