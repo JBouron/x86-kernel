@@ -155,31 +155,30 @@ static struct page_dir *get_page_dir(struct addr_space * const addr_space) {
 }
 
 // Get a pointer on a page table of an address space.
-// @param addr_space: The address space to get the page table pointer from.
-// @param mapped_dir: This should be the address returned from the previous
-// get_page_dir() call. FIXME: Get rid of this boilerplate.
+// @param page_dir: The address of the page directory to read from. Note that
+// this address must resolve to the page directory if paging has been enabled.
 // @param index: The index of the page table to retreive.
 // @return: The address of the page table of `addr_space` at index `index`. Note
 // that this pointer will _always_ be valid no matter if paging has been enabled
 // or not.  This means this function can be used in early boot.
-static struct page_table *get_page_table(struct addr_space * const addr_space,
-                                         struct page_dir * const mapped_dir,
+static struct page_table *get_page_table(struct page_dir * const page_dir,
                                          uint16_t const index) {
     if (!cpu_paging_enabled()) {
         // Paging is not yet enabled, we can use the physical address of the
         // page directory as is and walk the dir to find the physical address of
         // the page table.
-        struct page_dir const * const dir = get_page_dir(addr_space);
-        return (struct page_table*)(dir->entry[index].page_table_addr << 12);
-    } else if (get_curr_addr_space() == addr_space) {
-        // Paging is enabled and the target address space is the address space
-        // currently loaded on this cpu. Use the recursive entry.
+        return (void*)(page_dir->entry[index].page_table_addr << 12);
+    } else if ((void*)page_dir == (void*)0xFFFFF000) {
+        // The page directory address is the recursive address. That means the
+        // address space used in the caller is the current address space of the
+        // cpu, we can use the recursive entry for the page table as well.
         uint32_t const vaddr = (1023 << 22) | (((uint32_t)index) << 12);
         return (struct page_table *) vaddr;
     } else {
-        // Map the page table to the current address space. The directory has
-        // already been mapped and its virtual address is `mapped_dir`.
-        void *frame = (void*)(mapped_dir->entry[index].page_table_addr << 12);
+        // This is a different page directory than the one loaded in cr3. We
+        // cannot use the recursive entry to get the virtual address of the page
+        // table, map it in the current address space instead.
+        void *frame = (void*)(page_dir->entry[index].page_table_addr << 12);
         return paging_map_frames_above(KERNEL_PHY_OFFSET, &frame, 1, VM_WRITE);
     }
 }
@@ -271,7 +270,7 @@ static void map_page_in(struct addr_space * const addr_space,
         page_dir->entry[pde_idx] = pde;
     }
 
-    struct page_table * const page_table = get_page_table(addr_space, page_dir, pde_idx);
+    struct page_table * const page_table = get_page_table(page_dir, pde_idx);
     if (page_table_allocated) {
         // If the page table has been freshly allocated zero it, this is to
         // avoid garbage.
@@ -455,9 +454,7 @@ static void unmap_page_in(struct addr_space * const addr_space,
         PANIC("Address %p is not mapped.", vaddr);
     }
 
-    struct page_table * const page_table = get_page_table(addr_space,
-                                                          page_dir,
-                                                          pde_idx);
+    struct page_table * const page_table = get_page_table(page_dir, pde_idx);
     uint32_t const pte_idx = pte_index(vaddr);
 
     // The entry should be present, otherwise we have a conflict.
@@ -616,9 +613,7 @@ static bool page_is_mapped(struct addr_space * const addr_space,
     if (!page_dir->entry[pde_idx].present) {
         return false;
     }
-    struct page_table const * const table = get_page_table(addr_space,
-                                                           page_dir,
-                                                           pde_idx);
+    struct page_table const * const table = get_page_table(page_dir, pde_idx);
     return table->entry[pte_idx].present;
 }
 
@@ -666,9 +661,7 @@ static uint32_t compute_hole_size(struct addr_space * const addr_space,
             continue;
         }
 
-        struct page_table const * const page_table = get_page_table(addr_space,
-                                                                    page_dir,
-                                                                    i);
+        struct page_table const * const page_table = get_page_table(page_dir,i);
         uint16_t const start_pte_idx = i==start_pde_idx ? pte_index(vaddr) : 0;
         for (uint16_t j = start_pte_idx; j < 1024; ++j) {
             if (!page_table->entry[j].present) {

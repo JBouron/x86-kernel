@@ -36,9 +36,8 @@ static bool paging_get_curr_page_dir_vaddr_test(void) {
 
 static bool paging_get_page_table_vaddr_test() {
     uint16_t const index = 0x1AB;
-    uint32_t const vaddr = (uint32_t)get_page_table(get_curr_addr_space(),
-                                                    NULL,
-                                                    index);
+    struct page_dir * const page_dir = get_page_dir(get_curr_addr_space());
+    uint32_t const vaddr = (uint32_t)get_page_table(page_dir, index);
     TEST_ASSERT(vaddr >> 22 == 1023);
     TEST_ASSERT(((vaddr >> 12) & 0x3FF) == index);
     return true;
@@ -61,9 +60,9 @@ static bool _paging_map_page_page_table_test_runner(uint32_t const flags) {
 
     map_page_in(get_curr_addr_space(), paddr, vaddr, flags);
 
+    struct page_dir * const page_dir = get_page_dir(get_curr_addr_space());
     union pde_t const pde = get_page_dir(get_curr_addr_space())->entry[pde_idx];
-    union pte_t const pte =
-        get_page_table(get_curr_addr_space(), NULL, pde_idx)->entry[pte_idx];
+    union pte_t const pte = get_page_table(page_dir, pde_idx)->entry[pte_idx];
 
     unmap_page_in(get_curr_addr_space(), vaddr, false);
     cpu_invalidate_tlb();
@@ -181,8 +180,9 @@ static void dummy_pf_handler(struct interrupt_frame const * const frame) {
         // Enable write bit on the second fault.
         uint32_t const pde_idx = pde_index(cr2);
         uint32_t const pte_idx = pte_index(cr2);
-        struct page_table * const page_table =
-            get_page_table(get_curr_addr_space(), NULL, pde_idx);
+        struct page_dir * const page_dir = get_page_dir(get_curr_addr_space());
+        struct page_table * const page_table = get_page_table(page_dir,
+                                                              pde_idx);
         page_table->entry[pte_idx].writable = 1;
         cpu_invalidate_tlb();
     }
@@ -491,6 +491,59 @@ static bool paging_tlb_shootdown_test(void) {
     exec_remote_call(cpu, _paging_test_tlb_shootdown_writer, (void*)val, true);
     TEST_ASSERT(test_tlb_shootdown_remote_got_page_fault);
     paging_unmap_and_free_frames(test_tlb_shootdown_vaddr, PAGE_SIZE);
+    interrupt_delete_global_callback(14);
+    return true;
+}
+
+static bool get_page_dir_test(void) {
+    // Case 1: Call get_page_dir on the current address space, this should
+    // return the recursive address.
+    struct page_dir const * const pd1 = get_page_dir(get_curr_addr_space());
+    TEST_ASSERT((void*)pd1 == (void*)0xFFFFF000);
+
+    // Case 2: Call get_page_dir on a different address space. This should
+    // return an address mapped in the current address space.
+    struct addr_space * const addr_space = create_new_addr_space();
+    struct page_dir const * const pd2 = get_page_dir(addr_space);
+
+    // To make sure that the address points to the right thing, manually map the
+    // page directory of addr_space and make sure that they are pointing to the
+    // same physical frame by writting stuff in it. This is ok as the address
+    // spcae will never be used.
+    void * const mapped = addr_space->page_dir_phy_addr;
+    paging_map(mapped, mapped, PAGE_SIZE, VM_WRITE);
+    memset(mapped, 0xA, PAGE_SIZE);
+    for (uint16_t i = 0; i < PAGE_SIZE; ++i) {
+        uint8_t const byte1 = *(((uint8_t*)(pd2))+i);
+        uint8_t const byte2 = *(((uint8_t*)(mapped))+i);
+        TEST_ASSERT(byte1 == byte2);
+    }
+
+    paging_unmap(mapped, PAGE_SIZE);
+    delete_addr_space(addr_space);
+    return true;
+}
+
+static bool get_page_table_test(void) {
+    // Use a page table index that we are sure exists i.e. the page table
+    // containing the current instruction (roughly).
+    uint16_t const index = pde_index(get_page_table_test);
+    // Case 1: Get the page table of the current page dir. This should use the
+    // recursive entry.
+    struct page_dir * const pd1 = get_page_dir(get_curr_addr_space());
+    struct page_table const * const pt1 = get_page_table(pd1, index);
+    uint32_t const vaddr = (1023 << 22) | (((uint32_t)index) << 12);
+    TEST_ASSERT((void*)pt1 == (void*)vaddr);
+
+    // Case 2: Get the page table of a different address space.
+    struct addr_space * const addr_space = create_new_addr_space();
+    struct page_dir * const pd2 = get_page_dir(addr_space);
+    struct page_table const * const pt2 = get_page_table(pd2, index);
+    TEST_ASSERT(pt1 != pt2);
+    for (uint16_t i = 0; i < 1024; ++i) {
+        TEST_ASSERT(compare_ptes(pt1->entry[i], pt2->entry[i]));
+    }
+    delete_addr_space(addr_space);
     return true;
 }
 
@@ -511,4 +564,6 @@ void paging_test(void) {
     TEST_FWK_RUN(paging_idempotency_test);
     TEST_FWK_RUN(paging_non_aligned_addrs);
     TEST_FWK_RUN(paging_tlb_shootdown_test);
+    TEST_FWK_RUN(get_page_dir_test);
+    TEST_FWK_RUN(get_page_table_test);
 }
