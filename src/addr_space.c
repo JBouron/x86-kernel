@@ -82,8 +82,7 @@ void unlock_addr_space(struct addr_space * const addr_space) {
 struct addr_space *create_new_addr_space(void) {
     struct addr_space * clone = kmalloc(sizeof(*clone));
     void * const page_dir = alloc_frame();
-    // FIXME: We should not do that manually.
-    clone->lock.lock = 0;
+    spinlock_init(&clone->lock);
     clone->page_dir_phy_addr = page_dir;
 
     paging_setup_new_page_dir(clone->page_dir_phy_addr);
