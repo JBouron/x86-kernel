@@ -63,7 +63,6 @@ static void handle_remote_call(struct remote_call_data * const call) {
 
 // Process any message in this cpu's message queue.
 static void process_messages(void) {
-    uint8_t const cpuid = this_cpu_var(cpu_id);
     struct list_node * const head = &this_cpu_var(message_queue);
 
     // Atomically pick the first message in the queue and process it. Do that
@@ -80,7 +79,6 @@ static void process_messages(void) {
         // message while we are processing this one.
         unlock_message_queue();
 
-        LOG("[%u] Processing message from %u\n", cpuid, msg->sender_id);
         switch (msg->tag) {
             case __TEST : {
                 if (TEST_TAG_CALLBACK) {
@@ -183,7 +181,6 @@ static void enqueue_message(struct ipm_message * const message,
     }
 
     spinlock_unlock(lock);
-    LOG("[%u] Sending message to %u\n", this_cpu_var(cpu_id), cpu);
 }
 
 // Send an IPM.
