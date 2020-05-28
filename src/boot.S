@@ -109,6 +109,12 @@ ASM_FUNC_DEF_16BITS(ap_entry_point):
     mov     %cs, %ax
     mov     %ax, %ds
 
+    # The GS regsiter will later be used for percpu data. A 0 in GS indicates
+    # that this cpu is not yet ready to access its percpu data. Set it to 0 as
+    # early as possible to avoid surprises.
+    mov     $0x0, %ax
+    mov     %ax, %gs
+
     # Read the data segment that this core should use. This segment is stored in
     # the last word of this code frame.
     mov     0xFFE, %ax

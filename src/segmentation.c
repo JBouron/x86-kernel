@@ -145,7 +145,10 @@ static void setup_segment_selectors(bool const set_percpu_seg) {
         union segment_selector_t const pcpu_seg = per_cpu_segment_selector(id);
         cpu_set_gs(&pcpu_seg);
     } else {
-        cpu_set_gs(&data_seg);
+        // Before percpu segments are set, %GS is set to 0. This makes it easy
+        // to check if percpu data is ready on a given cpu or not.
+        union segment_selector_t null_sel = {.value = 0};
+        cpu_set_gs(&null_sel);
     }
 }
 

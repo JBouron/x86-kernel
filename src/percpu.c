@@ -40,7 +40,8 @@ void init_percpu(void) {
 }
 
 bool percpu_initialized(void) {
-    return PERCPU_INITIALIZED;
+    // If %GS is zero then this cpu is not ready to use percpu data.
+    return cpu_read_gs().value != 0x0 && PERCPU_INITIALIZED;
 }
 
 #include <percpu.test>
