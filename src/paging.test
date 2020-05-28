@@ -504,7 +504,7 @@ static bool get_page_dir_test(void) {
     // Case 2: Call get_page_dir on a different address space. This should
     // return an address mapped in the current address space.
     struct addr_space * const addr_space = create_new_addr_space();
-    struct page_dir const * const pd2 = get_page_dir(addr_space);
+    struct page_dir * const pd2 = get_page_dir(addr_space);
 
     // To make sure that the address points to the right thing, manually map the
     // page directory of addr_space and make sure that they are pointing to the
@@ -520,6 +520,7 @@ static bool get_page_dir_test(void) {
     }
 
     paging_unmap(mapped, PAGE_SIZE);
+    maybe_unmap_page_dir(pd2);
     delete_addr_space(addr_space);
     return true;
 }
@@ -575,6 +576,7 @@ static bool paging_map_other_addr_space_test(void) {
     paging_unmap_in(test_addr_space, vaddr_other, PAGE_SIZE);
 
     delete_addr_space(test_addr_space);
+    free_frame(frame);
     return true;
 }
 
@@ -628,6 +630,7 @@ static bool paging_unmap_other_addr_space_test(void) {
     paging_unmap(vaddr, PAGE_SIZE);
 
     delete_addr_space(test_addr_space);
+    free_frame(frame);
     return true;
 }
 

@@ -183,6 +183,46 @@ static struct page_table *get_page_table(struct page_dir * const page_dir,
     }
 }
 
+// Unmap the virtual address resolving to a page directory if necessary. This
+// function should be used in conjunction with get_page_dir() since the latter
+// may map a page directory to the current address space and it should therefore
+// be unmapped after use.
+// @param page_dir: The pointer to unmap if necessary.
+static void maybe_unmap_page_dir(struct page_dir * const page_dir) {
+    if (!cpu_paging_enabled()) {
+        // Nothing is mapped, nothing to do.
+        return;
+    } else if ((void*)page_dir == (void*)0xFFFFF000) {
+        // The paging operation was done on the current address space, hence the
+        // page directory was not mapped to access it. Nothing to do.
+        return;
+    } else {
+        // We were dealing with a different address space that the current one,
+        // the page directory was mapped.
+        paging_unmap((void*)page_dir, PAGE_SIZE);
+    }
+}
+
+// Unmap the virtual address resolving to a page table if necessary. This
+// function should be used in conjunction with get_page_table() since the latter
+// may map a page table to the current address space and it should therefore be
+// unmapped after use.
+// @param page_table: The pointer to unmap if necessary.
+static void maybe_unmap_page_table(struct page_table * const page_table) {
+    if (!cpu_paging_enabled()) {
+        // Nothing is mapped, nothing to do.
+        return;
+    } else if ((uint32_t)(void*)page_table >= 0xFFC00000) {
+        // The virtual address resolving to the page table is using the
+        // recursive entry therefore the paging operation was done on the
+        // current address space, and the table was not mapped. Nothing to do.
+        return;
+    } else {
+        // We were dealing with a different address space that the current one,
+        // the page table was mapped.
+        paging_unmap((void*)page_table, PAGE_SIZE);
+    }
+}
 
 // Remove the identity mapping created during paging initialization.
 // Note: This function assumes that paging has been enabled and that nothing
@@ -201,6 +241,7 @@ static void remove_identity_mapping(void) {
         // Zero the entire entry, cleaner.
         memzero(page_dir->entry + i, sizeof(*page_dir->entry));
     }
+    maybe_unmap_page_dir(page_dir);
 }
 
 // Compute the Page Directory Entry index corresponding to a virtual address.
@@ -306,6 +347,9 @@ static void map_page_in(struct addr_space * const addr_space,
     }
 
     page_table->entry[pte_idx] = pte;
+
+    maybe_unmap_page_table(page_table);
+    maybe_unmap_page_dir(page_dir);
 }
 
 // As part as the paging initialization routine, create two mappings:
@@ -483,6 +527,9 @@ static void unmap_page_in(struct addr_space * const addr_space,
             (void*)(page_dir->entry[pde_idx].page_table_addr << 12);
         free_frame(frame_addr);
     }
+
+    maybe_unmap_page_table(page_table);
+    maybe_unmap_page_dir(page_dir);
 }
 
 // Compute the offset within a page of an address.
@@ -611,10 +658,16 @@ static bool page_is_mapped(struct addr_space * const addr_space,
     uint32_t const pde_idx = pde_index(vaddr);
     uint32_t const pte_idx = pte_index(vaddr);
     if (!page_dir->entry[pde_idx].present) {
+        maybe_unmap_page_dir(page_dir);
         return false;
     }
-    struct page_table const * const table = get_page_table(page_dir, pde_idx);
-    return table->entry[pte_idx].present;
+    struct page_table * const table = get_page_table(page_dir, pde_idx);
+    bool const mapped = table->entry[pte_idx].present;
+
+    maybe_unmap_page_table(table);
+    maybe_unmap_page_dir(page_dir);
+
+    return mapped;
 }
 
 // Find the next non-mapped page in an address space.
@@ -661,17 +714,20 @@ static uint32_t compute_hole_size(struct addr_space * const addr_space,
             continue;
         }
 
-        struct page_table const * const page_table = get_page_table(page_dir,i);
+        struct page_table * const page_table = get_page_table(page_dir,i);
         uint16_t const start_pte_idx = i==start_pde_idx ? pte_index(vaddr) : 0;
         for (uint16_t j = start_pte_idx; j < 1024; ++j) {
             if (!page_table->entry[j].present) {
                 count ++;
             } else {
                 // Found the first used page. return.
+                maybe_unmap_page_table(page_table);
+                maybe_unmap_page_dir(page_dir);
                 return count;
             }
         }
     }
+    maybe_unmap_page_dir(page_dir);
     return count;
 }
 
@@ -799,10 +855,9 @@ void paging_delete_page_dir(void * const page_dir_phy_addr) {
         }
     }
 
-    do_paging_map(page_dir_phy_addr, page_dir_phy_addr, PAGE_SIZE, VM_WRITE);
+    // Unmap the page directory and free the physical frame it is using.
+    do_paging_unmap(page_dir_phy_addr, PAGE_SIZE, true);
     cpu_invalidate_tlb();
-
-    free_frame(page_dir_phy_addr);
 
     unlock_addr_space(curr_addr_space);
 
