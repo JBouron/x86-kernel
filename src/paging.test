@@ -547,6 +547,117 @@ static bool get_page_table_test(void) {
     return true;
 }
 
+static bool paging_map_other_addr_space_test(void) {
+    struct addr_space * const test_addr_space = create_new_addr_space();
+
+    void * const frame = alloc_frame();
+
+    // In the kernel address space, the frame will be mapped to 0xA000. In the
+    // other address space, to 0xB000.
+    uint32_t * const vaddr_ker = (uint32_t*)0xA000;
+    uint32_t * const vaddr_other = (uint32_t*)0xB000;
+
+    paging_map(frame, vaddr_ker, PAGE_SIZE, VM_WRITE);
+    paging_map_in(test_addr_space, frame, vaddr_other, PAGE_SIZE, VM_WRITE);
+
+    // In the kernel addr space, set the first word to 0xDEADBEEF.
+    *vaddr_ker = 0xDEADBEEF;
+
+    switch_to_addr_space(test_addr_space);
+    TEST_ASSERT(*vaddr_other == 0xDEADBEEF);
+
+    *vaddr_other = 0xCAFECAFE;
+
+    switch_to_addr_space(get_kernel_addr_space());
+    TEST_ASSERT(*vaddr_ker == 0xCAFECAFE);
+
+    paging_unmap(vaddr_ker, PAGE_SIZE);
+    paging_unmap_in(test_addr_space, vaddr_other, PAGE_SIZE);
+
+    delete_addr_space(test_addr_space);
+    return true;
+}
+
+static void paging_unmap_other_addr_space_pg_handler(
+    struct interrupt_frame const * const frame) {
+    LOG("Page fault in paging_unmap_other_addr_space_test.\n");
+
+    // Switch back to the kernel address space in which the address should still
+    // be mapped.
+    switch_to_addr_space(get_kernel_addr_space());
+}
+
+static bool paging_unmap_other_addr_space_test(void) {
+    struct addr_space * const test_addr_space = create_new_addr_space();
+
+    void * const frame = alloc_frame();
+
+    // In the kernel address space, the frame will be mapped to 0xA000. In the
+    // other address space, to 0xB000.
+    uint32_t * const vaddr = (uint32_t*)0xA000;
+
+    paging_map(frame, vaddr, PAGE_SIZE, VM_WRITE);
+    paging_map_in(test_addr_space, frame, vaddr, PAGE_SIZE, VM_WRITE);
+
+    // In the kernel addr space, set the first word to 0xDEADBEEF.
+    *vaddr = 0xDEADBEEF;
+
+    switch_to_addr_space(test_addr_space);
+    TEST_ASSERT(*vaddr == 0xDEADBEEF);
+
+    *vaddr = 0xCAFECAFE;
+
+    switch_to_addr_space(get_kernel_addr_space());
+    TEST_ASSERT(*vaddr == 0xCAFECAFE);
+
+    // Now unmap the frame from the test address space.
+    paging_unmap_in(test_addr_space, vaddr, PAGE_SIZE);
+
+    interrupt_register_global_callback(14,
+        paging_unmap_other_addr_space_pg_handler);
+
+    // Switch to the test address space and try to write again.
+    switch_to_addr_space(test_addr_space);
+
+    // This will trigger a page fault. The page fault handler will put us back
+    // into the kernel address space.
+    *vaddr = 0xCAFECAFE;
+
+    TEST_ASSERT(get_curr_addr_space() == get_kernel_addr_space());
+
+    paging_unmap(vaddr, PAGE_SIZE);
+
+    delete_addr_space(test_addr_space);
+    return true;
+}
+
+static bool paging_find_cont_non_mapped_pages_other_addr_space_test(void) {
+    struct addr_space * const test_addr_space = create_new_addr_space();
+    void * const frame = alloc_frame();
+
+    // Map the frame to its identity postion + at 3 pages after that.
+    // Essentially we are creating a hole between the two mapped pages of size 2
+    // * PAGE_SIZE.
+    paging_map_in(test_addr_space, frame, frame, PAGE_SIZE, 0);
+    paging_map_in(test_addr_space, frame, frame + 3 * PAGE_SIZE, PAGE_SIZE, 0);
+
+    void * const start2 =
+        paging_find_contiguous_non_mapped_pages_in(test_addr_space, frame, 2);
+    TEST_ASSERT(start2 == frame + PAGE_SIZE);
+
+    // We cannot fit 3 frames between the two pages, it has to go after the
+    // second page.
+    void * const start3 =
+        paging_find_contiguous_non_mapped_pages_in(test_addr_space, frame, 3);
+    TEST_ASSERT(start3 == frame + 4 * PAGE_SIZE);
+
+    paging_unmap_in(test_addr_space, frame, PAGE_SIZE);
+    paging_unmap_in(test_addr_space, frame + 3 * PAGE_SIZE, PAGE_SIZE);
+    free_frame(frame);
+    delete_addr_space(test_addr_space);
+    return true;
+}
+
 void paging_test(void) {
     TEST_FWK_RUN(paging_create_recursive_entry_test);
     TEST_FWK_RUN(paging_get_curr_page_dir_vaddr_test);
@@ -566,4 +677,7 @@ void paging_test(void) {
     TEST_FWK_RUN(paging_tlb_shootdown_test);
     TEST_FWK_RUN(get_page_dir_test);
     TEST_FWK_RUN(get_page_table_test);
+    TEST_FWK_RUN(paging_map_other_addr_space_test);
+    TEST_FWK_RUN(paging_unmap_other_addr_space_test);
+    TEST_FWK_RUN(paging_find_cont_non_mapped_pages_other_addr_space_test);
 }
