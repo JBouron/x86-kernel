@@ -45,11 +45,13 @@ void const * get_kernel_page_dir_phy_addr(void);
 // Note: This function can only be called once.
 void init_kernel_addr_space(void * const page_dir_phy_addr);
 
-// Lock the address space currently used on this core.
-void lock_curr_addr_space(void);
+// Lock an address space.
+// @param addr_space: The address space to be locked.
+void lock_addr_space(struct addr_space * const addr_space);
 
-// Unlock the address space currently used on this core.
-void unlock_curr_addr_space(void);
+// Unlock an address space.
+// @param addr_space: The address space to be unlocked.
+void unlock_addr_space(struct addr_space * const addr_space);
 
 // Create a new address space. The address space initially contains the kernel
 // data (and mappings).
