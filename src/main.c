@@ -27,6 +27,7 @@
 #include <ipm.h>
 #include <atomic.h>
 #include <addr_space.h>
+#include <proc.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -53,6 +54,7 @@ void test_kernel(void) {
     ipm_test();
     atomic_test();
     addr_space_test();
+    proc_test();
 
     print_test_summary();
 }

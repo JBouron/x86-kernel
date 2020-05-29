@@ -1,0 +1,58 @@
+#include <test.h>
+
+__attribute__((unused)) static void switch_to_proc_test_prog(void) {
+    LOG("Hello from process\n");
+    lock_up();
+}
+
+// Test switch_to_proc(). Disabled for now as there is no way to gracefully come
+// back to the kernel.
+__attribute__((unused)) static bool switch_to_proc_test(void) {
+    struct proc * const proc = create_proc((void*)switch_to_proc_test_prog);
+    switch_to_proc(proc);
+    return true;
+}
+
+static bool get_stack_bottom_test(void) {
+    void const * const stack_top = 0x0;
+    uint32_t const stack_size = 1;
+    TEST_ASSERT(get_stack_bottom(stack_top, stack_size) == (void*)0xFFC);
+    return true;
+}
+
+static bool create_proc_test(void) {
+    void const * const eip = (void*)0xDEADBEEF;
+    struct proc * const proc = create_proc(eip);
+
+    // Check that registers are initialized correctly.
+    TEST_ASSERT(proc->registers_save.edi == 0);
+    TEST_ASSERT(proc->registers_save.esi == 0);
+    TEST_ASSERT(proc->registers_save.ebp == (reg_t)proc->stack_bottom);
+    TEST_ASSERT(proc->registers_save.ebx == 0);
+    TEST_ASSERT(proc->registers_save.edx == 0);
+    TEST_ASSERT(proc->registers_save.ecx == 0);
+    TEST_ASSERT(proc->registers_save.eax == 0);
+    TEST_ASSERT(proc->registers_save.eip == (reg_t)eip);
+    TEST_ASSERT(proc->registers_save.eflags == 1 << 9);
+
+    // create_proc() should have setup a far return to the process code on the
+    // stack. Therefore ESP should point on the third word of the stack.
+    TEST_ASSERT(proc->registers_save.esp == (reg_t)(proc->stack_bottom - 8));
+
+    // Temporarily switch to the process's address space to inspect its stack.
+    switch_to_addr_space(proc->addr_space);
+    uint32_t * stack = proc->stack_bottom;
+    TEST_ASSERT(stack[0] == proc->registers_save.eflags);
+    TEST_ASSERT(stack[-1] == cpu_read_cs().value);
+    TEST_ASSERT(stack[-2] == (uint32_t)eip);
+    switch_to_addr_space(get_kernel_addr_space());
+
+    return true;
+}
+
+void proc_test(void) {
+    TEST_FWK_RUN(get_stack_bottom_test);
+    TEST_FWK_RUN(create_proc_test);
+    // Disabled. See comment on switch_to_proc_test().
+    //TEST_FWK_RUN(switch_to_proc_test);
+}

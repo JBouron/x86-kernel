@@ -12,4 +12,5 @@ typedef uint32_t p_addr;
 typedef uint32_t l_addr;
 // Virtual address.
 typedef uint32_t v_addr;
-
+// CPU register.
+typedef uint32_t reg_t;
