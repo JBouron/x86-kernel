@@ -153,8 +153,12 @@ static size_t GDT_SIZE = 0;
 static uint16_t const KERNEL_DATA_INDEX = 1;
 // The index of the kernel code segment in the GDT.
 static uint16_t const KERNEL_CODE_INDEX = 2;
+// The index of the user data segment in the GDT.
+static uint16_t const USER_DATA_INDEX = 3;
+// The index of the user code segment in the GDT.
+static uint16_t const USER_CODE_INDEX = 4;
 // The index of the first cpu's percpu segment.
-static uint16_t const PERCPU_SEG_START_INDEX = 3;
+static uint16_t const PERCPU_SEG_START_INDEX = 5;
 
 // Load a GDT into the GDTR of the current cpu.
 // @param gdt: The linear address of the GDT to load.
@@ -293,10 +297,11 @@ void initialize_trampoline_gdt(struct ap_boot_data_frame * const data_frame) {
 }
 
 void switch_to_final_gdt(void **per_cpu_areas) {
-    // 1 NULL entry, one data segment, one code segment, one segment per cpu
-    // for per-cpu data and one segment per cpu for TSS.
+    // 1 NULL entry, one kernel data segment, one kernel code segment, one user
+    // data segment, one user code segment, one segment per cpu for per-cpu data
+    // and one segment per cpu for TSS.
     uint8_t const ncpus = acpi_get_number_cpus();
-    size_t const num_entries = 3 + 2 * ncpus;
+    size_t const num_entries = 5 + 2 * ncpus;
 
     // Allocate the final GDT. Kmalloc zeroes the GDT for us.
     GDT = kmalloc(num_entries * sizeof(*GDT));
@@ -304,6 +309,10 @@ void switch_to_final_gdt(void **per_cpu_areas) {
     // Copy the data and code segments from the early GDT. Those stay the same.
     GDT[KERNEL_DATA_INDEX] = EARLY_GDT[KERNEL_DATA_INDEX];
     GDT[KERNEL_CODE_INDEX] = EARLY_GDT[KERNEL_CODE_INDEX];
+
+    // Prepare the user segments.
+    init_desc(GDT + USER_DATA_INDEX, 0, 0xFFFFF, false, 3);
+    init_desc(GDT + USER_CODE_INDEX, 0, 0xFFFFF, true, 3);
 
     // Add one entry per cpu to contain per-cpu copies.
     size_t const pcpu_size = SECTION_PERCPU_SIZE;
