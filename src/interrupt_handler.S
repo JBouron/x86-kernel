@@ -18,12 +18,87 @@
 // This routine saves the registers, calls the generic interrupt handler, and
 // later restore the registers before iret.
 _interrupt_handler_common:
-    // Save all 8 regs onto the stack.
+    // Save registers onto the stack in reverse order as they appear in struct
+    // register_save_area. We cannot use general purpose registers (except ESP)
+    // until the pusha.
+    // Depending on the processor, pushing the segment registers might not zero
+    // the top 16 bits of the dword on the stack which means we can end up with
+    // garbage values. To avoid that, precede all segment reg push with a pushl
+    // 0; add 4, %esp so that we are sure the top 16-bits will always be 0.
+    pushl   $0
+    add     $0x4, %esp
+    push    %es
+    // CS is already on the stack. Since we pushed %ES, the value on CS on the
+    // stack is at offset 0xC.
+    push    0x10(%esp)
+    // The current value of %SS might not be the original value of SS when the
+    // processor got interrupted if a task in ring 3 was running. We will patch
+    // it up later.
+    pushl   $0
+    add     $0x4, %esp
+    push    %ss
+    pushl   $0
+    add     $0x4, %esp
+    push    %ds
+    pushl   $0
+    add     $0x4, %esp
+    push    %fs
+    pushl   $0
+    add     $0x4, %esp
+    push    %gs
+    // Push the EIP, it was pused on the interrupt frame.
+    push    0x20(%esp)
+    // Push EFLAGS, it was pushed on the interrupt frame as well.
+    push    0x2C(%esp)
+    // Now push all general purpose registers.
     pusha
-    // Now we are safe to use any registers again. Construct the struct
-    // interrupt_frame_t for the generic interrupt handler.
-    // Make EAX point to the saved vector on the stack.
-    lea     0x20(%esp), %eax
+
+    // In case a privilege change happened, the saved values for the stack
+    // segment register and ESP are wrong since those are the SS and ESP used by
+    // the interrupt handler, _not_ the original process.
+    // If that is the case, then those values can be found at the top of the
+    // handler's stack frame. We therefore need the fixup the registers in the
+    // save area.
+    // EAX = privilege level of current code segment.
+    mov     %cs, %eax
+    and     $0x3, %eax 
+    // EBX = privilege level of interrupted context's code segment.
+    mov     56(%esp), %ebx
+    and     $0x3, %ebx
+
+    cmp     %eax, %ebx
+    jne     do_fixup_priv_change
+    // There was no privilege change then the saved SS is correct. However the
+    // saved ESP is still incorrect as we pushed some values on the stack before
+    // the pusha. We need to fix this. The actual value _before_ the interrupt
+    // should be the current value of ESP + 88:
+    //                                         v To point to the top before int.
+    //                64 + (2 * 4) + (3 * 4) + 4 = 88 bytes.
+    //       reg. save^   vec+err^     ^- eip, cs, eflags.
+    mov     %esp, %eax
+    add     $88, %eax
+    mov     %eax, 0xC(%esp)
+
+    jmp     do_fixup_priv_change_end
+
+do_fixup_priv_change:
+    // The original SS from the process was pushed on the stack and can be found
+    // at ESP + 88, its saved location is ESP + 52.
+    // The original ESP from the process can be found at ESP + 84 and saved at
+    // ESP + 12.
+    mov     88(%esp), %ecx
+    mov     %ecx, 52(%esp)
+    mov     84(%esp), %ecx
+    mov     %ecx, 12(%esp)
+
+do_fixup_priv_change_end:
+    // Construct the struct interrupt_frame_t for the generic interrupt handler.
+    // Push pointer to the struct register_save_area containing the snapshot of
+    // registers created above.
+    push    %esp
+    // EAX = initial ESP after the interrupt occured, pointing to the error
+    // code.
+    lea     68(%esp), %eax
     // Push the vector.
     pushl   (%eax)
     // Push the error code.
@@ -42,9 +117,11 @@ _interrupt_handler_common:
     // The interrupt has been dealt with. We can now restore the registers and
     // return from the interrupt.
     // Get rid of the struct interrupt_frame and the pointer in the stack.
-    add     $0x18, %esp
+    add     $0x1C, %esp
     // Restore the registers.
     popa
+    // FIXME: Get rid of the saved registers values, they are unused for now.
+    add     $32, %esp
     // Now get rid of the vector AND the error code. As described in the Intel
     // manual chapter 6.13 ERROR CODE, the error code is pushed onto the stack
     // when the interrupt is triggered but it is the responsibility of the

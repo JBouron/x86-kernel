@@ -21,6 +21,8 @@ struct interrupt_frame {
     uint32_t error_code;
     // The vector of the interrupt.
     uint32_t vector;
+    // A snapshot of the registers right _before_ the interrupt happened.
+    struct register_save_area const *registers;
 } __attribute__((packed));
 
 // Callbacks

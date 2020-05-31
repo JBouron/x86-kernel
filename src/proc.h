@@ -20,10 +20,19 @@ struct register_save_area {
     reg_t ecx;
     reg_t eax;
 
-    // Pusha and Popa do not touch the EIP and EFLAGS. We need to save them
-    // manually.
-    reg_t eip;
+    // The following registers are not pushed/poped by pusha/popa. The order
+    // does not matter.
     reg_t eflags;
+    reg_t eip;
+    // For segment registers, the upper 16 bits should be ignored. They are
+    // stored as 32 bits dwords because this is how they are pushed on the stack
+    // by interrupts handlers.
+    reg_t gs;
+    reg_t fs;
+    reg_t ds;
+    reg_t ss;
+    reg_t cs;
+    reg_t es;
 } __attribute__((packed));
 
 // A process running on the system.
