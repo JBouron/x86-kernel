@@ -429,3 +429,9 @@ ASM_FUNC_DEF(interrupts_enabled):
     and     $(1 << 9), %eax
     shr     $9, %eax
     ret
+
+//void cpu_ltr(union segment_selector_t const segment_sel);
+ASM_FUNC_DEF(cpu_ltr):
+    mov     0x4(%esp), %eax
+    ltr     %ax
+    ret

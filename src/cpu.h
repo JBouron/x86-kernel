@@ -227,5 +227,10 @@ uint8_t cpu_apic_id(void);
 // @return: true if the interrupts are enabled, false otherwise.
 bool interrupts_enabled(void);
 
+// Execute the LTR instruction with a given segment selector.
+// @param segment_sel: A segment selector. Note: This selector _must_ point to a
+// TSS segment.
+void cpu_ltr(union segment_selector_t const segment_sel);
+
 // Execute tests on CPU related functions.
 void cpu_test(void);
