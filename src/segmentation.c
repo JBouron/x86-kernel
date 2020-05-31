@@ -41,6 +41,65 @@ union segment_descriptor_t {
 } __attribute__((packed));
 STATIC_ASSERT(sizeof(union segment_descriptor_t) == 8, "");
 
+// The TSS is a big structure. However, since we are doing software scheduling
+// only, the only fields that we are going to use are ESP0 and SS0.
+struct tss {
+    union {
+        uint8_t _padding[104];
+        struct {
+            uint32_t : 32;
+
+            // The stack pointer to use when entering the kernel through an
+            // interrupt.
+            void * esp0;
+            // The stack segment to use when entering the kernel through an
+            // interrupt.
+            union segment_selector_t ss0; 
+
+            uint16_t : 16;
+        } __attribute__((packed));
+    } __attribute__((packed));
+} __attribute__((packed));
+STATIC_ASSERT(sizeof(struct tss) == 104, "");
+
+// TSS descriptor for the GDT.
+struct tss_descriptor {
+    union {
+        uint64_t value;
+        struct {
+            // Limit, bits 0 through 15.
+            uint16_t limit_15_0 : 16;
+            // Base, bits 0 through 15.
+            uint16_t base_15_0 : 16;
+            // Base, bits 16 through 23.
+            uint8_t base_23_16 : 8;
+            // Type should be the following : 1 0 B 1, where B represents the
+            // busy bit.
+            uint8_t type : 4;
+            // Should be 0.
+            uint8_t zero : 1;
+            // The privilege level required to switch to this task.
+            uint8_t privilege_level : 2;
+            // Is the TSS present ?
+            uint8_t present : 1;
+            // Limit, bits 16 through 19.
+            uint8_t limit_19_16 : 4;
+            // Available for use by system.
+            uint8_t avail : 1;
+            // Should be 0.
+            uint8_t zero2 : 2;
+            // Granularity. If set the limit is by 4K increments.
+            uint8_t granularity : 1;
+            // Base, bits 24 through 31.
+            uint8_t base_31_24 : 8;
+        } __attribute__((packed));
+    } __attribute__((packed));
+} __attribute__((packed));
+STATIC_ASSERT(sizeof(struct tss_descriptor) == 8, "");
+
+// Each CPU has its own TSS since each cpu has its own kernel stack.
+DECLARE_PER_CPU(struct tss, tss);
+
 static void init_desc(union segment_descriptor_t * const desc,
                       uint32_t const base,
                       uint32_t const limit,
@@ -234,10 +293,10 @@ void initialize_trampoline_gdt(struct ap_boot_data_frame * const data_frame) {
 }
 
 void switch_to_final_gdt(void **per_cpu_areas) {
-    // 1 NULL entry, one data segment, one code segment and one segment per cpu
-    // for per-cpu data.
+    // 1 NULL entry, one data segment, one code segment, one segment per cpu
+    // for per-cpu data and one segment per cpu for TSS.
     uint8_t const ncpus = acpi_get_number_cpus();
-    size_t const num_entries = 3 + ncpus;
+    size_t const num_entries = 3 + 2 * ncpus;
 
     // Allocate the final GDT. Kmalloc zeroes the GDT for us.
     GDT = kmalloc(num_entries * sizeof(*GDT));
@@ -265,6 +324,53 @@ void switch_to_final_gdt(void **per_cpu_areas) {
     // because percpu was not initialized. Set it now.
     ASSERT(percpu_initialized());
     switch_to_addr_space(get_kernel_addr_space());
+}
+
+// Construct a TSS descriptor to point to a particular TSS.
+// @param tss: The address the descriptor should point to.
+// @return: A struct tss_descriptor fully initialized and ready to be inserted
+// into the GDT.
+struct tss_descriptor generate_tss_descriptor(struct tss const * const tss) {
+    struct tss_descriptor desc;
+    memzero(&desc, sizeof(desc));
+    uint32_t const base = (uint32_t)(void*)tss;
+    uint32_t const limit = sizeof(*tss);
+    desc.base_15_0 =  base & 0x0000FFFF;
+    desc.base_23_16 = (base & 0x00FF0000) >> 16;
+    desc.base_31_24 = (base & 0xFF000000) >> 24;
+    desc.limit_15_0 =  limit & 0x0000FFFF;
+    desc.limit_19_16 = (limit & 0x000F0000) >> 16;
+    // Second bit indicate if the task is busy. This is not used in this kernel
+    // but must be set to 0 when creating a new TSS segment.
+    desc.type = 0b1001;
+    desc.privilege_level = 0;
+    desc.present = 1;
+    desc.granularity = 0;
+    return desc;
+}
+
+void setup_tss(void) {
+    // We require percpu to be initialized as the tss is stored as a percpu var.
+    ASSERT(percpu_initialized());
+
+    uint8_t const ncpus = acpi_get_number_cpus();
+    uint8_t const cpu_id = this_cpu_var(cpu_id);
+    uint16_t const tss_seg_start_index = PERCPU_SEG_START_INDEX + ncpus;
+    struct tss * const tss = &this_cpu_var(tss);
+    uint16_t const tss_index = tss_seg_start_index + cpu_id;
+    union segment_descriptor_t * desc = GDT + tss_index;
+
+    struct tss_descriptor const tss_desc = generate_tss_descriptor(tss);
+    desc->value = tss_desc.value;
+
+    // Prepare the TSS for this cpu.
+    memzero(tss, sizeof(*tss));
+    tss->esp0 = this_cpu_var(kernel_stack);
+    tss->ss0 = cpu_read_ss();
+
+    // Load the TSS.
+    union segment_selector_t const tss_sel = {.index = tss_index};
+    cpu_ltr(tss_sel);
 }
 
 #include <segmentation.test>

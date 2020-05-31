@@ -437,6 +437,9 @@ void *ap_alloc_higher_half_stack(void) {
     ASSERT(APS_STACKS);
     APS_STACKS[cpu_apic_id()] = vaddr;
 
+    this_cpu_var(kernel_stack) = vaddr + KERNEL_STACK_SIZE;
+    setup_tss();
+
     // Allocation is over let other cpus do theirs.
     spinlock_unlock(&AP_BOOT_LOCK);
 

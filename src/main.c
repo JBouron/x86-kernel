@@ -92,6 +92,11 @@ static void init_kernel_state(void) {
     init_percpu();
     // Switch to the final GDT containing percpu segments.
     switch_to_final_gdt(PER_CPU_OFFSETS);
+
+    // Setup the BSP's TSS.
+    extern uint8_t stack_top;
+    this_cpu_var(kernel_stack) = &stack_top;
+    setup_tss();
 }
 
 void kernel_main(struct multiboot_info const * const multiboot_info) {

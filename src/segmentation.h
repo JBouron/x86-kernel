@@ -13,6 +13,10 @@ void init_segmentation(void);
 // and set the code and data segments accordingly.
 void ap_init_segmentation(void);
 
+// Setup the TSS on the current cpu. This function must be called after percpu
+// variables are initialized and the cpu is using the final GDT.
+void setup_tss(void);
+
 // Get the segment selector for the kernel data segment.
 // @return: The segment selector for the kernel data segment.
 union segment_selector_t kernel_data_selector(void);
