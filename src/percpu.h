@@ -96,3 +96,8 @@ DECLARE_PER_CPU(void*, this_cpu_off);
 // the expensive `cpuid` instruction. A cheaper way to achieve this is to use a
 // pre-cpu variable holding the APIC ID of the cpu.
 DECLARE_PER_CPU(uint8_t, cpu_id);
+
+// Each cpu store the virtual address of the top of its kernel stack. This is
+// the stack that will be used in interrupt contexts (and any other part of the
+// kernel).
+DECLARE_PER_CPU(void *, kernel_stack);
