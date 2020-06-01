@@ -281,7 +281,14 @@ static void *get_data_frame_addr_from_frame(void * const code_frame) {
 // kernel.
 // @return: The physical address of the entry point for the APs.
 static void * create_trampoline(void (*target)(void)) {
-    void * const code_frame = alloc_frame();
+    // Hack: The code frame must be under 65K. Because we will easily run out of
+    // physical frames under 65k after booting all the cpus, keep the code_frame
+    // around in case we need to re-init aps (in tests for example).
+    static void * code_frame = (void*)0xFFFFFFFF;
+    if (code_frame == (void*)0xFFFFFFFF) {
+        code_frame = alloc_frame();
+    }
+
     LOG("Trampoline code frame at %p\n", code_frame);
 
     // With the code frame used by APs we have a tighter requirement. Indeed we
@@ -341,7 +348,9 @@ static void cleanup_ap_wakeup_routine_allocs(void * const code_frame) {
 
     // Unmap the frame containing the AP wake up code.
     paging_unmap(code_frame, PAGE_SIZE);
-    free_frame(code_frame);
+
+    // Don't free the code_frame here. It will be re-used later if we ever call
+    // init_aps() again. See comment in create_trampoline().
 
     // Iterate over the stack and de-allocate them.
     uint32_t const inc = PAGE_SIZE / AP_WAKEUP_STACK_SIZE;
