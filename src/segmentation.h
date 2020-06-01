@@ -43,5 +43,9 @@ union segment_selector_t user_code_seg_sel(void);
 // @return: The correct selector.
 union segment_selector_t user_data_seg_sel(void);
 
+// Set all the segment registers for kernel execution. This is used when
+// entering the kernel through an interrupt.
+void set_segment_registers_for_kernel(void);
+
 // Run tests related to segmentation.
 void segmentation_test(void);

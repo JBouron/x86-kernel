@@ -401,4 +401,8 @@ union segment_selector_t user_data_seg_sel(void) {
     return data_seg_sel;
 }
 
+void set_segment_registers_for_kernel(void) {
+    setup_segment_selectors(true);
+}
+
 #include <segmentation.test>

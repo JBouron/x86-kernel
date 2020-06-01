@@ -91,6 +91,12 @@ do_fixup_priv_change:
     mov     84(%esp), %ecx
     mov     %ecx, 12(%esp)
 
+    // Because the interrupted context was not the kernel, the current segment
+    // registers (except CS and SS) are not kernel segment. In particular GS is
+    // not set to the percpu segment. Fixup the segment register before
+    // continuing.
+    call    set_segment_registers_for_kernel
+
 do_fixup_priv_change_end:
     // Construct the struct interrupt_frame_t for the generic interrupt handler.
     // Push pointer to the struct register_save_area containing the snapshot of
