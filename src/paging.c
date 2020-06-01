@@ -300,9 +300,7 @@ static void map_page_in(struct addr_space * const addr_space,
         // Reset accessed bit.
         pde.accessed = 0;
 
-        // For now we are mapping the kernel which should not be accessible to
-        // the user.
-        pde.user_accessible = 0;
+        pde.user_accessible = (bool)(flags & VM_USER);
 
         pde.page_table_addr = ((uint32_t)new_table) >> 12;
         pde.present = 1;
