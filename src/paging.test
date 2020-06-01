@@ -70,7 +70,7 @@ static bool _paging_map_page_page_table_test_runner(uint32_t const flags) {
 
     TEST_ASSERT(pde.present == 1);
     TEST_ASSERT(pde.writable == 1);
-    TEST_ASSERT(pde.user_accessible == 0);
+    TEST_ASSERT(pde.user_accessible == (bool)(flags & VM_USER));
     TEST_ASSERT(pde.write_through == 0);
     TEST_ASSERT(pde.cache_disable == 0);
     TEST_ASSERT(pde.accessed == 1);
