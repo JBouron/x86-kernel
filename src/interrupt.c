@@ -63,7 +63,7 @@ static void init_desc(union interrupt_descriptor_t * const desc,
 
 // This is the IDT. For now it only contains the architectural
 // exception/interrupt handlers.
-#define IDT_SIZE 34
+#define IDT_SIZE 129
 union interrupt_descriptor_t IDT[IDT_SIZE] __attribute__((aligned (8)));
 
 // Array of global callback per vector.
@@ -148,11 +148,19 @@ void interrupt_init(void) {
     memzero(IDT, sizeof(IDT));
 
     // Fill each entry in the IDT with the corresponding interrupt_handler.
-    for (uint8_t vector = 0; vector < IDT_SIZE; ++vector) {
+    // FIXME: The value 33 is hardcoded. What we want here is to initialize all
+    // entry for which there is an handler available (for now this is up until
+    // 33 and 128 for syscalls).
+    for (uint8_t vector = 0; vector < 34; ++vector) {
         uint32_t const handler_offset = get_interrupt_handler(vector);
         ASSERT(handler_offset);
         init_desc(IDT + vector, handler_offset, kernel_code_selector(), 0);
     }
+
+    // The syscall handler must be accessible through software interrupts from
+    // ring 3 hence the DPL should be 3.
+    uint32_t const syscall_handler = get_interrupt_handler(SYSCALL_VECTOR);
+    init_desc(IDT + SYSCALL_VECTOR, syscall_handler, kernel_code_selector(), 3);
 
     // Load the IDT information into the IDTR of the cpu.
     struct idt_desc const desc = {
