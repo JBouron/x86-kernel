@@ -154,9 +154,10 @@ static uint16_t const KERNEL_DATA_INDEX = 1;
 // The index of the kernel code segment in the GDT.
 static uint16_t const KERNEL_CODE_INDEX = 2;
 // The index of the user data segment in the GDT.
-static uint16_t const USER_DATA_INDEX = 3;
+uint16_t const USER_DATA_INDEX = 3;
 // The index of the user code segment in the GDT.
-static uint16_t const USER_CODE_INDEX = 4;
+uint16_t const USER_CODE_INDEX = 4;
+
 // The index of the first cpu's percpu segment.
 static uint16_t const PERCPU_SEG_START_INDEX = 5;
 
@@ -380,6 +381,24 @@ void setup_tss(void) {
     // Load the TSS.
     union segment_selector_t const tss_sel = {.index = tss_index};
     cpu_ltr(tss_sel);
+}
+
+union segment_selector_t user_code_seg_sel(void) {
+    union segment_selector_t code_seg_sel = {
+        .index = USER_CODE_INDEX,
+        .is_local = false,
+        .requested_priv_level = 3,
+    };
+    return code_seg_sel;
+}
+
+union segment_selector_t user_data_seg_sel(void) {
+    union segment_selector_t data_seg_sel = {
+        .index = USER_DATA_INDEX,
+        .is_local = false,
+        .requested_priv_level = 3,
+    };
+    return data_seg_sel;
 }
 
 #include <segmentation.test>

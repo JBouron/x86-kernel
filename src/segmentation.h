@@ -35,5 +35,13 @@ void initialize_trampoline_gdt(struct ap_boot_data_frame * const data_frame);
 // segment in the final GDT.
 void switch_to_final_gdt(void **per_cpu_areas);
 
+// Get the segment selector that should be used for the user space code segment.
+// @return: The correct selector.
+union segment_selector_t user_code_seg_sel(void);
+
+// Get the segment selector that should be used for the user space data segment.
+// @return: The correct selector.
+union segment_selector_t user_data_seg_sel(void);
+
 // Run tests related to segmentation.
 void segmentation_test(void);
