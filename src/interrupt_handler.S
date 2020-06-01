@@ -114,13 +114,38 @@ do_fixup_priv_change_end:
     push    %esp 
     // Call the generic_interrupt_handler.
     call generic_interrupt_handler
+    
+    // Be safe and disable interrupts here. We are on our way to return to the
+    // interrupted context or do a context switch.
+    cli
+
     // The interrupt has been dealt with. We can now restore the registers and
     // return from the interrupt.
     // Get rid of the struct interrupt_frame and the pointer in the stack.
     add     $0x1C, %esp
+
+    // Compare the CS of the interrupted context to know if it was the kernel
+    // that was interrupted.
+    // If yes then we resume the context. If no then check if we should
+    // reschedule and branch the execution to the process.
+    // EAX = privilege level of current code segment.
+    mov     %cs, %eax
+    and     $0x3, %eax 
+    // EBX = privilege level of interrupted context's code segment.
+    mov     56(%esp), %ebx
+    and     $0x3, %ebx
+
+    cmp     %eax, %ebx
+    je      resume_kernel_context
+    // TODO: The interrupted context was a process, we either resume its
+    // execution or pick another process to run.
+
+resume_kernel_context:
+    // If the interrupted context was the kernel then resume it.
     // Restore the registers.
     popa
-    // FIXME: Get rid of the saved registers values, they are unused for now.
+    // Get rid of the saved registers values, they are useless since there is no
+    // context switch.
     add     $32, %esp
     // Now get rid of the vector AND the error code. As described in the Intel
     // manual chapter 6.13 ERROR CODE, the error code is pushed onto the stack

@@ -5,13 +5,7 @@
 #include <kmalloc.h>
 #include <kernel_map.h>
 #include <cpu.h>
-
-// This value is used by proc_asm.S to know the offset of registers_save within
-// the struct proc.
-uint32_t const REGISTERS_SAVE_OFFSET = (offsetof(struct proc, registers_save));
-// The offset of the saved value of ESP register within a struct proc.
-uint32_t const ESP_OFFSET =
-    REGISTERS_SAVE_OFFSET + (offsetof(struct register_save_area, esp));
+#include <segmentation.h>
 
 // The number of stack frames to be allocated by default for a new process.
 #define DEFAULT_NUM_STACK_FRAMES    4
@@ -40,8 +34,9 @@ static void allocate_stack(struct proc * const proc) {
 
     // Map the stack into the process' address space.
     struct addr_space * const as = proc->addr_space;
+    uint32_t const map_flags = VM_WRITE | VM_USER | VM_NON_GLOBAL;
     void * const stack_top =
-        paging_map_frames_above_in(as, 0x0, frames, n_stack_frames, VM_WRITE);
+        paging_map_frames_above_in(as, 0x0, frames, n_stack_frames, map_flags);
     void * const stack_bottom = get_stack_bottom(stack_top, n_stack_frames);
 
     // Set the esp in the registers_save of the stack.
@@ -52,38 +47,7 @@ static void allocate_stack(struct proc * const proc) {
     proc->stack_bottom = stack_bottom;
 }
 
-// Setup the stack of a new process to contain the initial far-return that will
-// be used for the first execution of the process.
-// @param proc: The process to setup.
-static void prepare_initial_far_return(struct proc * const proc) {
-    // The stack should contain the following:
-    //    | EFLAGS |
-    //    | CS     |
-    //    | EIP    | <- ESP
-    // Since we don't have a user space in ring 3 for now, the value of CS
-    // should be the CS for the kernel code.
-    // Note: It is easier here to temporarily switch to the process' address
-    // space to modify its stack. The main reason being that mapping its stack
-    // to the current address space would be hard because we don't know which
-    // physical frames we should map (struct proc only tells us the top frame
-    // but not the other ones).
-    switch_to_addr_space(proc->addr_space);
-
-    uint32_t * stack_ptr = (void*)proc->registers_save.esp;
-    *stack_ptr = (uint32_t)proc->registers_save.eflags;
-    stack_ptr --;
-    *stack_ptr = (uint32_t)cpu_read_cs().value;
-    stack_ptr --;
-    *stack_ptr = (uint32_t)proc->registers_save.eip;
-
-    switch_to_addr_space(get_kernel_addr_space());
-
-    // Fix up the ESP register of the process to point to the new top of the
-    // stack.
-    proc->registers_save.esp = (reg_t)stack_ptr;
-}
-
-struct proc *create_proc(void const * const eip) {
+struct proc *create_proc(void) {
     struct proc * const proc = kmalloc(sizeof(*proc));
     proc->addr_space = create_new_addr_space();
 
@@ -95,18 +59,38 @@ struct proc *create_proc(void const * const eip) {
 
     // For processes the eflags should only have the interrupt bit set.
     proc->registers_save.eflags = 1 << 9;
-    proc->registers_save.eip = (reg_t)eip;
 
-    // Prepare the far return that will be used to start the first execution of
-    // the process.
-    prepare_initial_far_return(proc);
+    // Setup code, data and stack segments to use user space segments.
+    union segment_selector_t code_seg_sel = user_code_seg_sel();
+    union segment_selector_t data_seg_sel = user_data_seg_sel();
+    proc->registers_save.cs = code_seg_sel.value;
+    proc->registers_save.ds = data_seg_sel.value;
+    proc->registers_save.es = data_seg_sel.value;
+    proc->registers_save.fs = data_seg_sel.value;
+    proc->registers_save.gs = data_seg_sel.value;
+    proc->registers_save.ss = data_seg_sel.value;
 
     return proc;
 }
 
-// Execute a far-return into a process. The process' stack should already
-// contain the correct data to execute the return either by calling
-// prepare_initial_far_return() or if the process has been interrupted.
+// The following constants are used by do_far_return_to_proc() to access various
+// fields of the struct register_save_area.
+// This value is used by proc_asm.S to know the offset of registers_save within
+// the struct proc.
+uint32_t const REGISTERS_SAVE_OFFSET = offsetof(struct proc, registers_save);
+
+// Offsets of saved registers within the struct register_save_area.
+uint32_t const SS_OFF = offsetof(struct register_save_area, ss);
+uint32_t const ESP_OFF = offsetof(struct register_save_area, esp);
+uint32_t const EFLAGS_OFF = offsetof(struct register_save_area, eflags);
+uint32_t const CS_OFF = offsetof(struct register_save_area, cs);
+uint32_t const EIP_OFF = offsetof(struct register_save_area, eip);
+uint32_t const DS_OFF = offsetof(struct register_save_area, ds);
+uint32_t const ES_OFF = offsetof(struct register_save_area, es);
+uint32_t const FS_OFF = offsetof(struct register_save_area, fs);
+uint32_t const GS_OFF = offsetof(struct register_save_area, gs);
+
+// Execute a far-return into a process. This function does not return.
 // @param proc: The process to return into.
 void do_far_return_to_proc(struct proc * const proc);
 

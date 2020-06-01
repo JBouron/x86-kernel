@@ -1,14 +1,25 @@
 #include <test.h>
 
-__attribute__((unused)) static void switch_to_proc_test_prog(void) {
-    LOG("Hello from process\n");
-    lock_up();
-}
+extern void switch_to_proc_test_prog(void);
 
 // Test switch_to_proc(). Disabled for now as there is no way to gracefully come
 // back to the kernel.
 __attribute__((unused)) static bool switch_to_proc_test(void) {
-    struct proc * const proc = create_proc((void*)switch_to_proc_test_prog);
+    struct proc * const proc = create_proc();
+
+    void * code_frame = alloc_frame();
+    uint8_t * const code = paging_map_frames_above(0x0, &code_frame, 1, VM_WRITE);
+    extern uint8_t switch_to_proc_test_prog_start;
+    extern uint8_t switch_to_proc_test_prog_end;
+    size_t const code_size =
+        &switch_to_proc_test_prog_end - &switch_to_proc_test_prog_start;
+    memcpy(code, switch_to_proc_test_prog, code_size);
+
+    uint32_t const flags = VM_USER | VM_NON_GLOBAL;
+    void * const eip = paging_map_frames_above_in(proc->addr_space, 0x0, &code_frame, 1, flags);
+
+
+    proc->registers_save.eip = (reg_t)eip;
     switch_to_proc(proc);
     return true;
 }
@@ -21,8 +32,7 @@ static bool get_stack_bottom_test(void) {
 }
 
 static bool create_proc_test(void) {
-    void const * const eip = (void*)0xDEADBEEF;
-    struct proc * const proc = create_proc(eip);
+    struct proc * const proc = create_proc();
 
     // Check that registers are initialized correctly.
     TEST_ASSERT(proc->registers_save.edi == 0);
@@ -32,20 +42,9 @@ static bool create_proc_test(void) {
     TEST_ASSERT(proc->registers_save.edx == 0);
     TEST_ASSERT(proc->registers_save.ecx == 0);
     TEST_ASSERT(proc->registers_save.eax == 0);
-    TEST_ASSERT(proc->registers_save.eip == (reg_t)eip);
+    TEST_ASSERT(proc->registers_save.eip == 0);
     TEST_ASSERT(proc->registers_save.eflags == 1 << 9);
-
-    // create_proc() should have setup a far return to the process code on the
-    // stack. Therefore ESP should point on the third word of the stack.
-    TEST_ASSERT(proc->registers_save.esp == (reg_t)(proc->stack_bottom - 8));
-
-    // Temporarily switch to the process's address space to inspect its stack.
-    switch_to_addr_space(proc->addr_space);
-    uint32_t * stack = proc->stack_bottom;
-    TEST_ASSERT(stack[0] == proc->registers_save.eflags);
-    TEST_ASSERT(stack[-1] == cpu_read_cs().value);
-    TEST_ASSERT(stack[-2] == (uint32_t)eip);
-    switch_to_addr_space(get_kernel_addr_space());
+    TEST_ASSERT(proc->registers_save.esp == (reg_t)(proc->stack_bottom));
 
     return true;
 }

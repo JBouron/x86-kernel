@@ -50,10 +50,9 @@ struct proc {
 } __attribute__((packed));
 
 // Create a new struct proc. The process' address space and stack are allocated.
-// The register_save_area is zeroed (except for ESP and EIP).
-// @param eip: The initial value of the EIP register for the new process. 
+// The register_save_area is zeroed, ESP points to the freshly allocated stack.
 // @return: A pointer on the allocated struct proc.
-struct proc *create_proc(void const * const eip);
+struct proc *create_proc(void);
 
 // Switch the execution of the current cpu to a process. This function does not
 // return.
