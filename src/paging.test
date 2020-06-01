@@ -629,6 +629,7 @@ static bool paging_unmap_other_addr_space_test(void) {
 
     paging_unmap(vaddr, PAGE_SIZE);
 
+    interrupt_delete_global_callback(14);
     delete_addr_space(test_addr_space);
     free_frame(frame);
     return true;
