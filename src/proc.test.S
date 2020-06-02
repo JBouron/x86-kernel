@@ -118,3 +118,14 @@ do_int:
 
 .global register_saving_ring3_int_code_end
 register_saving_ring3_int_code_end:
+
+.extern kernel_access_from_ring3_kernel_var
+ASM_FUNC_DEF(kernel_access_from_ring3_code):
+.global kernel_access_from_ring3_code_start
+kernel_access_from_ring3_code_start:
+
+kernel_access_from_ring3_expected_offset:
+    movl    $0xBEEFBABE, kernel_access_from_ring3_kernel_var
+
+.global kernel_access_from_ring3_code_end
+kernel_access_from_ring3_code_end:

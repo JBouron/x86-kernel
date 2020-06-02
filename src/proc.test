@@ -184,9 +184,67 @@ static bool register_saving_ring3_int_test(void) {
     return true;
 }
 
+extern void kernel_access_from_ring3_code(void);
+
+static reg_t kernel_access_from_ring3_expected_eip = 0;
+uint32_t kernel_access_from_ring3_kernel_var = 0xDEADBEEF;
+static bool kernel_access_from_ring3_pg_ok = false;
+
+static void kernel_access_from_ring3_pg_handler(
+    struct interrupt_frame const * const frame) {
+    LOG("Page fault from ring 3\n");
+    LOG("Error Code = %x\n", frame->error_code);
+    bool success = true;
+    success &= frame->registers->cs == user_code_seg_sel().value;
+    success &= frame->registers->eip == kernel_access_from_ring3_expected_eip;
+    success &= cpu_read_cr2() == &kernel_access_from_ring3_kernel_var;
+    // The error code should have the following bits set: User-mode access,
+    // Write, Page-level protection violation.
+    success &= frame->error_code == ((1 << 2) | (1 << 1) | 1);
+    kernel_access_from_ring3_pg_ok = success;
+
+    lock_up();
+}
+
+// Test that a process running in ring 3 gets a page fault when trying to access
+// kernel data.
+static bool kernel_access_from_ring3_test(void) {
+    struct proc * const proc = create_proc();
+
+    extern uint8_t kernel_access_from_ring3_code_start;
+    extern uint8_t kernel_access_from_ring3_code_end;
+    size_t const len = &kernel_access_from_ring3_code_end -
+        &kernel_access_from_ring3_code_start;
+    void const * const code = kernel_access_from_ring3_code;
+
+    copy_code_to_proc(proc, code, len);
+
+    kernel_access_from_ring3_expected_eip = proc->registers_save.eip;
+
+    interrupt_register_global_callback(14, kernel_access_from_ring3_pg_handler);
+
+    TEST_ASSERT(acpi_get_number_cpus() > 1);
+    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+
+    // make the other cpu execute the process. we cannot wait since the
+    // exec_proc function does not return.
+    exec_remote_call(target, exec_proc, proc, false);
+
+    while (!kernel_access_from_ring3_pg_ok) {
+        cpu_pause();
+    }
+
+    // The remote cpu is stuck executing the process. Unstuck it by
+    // re-initializing it.
+    init_aps();
+    interrupt_delete_global_callback(14);
+    return true;
+}
+
 void proc_test(void) {
     TEST_FWK_RUN(get_stack_bottom_test);
     TEST_FWK_RUN(create_proc_test);
     TEST_FWK_RUN(privileged_instr_in_ring3_test);
     TEST_FWK_RUN(register_saving_ring3_int_test);
+    TEST_FWK_RUN(kernel_access_from_ring3_test);
 }
