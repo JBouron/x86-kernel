@@ -135,16 +135,26 @@ do_fixup_priv_change_end:
     // If yes then we resume the context. If no then check if we should
     // reschedule and branch the execution to the process.
     // EAX = privilege level of current code segment.
-    mov     %cs, %eax
-    and     $0x3, %eax 
+    mov     %cs, %ax
     // EBX = privilege level of interrupted context's code segment.
-    mov     56(%esp), %ebx
-    and     $0x3, %ebx
+    mov     56(%esp), %bx
 
-    cmp     %eax, %ebx
+    cmp     %ax, %bx
     je      resume_kernel_context
-    // TODO: The interrupted context was a process, we either resume its
-    // execution or pick another process to run.
+
+    // TODO: Typically we would like to add a call to the scheduler here. For
+    // now we resume the current process.
+
+    // Restore the segment registers. The code and stack segment register will
+    // be restored by the iret since there has been a privilege change.
+    mov     60(%esp), %ax
+    mov     %ax, %es
+    mov     48(%esp), %ax
+    mov     %ax, %ds
+    mov     44(%esp), %ax
+    mov     %ax, %fs
+    mov     40(%esp), %ax
+    mov     %ax, %gs
 
 resume_kernel_context:
     // If the interrupted context was the kernel then resume it.
