@@ -75,9 +75,20 @@ _interrupt_handler_common:
     //                                         v To point to the top before int.
     //                64 + (2 * 4) + (3 * 4) + 4 = 88 bytes.
     //       reg. save^   vec+err^     ^- eip, cs, eflags.
-    mov     %esp, %eax
-    add     $88, %eax
-    mov     %eax, 0xC(%esp)
+    //    Note: The error code is optional as it is not available with all
+    //    vectors.
+    mov     %esp, %ebx
+    add     $84, %ebx
+    push    64(%esp)
+    call    interrupt_vector_has_error_code
+    add     $4, %esp
+    cmp     $1, %eax
+    je      add_4
+    jmp     add_4_cont
+add_4:
+    add     $4, %ebx
+add_4_cont:
+    mov     %ebx, 0xC(%esp)
 
     jmp     do_fixup_priv_change_end
 

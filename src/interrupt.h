@@ -69,5 +69,10 @@ void interrupt_delete_global_callback(uint8_t const vector);
 // @param vector: The interrupt vector for which the callback should be removed.
 void interrupt_delete_local_callback(uint8_t const vector);
 
+// Return whether or not a given interrupt vector has an associated error code.
+// @param vector: The vector to test.
+// @return: true if the vector has an error code, false otherwise.
+bool interrupt_vector_has_error_code(uint8_t const vector);
+
 // Execute tests related to interrupts.
 void interrupt_test(void);

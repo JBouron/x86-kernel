@@ -28,12 +28,12 @@ ASM_FUNC_DEF(interrupt_register_save_do_int):
     movl    %edi, (%eax)
     movl    %esi, 0x4(%eax)
     movl    %ebp, 0x8(%eax) 
-    movl    %esp, 0xC(%eax) 
     movl    %ebx, 0x10(%eax) 
     movl    %edx, 0x14(%eax) 
     movl    %ecx, 0x18(%eax) 
     movl    $0xAAAAAAAA, 0x1C(%eax) 
     pushf
+    movl    %esp, 0xC(%eax) 
     movl    (%esp), %ebx
     movl    %ebx, 0x20(%eax)
     movl    $exp_eip, 0x24(%eax)

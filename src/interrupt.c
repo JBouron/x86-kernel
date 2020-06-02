@@ -254,4 +254,9 @@ void interrupt_delete_local_callback(uint8_t const vector) {
     delete_callback(vector, false);
 }
 
+bool interrupt_vector_has_error_code(uint8_t const vector) {
+    return vector == 0x8 || vector == 0xA || vector == 0xB || vector == 0xC ||
+        vector == 0xD || vector == 0xE || vector == 0x11;
+}
+
 #include <interrupt.test>
