@@ -195,6 +195,7 @@ interrupt_handler_no_err_code(30)
 interrupt_handler_no_err_code(31)
 interrupt_handler_no_err_code(32)
 interrupt_handler_no_err_code(33)
+interrupt_handler_no_err_code(128)
 
 #define cond_ret_handler(vector)                                    ;\
     cmp     $ ## vector, %eax                                       ;\
@@ -239,5 +240,6 @@ ASM_FUNC_DEF(get_interrupt_handler):
     cond_ret_handler(31)
     cond_ret_handler(32)
     cond_ret_handler(33)
+    cond_ret_handler(128)
     mov     $0x0, %eax
     ret
