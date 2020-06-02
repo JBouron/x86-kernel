@@ -1,28 +1,6 @@
 #include <test.h>
-
-extern void switch_to_proc_test_prog(void);
-
-// Test switch_to_proc(). Disabled for now as there is no way to gracefully come
-// back to the kernel.
-__attribute__((unused)) static bool switch_to_proc_test(void) {
-    struct proc * const proc = create_proc();
-
-    void * code_frame = alloc_frame();
-    uint8_t * const code = paging_map_frames_above(0x0, &code_frame, 1, VM_WRITE);
-    extern uint8_t switch_to_proc_test_prog_start;
-    extern uint8_t switch_to_proc_test_prog_end;
-    size_t const code_size =
-        &switch_to_proc_test_prog_end - &switch_to_proc_test_prog_start;
-    memcpy(code, switch_to_proc_test_prog, code_size);
-
-    uint32_t const flags = VM_USER | VM_NON_GLOBAL;
-    void * const eip = paging_map_frames_above_in(proc->addr_space, 0x0, &code_frame, 1, flags);
-
-
-    proc->registers_save.eip = (reg_t)eip;
-    switch_to_proc(proc);
-    return true;
-}
+#include <acpi.h>
+#include <ipm.h>
 
 static bool get_stack_bottom_test(void) {
     void const * const stack_top = 0x0;
@@ -49,9 +27,166 @@ static bool create_proc_test(void) {
     return true;
 }
 
+// Helper function used to copy some code to the process' address space and set
+// the EIP accodingly.
+// @param proc: The process to copy the code to.
+// @param code: Pointer on the code to be copied.
+// @param len: The size of the code to be copied in bytes.
+static void copy_code_to_proc(struct proc * const proc,
+                              void const * const code,
+                              size_t const len) {
+    // For now this function does not support copying code that is more than 4KB
+    // in size. This is ok as most of the test codes are very small anyways.
+    ASSERT(len < PAGE_SIZE);
+
+    // Allocate a new physical frame that will contain the code.
+    void * code_frame = alloc_frame();
+    // Map the frame to the current address space an copy the code.
+    uint8_t * const mc = paging_map_frames_above(0x0, &code_frame, 1, VM_WRITE);
+    memcpy(mc, code, len);
+
+    // Now map the frame to the process' address space.
+    uint32_t const flags = VM_USER | VM_NON_GLOBAL;
+    void * const eip = paging_map_frames_above_in(proc->addr_space,
+                                                  0x0,
+                                                  &code_frame,
+                                                  1,
+                                                  flags);
+    // Set the EIP to point to the copied code.
+    proc->registers_save.eip = (reg_t)eip;
+}
+
+// Helper function to execute a process. This function is meant to be used by a
+// remote call in order to start the execution of the process on a remote cpu.
+// This is by no mean a scheduler and the remote cpu must be restarted after
+// that since it will be stuck executing the process forever.
+// @param proc: Pointer on a struct proc to execute.
+static void exec_proc(void * proc) {
+    switch_to_proc(proc);
+
+    // switch_to_proc() does not return.
+    __UNREACHABLE__;
+}
+
+// Tries to execute a privileged instruction.
+extern void privileged_instr_in_ring3_code(void);
+
+static bool volatile privileged_instr_in_ring3_gp_raised = false;
+static reg_t privileged_instr_in_ring3_expected_eip = 0;
+static void privileged_instr_in_ring3_gp_handler(
+    struct interrupt_frame const * const frame) {
+
+    LOG("General protection fault recieved on cpu %u\n", this_cpu_var(cpu_id));
+
+    // Check that the EIP points to the correct instruction and that the
+    // original CS was user code segment.
+    privileged_instr_in_ring3_gp_raised =
+        frame->registers->eip == privileged_instr_in_ring3_expected_eip &&
+        frame->registers->cs == user_code_seg_sel().value;
+
+    // Wait for the cpu running the test to re-init this cpu.
+    lock_up();
+}
+
+static bool privileged_instr_in_ring3_test(void) {
+    struct proc * const proc = create_proc();
+
+    extern uint8_t privileged_instr_in_ring3_code_start;
+    extern uint8_t privileged_instr_in_ring3_code_end;
+    size_t const len = &privileged_instr_in_ring3_code_end -
+        &privileged_instr_in_ring3_code_start;
+    void const * const code = privileged_instr_in_ring3_code;
+
+    copy_code_to_proc(proc, code, len);
+    // The very first instruction should be the one raising the #GP.
+    privileged_instr_in_ring3_expected_eip = proc->registers_save.eip;
+
+    // Vector for a General Protection Fault.
+    uint8_t const v = 13;
+    interrupt_register_global_callback(v, privileged_instr_in_ring3_gp_handler);
+
+    TEST_ASSERT(acpi_get_number_cpus() > 1);
+    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+
+    // make the other cpu execute the process. we cannot wait since the
+    // exec_proc function does not return.
+    exec_remote_call(target, exec_proc, proc, false);
+
+    // The process running in ring 3 will try to execute the cli instruction
+    // which is a privileged instruction. Therefore a general protection fault
+    // should be raise. The privileged_instr_in_ring3_gp_handler() will set the
+    // privileged_instr_in_ring3_gp_raised bit to true when that happens.
+    while (!privileged_instr_in_ring3_gp_raised) {
+        cpu_pause();
+    }
+
+    // The remote cpu is stuck executing the process. Unstuck it by
+    // re-initializing it.
+    init_aps();
+
+    interrupt_delete_global_callback(v);
+    return true;
+}
+
+static uint8_t register_saving_ring3_int_syscall_count = 0;
+static bool register_saving_ring3_int_syscall_success = false;
+static void register_saving_ring3_int_syscall_handler(
+    struct interrupt_frame const * const frame) {
+
+    register_saving_ring3_int_syscall_count ++; 
+    if (register_saving_ring3_int_syscall_count == 1) {
+        // This is the first syscall, nothing to do here, we return to the
+        // process execution.
+        LOG("First interrupt for register_saving_ring3_int_test.\n");
+    } else if (register_saving_ring3_int_syscall_count == 2) {
+        // In the second interrupt, the process will put the result of the
+        // comparison in its EAX register.
+        LOG("Second interrupt for register_saving_ring3_int_test.\n");
+        LOG("EAX = %u\n", frame->registers->eax);
+
+        register_saving_ring3_int_syscall_success = frame->registers->eax == 1;
+        // Wait for the cpu running the test to re-init this cpu.
+        lock_up();
+    }
+}
+
+extern void register_saving_ring3_int_code(void);
+
+static bool register_saving_ring3_int_test(void) {
+    struct proc * const proc = create_proc();
+
+    extern uint8_t register_saving_ring3_int_code_start;
+    extern uint8_t register_saving_ring3_int_code_end;
+    size_t const len = &register_saving_ring3_int_code_end -
+        &register_saving_ring3_int_code_start;
+    void const * const code = register_saving_ring3_int_code;
+
+    copy_code_to_proc(proc, code, len);
+
+    interrupt_register_global_callback(SYSCALL_VECTOR,
+        register_saving_ring3_int_syscall_handler);
+
+    TEST_ASSERT(acpi_get_number_cpus() > 1);
+    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+
+    // make the other cpu execute the process. we cannot wait since the
+    // exec_proc function does not return.
+    exec_remote_call(target, exec_proc, proc, false);
+
+    while (!register_saving_ring3_int_syscall_success) {
+        cpu_pause();
+    }
+
+    // The remote cpu is stuck executing the process. Unstuck it by
+    // re-initializing it.
+    init_aps();
+    interrupt_delete_global_callback(SYSCALL_VECTOR);
+    return true;
+}
+
 void proc_test(void) {
     TEST_FWK_RUN(get_stack_bottom_test);
     TEST_FWK_RUN(create_proc_test);
-    // Disabled. See comment on switch_to_proc_test().
-    //TEST_FWK_RUN(switch_to_proc_test);
+    TEST_FWK_RUN(privileged_instr_in_ring3_test);
+    TEST_FWK_RUN(register_saving_ring3_int_test);
 }
