@@ -142,16 +142,14 @@ void *paging_map_frames_above_in(struct addr_space * const addr_space,
 // initialize.
 void paging_setup_new_page_dir(void * const page_dir_phy_addr);
 
-// Delete a page directory, all its page tables (excepted page tables used by
-// the kernel). Physical frames used by this directory and any non-kernel page
-// table will be freed.
-// @param page_dir_phy_addr: The physical address of the page directory to be
-// deleted.
-// Note: Physical frames associated to the address space (i.e. mapped in the
-// address space) will not be freed. This is because this function does not know
-// if a particular physical frame is tied to this address space only or if it is
-// shared with another address space.
-void paging_delete_page_dir(void * const page_dir_phy_addr);
+// Recursively delete an address space. All physical frames mapped to user space
+// will be freed, all user page tables and the page directory will be freed as
+// well.
+// @param addr_space: The address space to de-allocate.
+// Note: This function cannot know if a particular physical frame mapped to user
+// space (or a user page table) is used by another process (or even the kernel).
+// Therefore it is not compatible with page table/frame sharing.
+void paging_free_addr_space(struct addr_space * const addr_space);
 
 // Execute tests related to paging.
 void paging_test(void);

@@ -96,8 +96,6 @@ void delete_addr_space(struct addr_space * const addr_space) {
         PANIC("Are you insane ?\n");
     }
 
-    spinlock_lock(&addr_space->lock);
-
     // Make sure that no cpu is currently using the address space. Note: For now
     // there is no guarantee that remote cpus are not trying to switch to this
     // address space. Care should be taken here FIXME.
@@ -109,9 +107,7 @@ void delete_addr_space(struct addr_space * const addr_space) {
         }
     }
 
-    paging_delete_page_dir(addr_space->page_dir_phy_addr);
-
-    spinlock_unlock(&addr_space->lock);
+    paging_free_addr_space(addr_space);
 
     // Address space must _always_ be created using the create_new_addr_space()
     // which dynamically allocate the struct addr_space. The only exception is

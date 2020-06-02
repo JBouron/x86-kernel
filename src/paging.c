@@ -835,29 +835,39 @@ void paging_setup_new_page_dir(void * const page_dir_phy_addr) {
     maybe_to_tlb_shootdown();
 }
 
-void paging_delete_page_dir(void * const page_dir_phy_addr) {
-    struct addr_space * const curr_addr_space = get_curr_addr_space();
-    lock_addr_space(curr_addr_space);
+void paging_free_addr_space(struct addr_space * const addr_space) {
+    struct page_dir * const page_dir = get_page_dir(addr_space);
 
-    do_paging_map(page_dir_phy_addr, page_dir_phy_addr, PAGE_SIZE, VM_WRITE);
-    cpu_invalidate_tlb();
-
-    struct page_dir * const page_dir = page_dir_phy_addr;
-
+    // Don't touch at kernel page tables.
     uint16_t const max_index = pde_index(KERNEL_PHY_OFFSET);
     for (uint16_t i = 0; i < max_index; ++i) {
         union pde_t pde = page_dir->entry[i];
-        if (pde.present) {
-            void * const page_table = (void*)(pde.page_table_addr << 12);
-            free_frame(page_table);
+        if (!pde.present) {
+            continue;
         }
+
+        struct page_table * const page_table = get_page_table(page_dir, i);
+
+        // Free any frame referenced by this page table.
+        for (uint16_t j = 0; j < 1024; ++j) {
+            union pte_t pte = page_table->entry[j];
+            if (!pte.present) {
+                continue;
+            }
+            void * const frame = (void*)(pte.frame_addr << 12);
+            free_frame(frame);
+        }
+
+        maybe_unmap_page_table(page_table);
+
+        // Free the physical frame used to hold the page table.
+        void * const frame = (void*)(pde.page_table_addr << 12);
+        free_frame(frame);
     }
+    maybe_unmap_page_dir(page_dir);
 
-    // Unmap the page directory and free the physical frame it is using.
-    do_paging_unmap(page_dir_phy_addr, PAGE_SIZE, true);
-    cpu_invalidate_tlb();
-
-    unlock_addr_space(curr_addr_space);
+    // Free the physical frame used for the page dir.
+    free_frame(addr_space->page_dir_phy_addr);
 
     maybe_to_tlb_shootdown();
 }
