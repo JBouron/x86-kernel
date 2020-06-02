@@ -59,5 +59,11 @@ struct proc *create_proc(void);
 // @param proc: The process to execute.
 void switch_to_proc(struct proc * const proc);
 
+// Delete a process and all the physical frames mapped to its user address
+// space.
+// @param proc: The process to delete.
+// Note: This function assumes that proc has been dynamically allocated.
+void delete_proc(struct proc * const proc);
+
 // Execute tests related to proceses managment.
 void proc_test(void);

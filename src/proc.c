@@ -99,4 +99,9 @@ void switch_to_proc(struct proc * const proc) {
     do_far_return_to_proc(proc);
 }
 
+void delete_proc(struct proc * const proc) {
+    delete_addr_space(proc->addr_space);
+    kfree(proc);
+}
+
 #include <proc.test>

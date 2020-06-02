@@ -24,6 +24,7 @@ static bool create_proc_test(void) {
     TEST_ASSERT(proc->registers_save.eflags == 1 << 9);
     TEST_ASSERT(proc->registers_save.esp == (reg_t)(proc->stack_bottom));
 
+    delete_proc(proc);
     return true;
 }
 
@@ -125,6 +126,7 @@ static bool privileged_instr_in_ring3_test(void) {
     init_aps();
 
     interrupt_delete_global_callback(v);
+    delete_proc(proc);
     return true;
 }
 
@@ -181,6 +183,7 @@ static bool register_saving_ring3_int_test(void) {
     // re-initializing it.
     init_aps();
     interrupt_delete_global_callback(SYSCALL_VECTOR);
+    delete_proc(proc);
     return true;
 }
 
@@ -238,6 +241,7 @@ static bool kernel_access_from_ring3_test(void) {
     // re-initializing it.
     init_aps();
     interrupt_delete_global_callback(14);
+    delete_proc(proc);
     return true;
 }
 
