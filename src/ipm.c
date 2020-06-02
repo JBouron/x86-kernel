@@ -79,6 +79,13 @@ static void process_messages(void) {
         // message while we are processing this one.
         unlock_message_queue();
 
+        // Check if we need to dealloc this message _before_ processing it. This
+        // is because once a message with receiver_dealloc == false is processed
+        // the pointer on the message might not be valid anymore (ex:
+        // TLB_SHOOTDOWN message: The sender will have moved on after the
+        // atomic_dec().)
+        bool const dealloc_message = msg->receiver_dealloc;
+
         switch (msg->tag) {
             case __TEST : {
                 if (TEST_TAG_CALLBACK) {
@@ -101,7 +108,7 @@ static void process_messages(void) {
             }
         }
 
-        if (msg->receiver_dealloc) {
+        if (dealloc_message) {
             kfree(msg);
         }
 
