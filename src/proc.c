@@ -83,6 +83,8 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
     proc->registers_save.gs = (ring == 0) ? cpu_read_gs().value : ds.value;
     proc->registers_save.ss = ds.value;
 
+    list_init(&proc->rq);
+
     return proc;
 }
 

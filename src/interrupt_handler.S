@@ -146,15 +146,12 @@ do_fixup_priv_change_end:
     jz      skip_sched
 
     call    sched_update_curr
-    // Get rid of pointer on struct register_save_area.
-    add     $0x4, %esp
 
+    // Get rid of pointer on struct register_save_area.
     // Get rid of the saved values on the stack. Those have been copied by the
     // scheduler by now.
-    add     $0x40, %esp
-
     // Get rid of vector, error code.
-    add     $0x8, %esp
+    add     $0x4C, %esp
 
     // Run the next process. Does not return.
     call    sched_run_next_proc

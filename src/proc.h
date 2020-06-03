@@ -52,6 +52,12 @@ struct proc {
 
     // This bit indicates if the process is a kernel process.
     bool is_kernel_proc;
+
+    // The list_node used to enqueue processes in runqueues.
+    struct list_node rq;
+
+    // The cpu the process is currently enqueued in.
+    uint8_t cpu;
 } __attribute__((packed));
 
 // Create a new struct proc. The process' address space and stack are allocated.
