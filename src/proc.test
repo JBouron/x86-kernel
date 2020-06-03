@@ -245,10 +245,139 @@ static bool kernel_access_from_ring3_test(void) {
     return true;
 }
 
+// This percpu variable is used by the kernel process to make sure that it can
+// access the percpu variables.
+DECLARE_PER_CPU(uint64_t, kernel_process_test_data);
+static uint64_t kernel_process_test_data_expected = 0;
+static uint16_t kernel_process_test_expected_gs = 0;
+static bool volatile kernel_process_test_success = false;
+static void * kernel_process_expected_arg = NULL;
+
+static void kernel_process_code(void * arg) {
+    LOG("[%u] Kernel process is running kernel code.\n", this_cpu_var(cpu_id));
+    bool success = true;
+
+    // Check that the correct arg was passed onto the stack.
+    success &= arg == kernel_process_expected_arg;
+
+    // Make sure we are in ring 0.
+    success &= cpu_read_cs().value == kernel_code_selector().value;
+    success &= cpu_read_ds().value == kernel_data_selector().value;
+    success &= cpu_read_fs().value == kernel_data_selector().value;
+    success &= cpu_read_es().value == kernel_data_selector().value;
+    success &= cpu_read_ss().value == kernel_data_selector().value;
+    success &= cpu_read_gs().value == kernel_process_test_expected_gs;
+
+    // Try to access the cpu vars.
+    success &= this_cpu_var(kernel_process_test_data) ==
+        kernel_process_test_data_expected;
+
+    // Try to execute some privileged instructions.
+    cpu_set_interrupt_flag(false);
+    cpu_set_interrupt_flag(true);
+
+    kernel_process_test_success = success;
+
+    // Wait to be reset.
+    lock_up();
+}
+
+static void remote_read_gs(void * arg) {
+    ASSERT(percpu_initialized());
+    uint16_t const expected_gs = cpu_read_gs().value;
+    LOG("[%u] Expected GS = %x\n", this_cpu_var(cpu_id), expected_gs);
+    *(uint16_t*)arg = expected_gs;
+}
+
+static bool kernel_process_test(void) {
+    void * const arg = (void*)0xDEADBABE;
+    kernel_process_expected_arg = arg;
+
+    struct proc * const kproc = create_kproc(kernel_process_code, arg);
+
+    uint64_t const rand = read_tsc();
+    kernel_process_test_data_expected = rand;
+
+    TEST_ASSERT(acpi_get_number_cpus() > 1);
+    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+
+    cpu_var(kernel_process_test_data, target) = rand;
+
+    // Make the target cpu write down its percpu segment selector into
+    // kernel_process_test_expected_gs.
+    exec_remote_call(target,
+                     remote_read_gs,
+                     &kernel_process_test_expected_gs,
+                     true);
+
+    // make the other cpu execute the process. we cannot wait since the
+    // exec_proc function does not return.
+    exec_remote_call(target, exec_proc, kproc, false);
+
+    while (!kernel_process_test_success) {
+        cpu_pause();
+    }
+
+    init_aps();
+    delete_proc(kproc);
+    return true;
+}
+
+static uint8_t register_saving_ring0_int_syscall_count = 0;
+static bool register_saving_ring0_int_syscall_success = false;
+static void register_saving_ring0_int_syscall_handler(
+    struct interrupt_frame const * const frame) {
+
+    register_saving_ring0_int_syscall_count ++; 
+    if (register_saving_ring0_int_syscall_count == 1) {
+        // This is the first syscall, nothing to do here, we return to the
+        // process execution.
+        LOG("First interrupt for register_saving_ring0_int_test.\n");
+    } else if (register_saving_ring0_int_syscall_count == 2) {
+        // In the second interrupt, the process will put the result of the
+        // comparison in its EAX register.
+        LOG("Second interrupt for register_saving_ring0_int_test.\n");
+        LOG("EAX = %u\n", frame->registers->eax);
+
+        register_saving_ring0_int_syscall_success = frame->registers->eax == 1;
+        // Wait for the cpu running the test to re-init this cpu.
+        lock_up();
+    }
+}
+
+static bool register_saving_ring0_int_test(void) {
+    // Re-use the register_saving_ring3_int_code function.
+    void *func = (void*)&register_saving_ring3_int_code;
+    struct proc * const kproc = create_kproc(func, NULL);
+
+    interrupt_register_global_callback(SYSCALL_VECTOR,
+        register_saving_ring0_int_syscall_handler);
+
+    TEST_ASSERT(acpi_get_number_cpus() > 1);
+    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+
+    // make the other cpu execute the process. we cannot wait since the
+    // exec_proc function does not return.
+    exec_remote_call(target, exec_proc, kproc, false);
+
+    while (!register_saving_ring0_int_syscall_success) {
+        cpu_pause();
+    }
+
+    // The remote cpu is stuck executing the process. Unstuck it by
+    // re-initializing it.
+    init_aps();
+    interrupt_delete_global_callback(SYSCALL_VECTOR);
+    delete_proc(kproc);
+    return true;
+}
+
 void proc_test(void) {
     TEST_FWK_RUN(get_stack_bottom_test);
     TEST_FWK_RUN(create_proc_test);
     TEST_FWK_RUN(privileged_instr_in_ring3_test);
     TEST_FWK_RUN(register_saving_ring3_int_test);
     TEST_FWK_RUN(kernel_access_from_ring3_test);
+    TEST_FWK_RUN(kernel_process_test);
+    TEST_FWK_RUN(register_saving_ring0_int_test);
 }

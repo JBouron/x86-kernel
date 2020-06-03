@@ -47,12 +47,32 @@ struct proc {
     // addresses from the proc's address space.
     void * stack_top;
     void * stack_bottom;
+    // The stack size in number of pages.
+    uint32_t stack_pages;
+
+    // This bit indicates if the process is a kernel process.
+    bool is_kernel_proc;
 } __attribute__((packed));
 
 // Create a new struct proc. The process' address space and stack are allocated.
 // The register_save_area is zeroed, ESP points to the freshly allocated stack.
 // @return: A pointer on the allocated struct proc.
 struct proc *create_proc(void);
+
+// Kernel processes
+// ================
+//     Kernel processes are special processes that execute in ring 0. This means
+// that they can access kernel data/code and even percpu data, unlike regular
+// processes.
+// Kernel processes do not have their own address space, instead they all share
+// the kernel address space. They do, however, have their private stack.
+// Kernel processes are created from a function pointer and an argument. The
+// function acts as the code of the process.
+
+// Create a kernel process asyncronously executing a kernel function.
+// @param func: The function to execute in the kernel thread.
+// @parma arg: The void* argument to pass to the function to be executed.
+struct proc *create_kproc(void (*func)(void*), void * const arg);
 
 // Switch the execution of the current cpu to a process. This function does not
 // return.
