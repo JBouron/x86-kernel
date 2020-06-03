@@ -55,7 +55,7 @@ static void start_timer(uint32_t const count,
     // Note: We need to be careful here. The lvt_timer register should be
     // configured _before_ the initial_count. Enforce this order by using a
     // memory fence.
-    cpu_mfence();
+    //cpu_mfence();
     LAPIC->initial_count.val = count;
     // Writing in the initial_count register starts off the timer.
 }
@@ -191,6 +191,10 @@ void lapic_start_timer(uint32_t const msec,
                        bool const periodic,
                        uint8_t const vector,
                        int_callback_t const callback) {
+    // Stop the timer in case it was running before and the current count is
+    // not 0.
+    lapic_stop_timer();
+
     // Since we are inserting a new callback make sure that the interrupts are
     // disabled.
     cpu_set_interrupt_flag(false);
