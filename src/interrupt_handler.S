@@ -139,7 +139,29 @@ do_fixup_priv_change_end:
     // The interrupt has been dealt with. We can now restore the registers and
     // return from the interrupt.
     // Get rid of the struct interrupt_frame and the pointer in the stack.
-    add     $0x1C, %esp
+    add     $0x18, %esp
+
+    call    sched_running
+    test    %eax, %eax
+    jz      skip_sched
+
+    call    sched_update_curr
+    // Get rid of pointer on struct register_save_area.
+    add     $0x4, %esp
+
+    // Get rid of the saved values on the stack. Those have been copied by the
+    // scheduler by now.
+    add     $0x40, %esp
+
+    // Get rid of vector, error code.
+    add     $0x8, %esp
+
+    // Run the next process. Does not return.
+    call    sched_run_next_proc
+
+skip_sched:
+    // Get rid of pointer on struct register_save_area.
+    add     $0x4, %esp
 
     // Compare the CS of the interrupted context to know if it was the kernel
     // that was interrupted.
@@ -152,9 +174,6 @@ do_fixup_priv_change_end:
 
     cmp     %ax, %bx
     je      resume_kernel_context
-
-    // TODO: Typically we would like to add a call to the scheduler here. For
-    // now we resume the current process.
 
     // Restore the segment registers. The code and stack segment register will
     // be restored by the iret since there has been a privilege change.
@@ -216,6 +235,7 @@ interrupt_handler_no_err_code(30)
 interrupt_handler_no_err_code(31)
 interrupt_handler_no_err_code(32)
 interrupt_handler_no_err_code(33)
+interrupt_handler_no_err_code(34)
 interrupt_handler_no_err_code(128)
 
 #define cond_ret_handler(vector)                                    ;\
@@ -261,6 +281,7 @@ ASM_FUNC_DEF(get_interrupt_handler):
     cond_ret_handler(31)
     cond_ret_handler(32)
     cond_ret_handler(33)
+    cond_ret_handler(34)
     cond_ret_handler(128)
     mov     $0x0, %eax
     ret

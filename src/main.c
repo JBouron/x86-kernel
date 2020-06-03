@@ -28,6 +28,7 @@
 #include <atomic.h>
 #include <addr_space.h>
 #include <proc.h>
+#include <sched.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -67,13 +68,6 @@ static void resign_bsp(void) {
     uint64_t const msr = read_msr(IA32_APIC_BASE_MSR);
     // Bit 8 indicates if the cpu is BSP or not. It is R/W.
     write_msr(IA32_APIC_BASE_MSR, msr & (~(1 << 8)));
-}
-
-// Trigger a shutdown of the virtual machine. This function has an undefined
-// behaviour for bare-metal installations.
-static void virt_shutdown(void) {
-    // With QEMU writing 0x2000 into the port 0x604 triggers the shutdown.
-    cpu_outw(0x604, 0x2000);
 }
 
 // Initialize global kernel state.
@@ -128,6 +122,7 @@ void kernel_main(struct multiboot_info const * const multiboot_info) {
     // Run tests.
     test_kernel();
 
-    // Shutdown the virtual machine.
-    virt_shutdown();
+    sched_init();
+    sched_start();
+    __UNREACHABLE__;
 }

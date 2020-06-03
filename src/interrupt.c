@@ -150,8 +150,8 @@ void interrupt_init(void) {
     // Fill each entry in the IDT with the corresponding interrupt_handler.
     // FIXME: The value 33 is hardcoded. What we want here is to initialize all
     // entry for which there is an handler available (for now this is up until
-    // 33 and 128 for syscalls).
-    for (uint8_t vector = 0; vector < 34; ++vector) {
+    // 34 and 128 for syscalls).
+    for (uint8_t vector = 0; vector < 35; ++vector) {
         uint32_t const handler_offset = get_interrupt_handler(vector);
         ASSERT(handler_offset);
         init_desc(IDT + vector, handler_offset, kernel_code_selector(), 0);
