@@ -38,8 +38,12 @@ static void allocate_stack(struct proc * const proc) {
     if (!proc->is_kernel_proc) {
         map_flags |= VM_USER;
     }
+    // When mapping stacks for kernel processes, we avoid mapping under the 1MiB
+    // addresses. This is because those addresses are used by SMP and/or BIOS
+    // and sometimes need to be identically mapped.
+    void * const low = (void*)(proc->is_kernel_proc ? 0x100000 : 0x0);
     void * const stack_top =
-        paging_map_frames_above_in(as, 0x0, frames, n_stack_frames, map_flags);
+        paging_map_frames_above_in(as, low, frames, n_stack_frames, map_flags);
     void * const stack_bottom = get_stack_bottom(stack_top, n_stack_frames);
 
     // Set the esp in the registers_save of the stack.
