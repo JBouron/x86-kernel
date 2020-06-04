@@ -24,12 +24,20 @@ register_saving_ring3_int_code_start:
     mov     $0x0, %al
     rep     stosb
 
+    rdtsc
+    mov     %eax, %ecx
+
+    rdtsc
+    mov     %eax, %esi
+
+    rdtsc
+    mov     %eax, %edi
+
+    rdtsc
+    mov     %eax, %edx
+
     mov     $0xAAAAAAAA, %eax
     mov     $0xBBBBBBBB, %ebx
-    mov     $0xCCCCCCCC, %ecx
-    mov     $0xDDDDDDDD, %edx
-    mov     $0x55555555, %esi
-    mov     $0x11111111, %edi
 
     mov     %esp, %eax
     add     $64, %eax
