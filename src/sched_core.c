@@ -12,9 +12,6 @@
 // The scheduler implementation to use.
 static struct sched *SCHEDULER = NULL;
 
-// Has the scheduler been initialized ?
-static bool SCHED_RUNNING = false;
-
 // Indicate if the scheduler is running on the current cpu.
 DECLARE_PER_CPU(bool, sched_running) = false;
 
@@ -39,7 +36,6 @@ static void do_idle(void * unused) {
 
 void sched_init(void) {
     // Initialize generic scheduling state.
-    ASSERT(!SCHED_RUNNING);
     uint8_t const ncpus = acpi_get_number_cpus();
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
         struct proc * const idle = create_kproc(do_idle, NULL);
@@ -52,9 +48,6 @@ void sched_init(void) {
     extern struct sched ts_sched;
     SCHEDULER = &ts_sched;
     SCHEDULER->sched_init();
-
-    // Scheduler is now running.
-    SCHED_RUNNING = true;
 }
 
 bool sched_running_on_cpu(void) {
@@ -81,22 +74,6 @@ void sched_start(void) {
 
     // sched_run_next_proc() does not return.
     __UNREACHABLE__;
-}
-
-// Stop the scheduler, this is used for testing as there is no reason to ever
-// stop the scheduler.
-static void sched_stop(void) {
-    SCHED_RUNNING = false;
-
-    lapic_stop_timer();
-
-    // De-allocate the idle processes.
-    uint8_t const ncpus = acpi_get_number_cpus();
-    for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
-        struct proc * const idle = cpu_var(idle_proc, cpu);
-        delete_proc(idle);
-        cpu_var(curr_proc, cpu) = NULL;
-    }
 }
 
 void sched_enqueue_proc(struct proc * const proc) {

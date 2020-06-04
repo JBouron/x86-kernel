@@ -56,6 +56,7 @@ void test_kernel(void) {
     atomic_test();
     addr_space_test();
     proc_test();
+    sched_test();
 
     print_test_summary();
 }
@@ -121,8 +122,4 @@ void kernel_main(struct multiboot_info const * const multiboot_info) {
 
     // Run tests.
     test_kernel();
-
-    sched_init();
-    sched_start();
-    __UNREACHABLE__;
 }
