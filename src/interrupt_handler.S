@@ -141,7 +141,7 @@ do_fixup_priv_change_end:
     // Get rid of the struct interrupt_frame and the pointer in the stack.
     add     $0x18, %esp
 
-    call    sched_running
+    call    sched_running_on_cpu
     test    %eax, %eax
     jz      skip_sched
 

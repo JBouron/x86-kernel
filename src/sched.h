@@ -58,9 +58,10 @@ struct sched {
 // Initialize the scheduler. This must be called once.
 void sched_init(void);
 
-// Check whether or not the scheduler has been initialized.
+// Check whether or not the scheduler has been initialized and running on the
+// current cpu.
 // @return: true if the scheduler has been initialized, false otherwise.
-bool sched_running(void);
+bool sched_running_on_cpu(void);
 
 // Start the scheduler. The cpu will start executing the first process it finds
 // or go into idle.
@@ -84,3 +85,6 @@ void sched_update_curr(void);
 // @param regs: The current values of the registers for the current process. If
 // this param is NULL then this is ignored.
 void sched_run_next_proc(struct register_save_area const * const regs);
+
+// Execute scheduling tests.
+void sched_test(void);
