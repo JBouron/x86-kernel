@@ -86,6 +86,8 @@ static void syscall_revert_init(void) {
     interrupt_delete_global_callback(SYSCALL_VECTOR);
 }
 
+// Below are the definitions of the syscalls.
+
 void do_exit(uint8_t const exit_code) {
     // For now, do_exit is trivial, we only set the state of the process to
     // dead. The exit code is stored, but not used yet.
@@ -98,6 +100,11 @@ void do_exit(uint8_t const exit_code) {
     // to a new process.
     sched_run_next_proc(NULL);
     __UNREACHABLE__;
+}
+
+pid_t do_get_pid(void) {
+    struct proc * const curr = this_cpu_var(curr_proc);
+    return curr->pid;
 }
 
 #include <syscalls.test>

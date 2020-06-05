@@ -55,6 +55,20 @@ static void allocate_stack(struct proc * const proc) {
     proc->stack_pages = n_stack_frames;
 }
 
+// This lock is used by get_new_pid() to atomically get a new pid.
+DECLARE_SPINLOCK(PID_LOCK);
+// The next pid to be generated. Must be accessed while holding PID_LOCK;
+static pid_t NEXT_PID = 0;
+
+// Generate a new PID.
+// @return: New unique PID.
+static pid_t get_new_pid(void) {
+    spinlock_lock(&PID_LOCK);
+    pid_t const pid = NEXT_PID++;
+    spinlock_unlock(&PID_LOCK);
+    return pid;
+}
+
 static struct proc *create_proc_in_ring(uint8_t const ring) {
     ASSERT(ring == 0 || ring == 3);
     struct proc * const proc = kmalloc(sizeof(*proc));
@@ -91,6 +105,8 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
 
     // A process is not runnable until its EIP is setup.
     proc->state_flags = PROC_WAITING_EIP;
+
+    proc->pid = get_new_pid();
 
     return proc;
 }

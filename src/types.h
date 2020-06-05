@@ -14,3 +14,5 @@ typedef uint32_t l_addr;
 typedef uint32_t v_addr;
 // CPU register.
 typedef uint32_t reg_t;
+// Process ID.
+typedef uint32_t pid_t;

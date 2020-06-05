@@ -66,6 +66,9 @@ struct proc {
     // The exit code of the process. This field is only valid if the process is
     // dead.
     uint8_t exit_code;
+
+    // The Process ID of this process.
+    pid_t pid;
 } __attribute__((packed));
 
 // Below are the flags used in the struct proc' state_flags field.

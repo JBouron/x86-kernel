@@ -43,5 +43,8 @@ void syscall_init(void);
 // @param exit_code: The value of the exit code.
 void do_exit(uint8_t const exit_code);
 
+// Return the PID of the current process.
+pid_t do_get_pid(void);
+
 // Execute syscall related tests.
 void syscall_test(void);
