@@ -58,7 +58,21 @@ struct proc {
 
     // The cpu the process is currently enqueued in.
     uint8_t cpu;
+
+    // The state of the process. A value of 0 indicate that this process is
+    // runnable. See values below.
+    uint32_t state_flags;
 } __attribute__((packed));
+
+// Below are the flags used in the struct proc' state_flags field.
+#define PROC_RUNNABLE       0x0 // Process can be enqueued in sched and run.
+#define PROC_WAITING_EIP    0x1 // Process has uninitialized EIP.
+#define PROC_DEAD           0x2 // Process is dead.
+
+// Check if a process is runnable.
+// @param p: A pointer on a struct proc.
+// @return: true if the process is currently runnable, false otherwise.
+#define proc_is_runnable(p) ((p)->state_flags == PROC_RUNNABLE)
 
 // Create a new struct proc. The process' address space and stack are allocated.
 // The register_save_area is zeroed, ESP points to the freshly allocated stack.

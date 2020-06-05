@@ -89,6 +89,9 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
 
     list_init(&proc->rq);
 
+    // A process is not runnable until its EIP is setup.
+    proc->state_flags = PROC_WAITING_EIP;
+
     return proc;
 }
 
@@ -111,6 +114,11 @@ struct proc *create_kproc(void (*func)(void*), void * const arg) {
 
     // Setup the EIP to point to the function to be executed.
     kproc->registers_save.eip = (reg_t)(void*)func;
+
+    // Kernel processes are runnable as soon as they are created since this
+    // function sets up the EIP.
+    kproc->state_flags = PROC_RUNNABLE;
+
     return kproc;
 }
 
