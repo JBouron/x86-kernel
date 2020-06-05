@@ -86,5 +86,13 @@ void sched_update_curr(void);
 // this param is NULL then this is ignored.
 void sched_run_next_proc(struct register_save_area const * const regs);
 
+// Force a reschedule on the current cpu.
+void sched_resched(void);
+
+// Check whether or not a cpu is idle.
+// @param cpu: The cpu to check.
+// @return: true if the cpu is idle, false otherwise.
+bool cpu_is_idle(uint8_t const cpu);
+
 // Execute scheduling tests.
 void sched_test(void);

@@ -87,7 +87,8 @@ static void ts_update_curr(uint8_t const cpu) {
 // React to a scheduler tick.
 // @param cpu: Unused.
 static void ts_tick(uint8_t const cpu) {
-
+    // For now, the TS scheduler performs one context switch per tick.
+    sched_resched();
 }
 
 // Select the next process to be run on a cpu.
@@ -95,9 +96,6 @@ static void ts_tick(uint8_t const cpu) {
 // @param cpu: The cpu for which this function needs to pick a process.
 // @return: The next process to run.
 static struct proc *ts_pick_next_proc(uint8_t const cpu) {
-    if (cpu != 0) {
-        return NO_PROC;
-    }
     struct proc * next;
     struct list_node * const runqueue = get_runqueue_and_lock();
 

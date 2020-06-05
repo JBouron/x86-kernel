@@ -15,11 +15,14 @@ static struct sched *SCHEDULER = NULL;
 // Indicate if the scheduler is running on the current cpu.
 DECLARE_PER_CPU(bool, sched_running) = false;
 
+// Indicate if a resched is necessary on a given cpu.
+DECLARE_PER_CPU(bool, resched_flag) = false;
+
 // The interrupt vector to use for scheduler ticks.
 #define SCHED_TICK_VECTOR   34
 
 // The period between two scheduler ticks in ms.
-#define SCHED_TICK_PERIOD   1000
+#define SCHED_TICK_PERIOD   5
 
 // Each cpu has an idle kernel process which only goal is to put the current cpu
 // in idle. This process is run any time there is no other process to run on a
@@ -59,7 +62,6 @@ bool sched_running_on_cpu(void) {
 static void sched_tick(struct interrupt_frame const * const frame) {
     ASSERT(SCHEDULER);
     uint8_t const this_cpu = this_cpu_var(cpu_id);
-    LOG("[%u] Sched tick\n", this_cpu);
     SCHEDULER->tick(this_cpu);
 }
 
@@ -78,9 +80,15 @@ void sched_start(void) {
 
 void sched_enqueue_proc(struct proc * const proc) {
     ASSERT(SCHEDULER);
+    ASSERT(proc_is_runnable(proc));
+
     uint8_t const cpu = SCHEDULER->select_cpu_for_proc(proc);
     SCHEDULER->enqueue_proc(cpu, proc);
     proc->cpu = cpu;
+
+    // Enqueuing triggers a resched. TODO: Implement something similar to
+    // check_preempt_curr() from Linux.
+    cpu_var(resched_flag, cpu) = true;
 }
 
 void sched_dequeue_proc(struct proc * const proc) {
@@ -105,31 +113,67 @@ void sched_run_next_proc(struct register_save_area const * const regs) {
     ASSERT(SCHEDULER);
 
     uint8_t const this_cpu = this_cpu_var(cpu_id);
-    struct proc * const prev = this_cpu_var(curr_proc);
-    struct proc * const idle = this_cpu_var(idle_proc);
+    struct proc * next = NULL;
 
-    if (prev != idle) {
-        // Notify the scheduler of the context switch. This must be done before
-        // picking the next proc, in case there is a single proc on the system.
-        SCHEDULER->put_prev_proc(this_cpu, prev);
-    }
+    if (cpu_is_idle(this_cpu) || cpu_var(resched_flag, this_cpu)) {
+        // If an explicite resched was requested, do it now.
+        // If this cpu was idle, check for a new proc anyway. This avoids bugs
+        // in which a cpu has processes waiting in its runqueue but never wakes
+        // up.
+        struct proc * const prev = this_cpu_var(curr_proc);
+        struct proc * const idle = this_cpu_var(idle_proc);
 
-    // Pick a new process to run. Default to idle_proc.
-    struct proc * next = SCHEDULER->pick_next_proc(this_cpu);
-    if (next == NO_PROC) {
-        next = idle;
-    }
-    
-    if (prev != next) {
-        // We have a context switch, save the registers of the current process.
-        // (current in this case is `prev).
+        if (prev != idle) {
+            // Notify the scheduler of the context switch. This must be done
+            // before picking the next proc, in case there is a single proc on
+            // the system.
+            SCHEDULER->put_prev_proc(this_cpu, prev);
+        }
+
+        // Pick a new process to run. Default to idle_proc.
+        next = SCHEDULER->pick_next_proc(this_cpu);
+        if (next == NO_PROC) {
+            next = idle;
+        }
+        ASSERT(proc_is_runnable(next));
+        
+        if (prev != next) {
+            // We have a context switch, save the registers of the current
+            // process.  (current in this case is `prev).
+            if (regs) {
+                save_registers(prev, regs);
+            }
+        }
+        this_cpu_var(resched_flag) = false;
+    } else {
+        // No resched requested, resume execution of the current process.
+        next = this_cpu_var(curr_proc);
+        // FIXME: Despite resuming the current process, we still need to save
+        // the registers into the struct proc. This is because we are using
+        // switch_to_proc to return to user space. A better solution would be to
+        // return to the interrupt handler instead since it has all the
+        // registers on its stack. This would require some changes to the
+        // handler however.
         if (regs) {
-            save_registers(prev, regs);
+            save_registers(next, regs);
         }
     }
 
     this_cpu_var(curr_proc) = next;
     switch_to_proc(next);
+}
+
+void sched_resched(void) {
+    this_cpu_var(resched_flag) = true;
+}
+
+bool cpu_is_idle(uint8_t const cpu) {
+    struct proc * const curr = cpu_var(curr_proc, cpu);
+    struct proc * const idle = cpu_var(idle_proc, cpu);
+
+    // There is a small race condition here if the target cpu is in the middle
+    // of a context switch, but this is ok.
+    return curr == idle;
 }
 
 #include <sched.test>
