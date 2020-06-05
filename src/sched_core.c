@@ -106,24 +106,38 @@ void save_registers(struct proc * const proc,
 
 void sched_update_curr(void) {
     ASSERT(SCHEDULER);
-    SCHEDULER->update_curr(this_cpu_var(cpu_id));
+
+    struct proc * const curr = this_cpu_var(curr_proc);
+    if (proc_is_dead(curr)) {
+        // This process just became dead, need to resched.
+        sched_resched();
+    } else {
+        SCHEDULER->update_curr(this_cpu_var(cpu_id));
+    }
 }
 
 void sched_run_next_proc(struct register_save_area const * const regs) {
     ASSERT(SCHEDULER);
 
     uint8_t const this_cpu = this_cpu_var(cpu_id);
+    struct proc * const curr = this_cpu_var(curr_proc);
     struct proc * next = NULL;
 
-    if (cpu_is_idle(this_cpu) || cpu_var(resched_flag, this_cpu)) {
-        // If an explicite resched was requested, do it now.
-        // If this cpu was idle, check for a new proc anyway. This avoids bugs
-        // in which a cpu has processes waiting in its runqueue but never wakes
-        // up.
-        struct proc * const prev = this_cpu_var(curr_proc);
-        struct proc * const idle = this_cpu_var(idle_proc);
+    // We need a reschedule in the following situations:
+    //  - If an explicite resched was requested, do it now.
+    //  - If this cpu was idle, check for a new proc anyway. This avoids bugs in
+    //    which a cpu has processes waiting in its runqueue but never wakes up.
+    //  - If the current process exited (is dead).
+    bool const need_resched = cpu_is_idle(this_cpu) ||
+                              cpu_var(resched_flag, this_cpu) ||
+                              proc_is_dead(curr);
 
-        if (prev != idle) {
+    if (need_resched) {
+        struct proc * const prev = curr;
+        struct proc * const idle = this_cpu_var(idle_proc);
+        bool const curr_dead = proc_is_dead(curr);
+
+        if (prev != idle && !curr_dead) {
             // Notify the scheduler of the context switch. This must be done
             // before picking the next proc, in case there is a single proc on
             // the system.
@@ -140,7 +154,7 @@ void sched_run_next_proc(struct register_save_area const * const regs) {
         if (prev != next) {
             // We have a context switch, save the registers of the current
             // process.  (current in this case is `prev).
-            if (regs) {
+            if (regs && !curr_dead) {
                 save_registers(prev, regs);
             }
         }
@@ -148,6 +162,8 @@ void sched_run_next_proc(struct register_save_area const * const regs) {
     } else {
         // No resched requested, resume execution of the current process.
         next = this_cpu_var(curr_proc);
+        ASSERT(!proc_is_dead(next));
+
         // FIXME: Despite resuming the current process, we still need to save
         // the registers into the struct proc. This is because we are using
         // switch_to_proc to return to user space. A better solution would be to

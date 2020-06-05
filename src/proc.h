@@ -62,6 +62,10 @@ struct proc {
     // The state of the process. A value of 0 indicate that this process is
     // runnable. See values below.
     uint32_t state_flags;
+
+    // The exit code of the process. This field is only valid if the process is
+    // dead.
+    uint8_t exit_code;
 } __attribute__((packed));
 
 // Below are the flags used in the struct proc' state_flags field.
@@ -73,6 +77,11 @@ struct proc {
 // @param p: A pointer on a struct proc.
 // @return: true if the process is currently runnable, false otherwise.
 #define proc_is_runnable(p) ((p)->state_flags == PROC_RUNNABLE)
+
+// Check if a process is dead.
+// @param p: A pointer on a struct proc.
+// @return: true if the process is currently dead, false otherwise.
+#define proc_is_dead(p)     ((p)->state_flags & PROC_DEAD)
 
 // Create a new struct proc. The process' address space and stack are allocated.
 // The register_save_area is zeroed, ESP points to the freshly allocated stack.
