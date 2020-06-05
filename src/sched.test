@@ -41,6 +41,9 @@ static void test_sched_dequeue_proc(uint8_t const cpu,
 
 static void test_sched_update_curr(uint8_t const cpu) {
     ASSERT(cpu == test_cpu);
+    // This scheduler will perform a context switch at every interrupt. This is
+    // to make sure the execution of the processes are interleaved.
+    sched_resched();
     // Check that the correct process is running. This function is called
     // _after_ the syscall has been served.
     struct proc * const curr = this_cpu_var(curr_proc);
