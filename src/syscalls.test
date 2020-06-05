@@ -1,0 +1,112 @@
+#include <test.h>
+#include <ipm.h>
+#include <proc.h>
+#include <proc_test_helpers.h>
+#include <acpi.h>
+#include <smp.h>
+
+// Sums all args of the syscall.
+// @param ...: The register values.
+// @return: The sum of all the registers.
+static reg_t sum_syscall(reg_t const ebx,
+                         reg_t const ecx,
+                         reg_t const edx,
+                         reg_t const esi,
+                         reg_t const edi,
+                         reg_t const ebp) {
+    uint8_t const cpu = this_cpu_var(cpu_id);
+    reg_t const sum = ebx + ecx + edx + esi + edi + ebp;
+    LOG("[%u] Sum syscall, res = %x\n", cpu, sum);
+    return sum;
+}
+
+// Set the GP registers to some specific values and invoke the test syscall
+// (which is assumed to be sum). After the syscall returns check that EAX
+// contains the expected value.
+// @param dest: Pointer to a dword that will contain the result of the test,
+// that is 1 if EAX has the expected value after the syscall, 0 otherwise.
+extern void exec_sum_syscall(void * dest);
+
+static bool syscall_in_user_process_test(void) {
+    struct proc * const proc = create_proc();
+
+    extern uint8_t exec_sum_syscall_start;
+    extern uint8_t exec_sum_syscall_end;
+    size_t const len = &exec_sum_syscall_end - &exec_sum_syscall_start;
+    void const * const code = exec_sum_syscall;
+
+    copy_code_to_proc(proc, code, len);
+
+    switch_to_addr_space(proc->addr_space);
+
+    // The destination for the result will be on the stack.
+    // Make space on stack for result.
+    proc->registers_save.esp -= 4;
+    uint32_t *result_addr = (void*)proc->registers_save.esp;
+    *result_addr = 0;
+    // Push result pointer onto the stack. This is the argument for
+    // exec_sum_syscall.
+    proc->registers_save.esp -= 4;
+    *((uint32_t const**)proc->registers_save.esp) = result_addr;
+    // Push a dummy return address.
+    proc->registers_save.esp -= 4;
+    *((uint32_t*)proc->registers_save.esp) = 0xDEADDEAD;
+
+    switch_to_addr_space(get_kernel_addr_space());
+
+
+    TEST_ASSERT(acpi_get_number_cpus() > 1);
+    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+
+    SYSCALL_MAP[NR_SYSCALL_TEST] = (void*)sum_syscall;
+
+    // Make the other cpu execute the process. we cannot wait since the
+    // exec_proc function does not return.
+    exec_remote_call(target, exec_proc, proc, false);
+
+    switch_to_addr_space(proc->addr_space);
+    while (!*result_addr) {
+        cpu_pause();
+    }
+    switch_to_addr_space(get_kernel_addr_space());
+
+    init_aps();
+    delete_proc(proc);
+    SYSCALL_MAP[NR_SYSCALL_TEST] = (void*)NULL;
+    return true;
+}
+
+// While there shouldn't be a particular reason to call syscalls from kernel
+// process (since they can access the functions directly anyway), it is still
+// possible and should be tested.
+static bool syscall_in_kernel_process_test(void) {
+    uint32_t volatile result = 0;
+    struct proc * const proc = create_kproc(exec_sum_syscall, (void*)&result);
+
+    TEST_ASSERT(acpi_get_number_cpus() > 1);
+    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+
+    SYSCALL_MAP[NR_SYSCALL_TEST] = (void*)sum_syscall;
+
+    // Make the other cpu execute the process. we cannot wait since the
+    // exec_proc function does not return.
+    exec_remote_call(target, exec_proc, proc, false);
+
+    while (!result) {
+        cpu_pause();
+    }
+
+    init_aps();
+    delete_proc(proc);
+    SYSCALL_MAP[NR_SYSCALL_TEST] = (void*)NULL;
+    return true;
+}
+
+void syscall_test(void) {
+    syscall_init();
+
+    TEST_FWK_RUN(syscall_in_user_process_test);
+    TEST_FWK_RUN(syscall_in_kernel_process_test);
+
+    syscall_revert_init();
+}

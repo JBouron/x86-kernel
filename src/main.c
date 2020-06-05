@@ -29,6 +29,7 @@
 #include <addr_space.h>
 #include <proc.h>
 #include <sched.h>
+#include <syscalls.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -57,6 +58,7 @@ void test_kernel(void) {
     addr_space_test();
     proc_test();
     sched_test();
+    syscall_test();
 
     print_test_summary();
 }

@@ -1,8 +1,6 @@
 #pragma once
 #include <types.h>
-
-// The vector number used by syscalls.
-#define SYSCALL_VECTOR  0x80
+#include <syscalls.h>
 
 // Initialize the interrupts for the kernel.
 void interrupt_init(void);
