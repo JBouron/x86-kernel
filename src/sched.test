@@ -201,6 +201,10 @@ static bool run_test(void) {
     delete_proc(test_data_2.proc);
 
     interrupt_delete_global_callback(0x80);
+
+    // Reset the pointer to the scheduler.
+    extern struct sched ts_sched;
+    SCHEDULER = &ts_sched;
     return true;
 }
 
