@@ -12,6 +12,13 @@ static struct multiboot_info const * __MULTIBOOT_INFO = NULL;
 // Use a "generic" pointer that works with both physical and virtual addressing.
 #define MULTIBOOT_INFO (*(PTR(__MULTIBOOT_INFO)))
 
+// Physical pointer to the start of the initrd loaded to RAM by the bootloader.
+static void *__INIT_RD_START = NULL;
+#define INIT_RD_START (*(PTR(__INIT_RD_START)))
+
+static size_t __INIT_RD_SIZE = 0;
+#define INIT_RD_SIZE (*(PTR(__INIT_RD_SIZE)))
+
 // This tables contain ranges of physical memory that is reserved. This is
 // required because the memory map given by the bootloader possesses some
 // shortcomings:
@@ -58,13 +65,35 @@ static void init_reserved_memory_area(void) {
     RESERVED_MEM[2][1] = vga_buf_offset + vga_bug_len - 1;
 }
 
+// Parse initrd info from the multiboot header. Set the INIT_RD_START and
+// INIT_RD_SIZE global vars.
+static void init_initrd(void) {
+    if (MULTIBOOT_INFO->mods_count == 0) {
+        PANIC("No initrd module in multiboot header.\n");
+    } else if (MULTIBOOT_INFO->mods_count > 1) {
+        PANIC("Unexpected number of modules in multiboot header.\n");
+    }
+
+    // Make sure we still have access to physical memory.
+    ASSERT(!cpu_paging_enabled());
+
+    struct multiboot_mod_entry *entry = (void*)MULTIBOOT_INFO->mods_addr;
+    INIT_RD_START = (void*)entry->mod_start;
+    INIT_RD_SIZE = entry->mod_end - entry->mod_start + 1;
+}
+
 void init_multiboot(struct multiboot_info const * const ptr) {
     ASSERT(!cpu_paging_enabled());
     // Set the global variable containing the physical pointer to the multiboot
     // info.
     MULTIBOOT_INFO = ptr;
+
     // Initialize the array containing the reserved physical memory areas.
     init_reserved_memory_area();
+
+    // Parse initrd info. It is better to do it now as we can access physical
+    // RAM.
+    init_initrd();
 }
 
 // Get a pointer on the multiboot structure in memory.
@@ -310,6 +339,14 @@ void * find_contiguous_physical_frames(size_t const nframes) {
     PANIC("Not enough physical memory to contain %u contiguous frame", nframes);
     // Unreachable.
     return NULL;
+}
+
+void *multiboot_get_initrd_start(void) {
+    return INIT_RD_START;
+}
+
+size_t multiboot_get_initrd_size(void) {
+    return INIT_RD_SIZE;
 }
 
 #include <multiboot.test>

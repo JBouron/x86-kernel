@@ -3,7 +3,8 @@
 .set MEMINFO,  1 << 1             # provide memory map
 .set VIDINFO,  1 << 2
 .set MEMMAP,   1 << 6  # Detailled map of available memory.
-.set FLAGS,    ALIGN | VIDINFO | MEMINFO | MEMMAP # Multiboot 'flag' field.
+.set MODFLAG,  1 << 3  # Get the list of loaded modules.
+.set FLAGS,    ALIGN | VIDINFO | MEMINFO | MEMMAP | MODFLAG
 .set MAGIC,    0x1BADB002       # 'magic num' lets bootloader find the header
 .set CHECKSUM, -(MAGIC + FLAGS) # checksum of above, to prove we are multiboot
 

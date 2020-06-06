@@ -121,6 +121,13 @@ struct multiboot_mmap_entry {
 	uint32_t type;
 }__attribute__((packed));
 
+struct multiboot_mod_entry {
+    uint32_t mod_start;
+    uint32_t mod_end;
+    uint32_t string;
+    uint32_t reserved; // Must be zero.
+} __attribute__((packed));
+
 // Initialize the multiboot helper functions. Note: This function _must_ be
 // called before paging is enabled.
 // @param ptr: A physical pointer on the multiboot info struct.
@@ -168,6 +175,14 @@ void *get_max_addr(void);
 // @return: A physical pointer that is guaranteed to have `len` available,
 // contiguous bytes.
 void * find_contiguous_physical_frames(size_t const nframes);
+
+// Get the start address of the initrd.
+// @return: The physical address at which initrd starts.
+void *multiboot_get_initrd_start(void);
+
+// Get the size of the initrd.
+// @return: The size of the initrd.
+size_t multiboot_get_initrd_size(void);
 
 // Execute tests related to the mutliboot struct manipulation functions.
 void multiboot_test(void);

@@ -113,6 +113,16 @@ static void mark_multiboot_info_struct(void) {
     mark_memory_range(mb_start, mb_end);
 }
 
+// Mark all physical frames on which the init ram-disk was loaded as not
+// available.
+static void mark_initrd_frames(void) {
+    // Mark all the frames used by the data coming from the initrd.
+    void const * const initrd_start = multiboot_get_initrd_start();
+    size_t const initrd_size = multiboot_get_initrd_size();
+    void const * const initrd_end = initrd_start + initrd_size - 1;
+    mark_memory_range(initrd_start, initrd_end);
+}
+
 void init_frame_alloc(void) {
     // We expect this function to be called before paging is enabled. Note:
     // Assert will probably not work here as the output might not be
@@ -169,6 +179,9 @@ void init_frame_alloc(void) {
     // Mark any page used to store the multiboot info structure. That way we
     // don't end up over writing it.
     mark_multiboot_info_struct();
+
+    // Mark the physical frames used by initrd.
+    mark_initrd_frames();
 
     // The frame allocator is ready to roll.
 }
