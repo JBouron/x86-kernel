@@ -18,7 +18,7 @@ static size_t INITRD_SIZE = 0;
 
 // The sector size used by the initrd. This is arbitrary as the initrd is not
 // sector based as disk devices.
-static uint32_t const INITRD_SECTOR_SIZE = 512;
+static uint32_t const INITRD_SECTOR_SIZE = 1;
 
 // The struct disk associated with the initrd.
 static struct disk INITRD_DISK;
@@ -42,8 +42,10 @@ static uint32_t initrd_read_sector(struct disk * const disk,
                                    uint8_t * const buf) {
     // There can only be one initrd.
     ASSERT(disk == &INITRD_DISK);
-    sector_t const last_sector = ceil_x_over_y_u32(INITRD_SIZE,
-                                                   INITRD_SECTOR_SIZE);
+
+    // Index of the last valid sector.
+    sector_t const last_sector =
+        ceil_x_over_y_u32(INITRD_SIZE, INITRD_SECTOR_SIZE) - 1;
 
     if (sector_index > last_sector) {
         // Reached the end of the initrd.
