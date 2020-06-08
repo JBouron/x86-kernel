@@ -30,6 +30,7 @@
 #include <proc.h>
 #include <sched.h>
 #include <syscalls.h>
+#include <disk.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -59,6 +60,7 @@ void test_kernel(void) {
     proc_test();
     sched_test();
     syscall_test();
+    disk_test();
 
     print_test_summary();
 }

@@ -1,0 +1,117 @@
+#include <test.h>
+
+static uint32_t test_sector_size = 512;
+static uint32_t test_num_sectors = -1UL;
+
+static uint8_t get_byte_for_addr(void const * const addr) {
+    return (uint32_t)addr & 0xFF;
+}
+
+static bool check_buf(uint8_t const * const buf,
+                      size_t const len,
+                      uint8_t const * const addr) {
+    for (size_t i = 0; i < len; ++i) {
+        uint8_t const exp = get_byte_for_addr(addr + i);
+        if (buf[i] != exp) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static uint32_t sector_size(struct disk * const disk) {
+    return test_sector_size;
+}
+
+static uint32_t read_sector(struct disk * const disk,
+                            sector_t const sector_index,
+                            uint8_t * const buf) {
+    if (sector_index >= test_num_sectors) {
+        // Reached the end of the test disk.
+        return 0;
+    }
+
+    void const * const start_addr = sector_to_addr(sector_index, test_sector_size);
+    for (uint32_t i = 0; i < test_sector_size; ++i) {
+        buf[i] = get_byte_for_addr(start_addr + i);
+    }
+    return test_sector_size;
+}
+
+static uint32_t write_sector(struct disk * const disk,
+                             sector_t const sector_index,
+                             uint8_t const * const buf) {
+    PANIC("Un-implemented\n");
+    return 0;
+}
+
+static struct disk_ops ops = {
+    .sector_size = sector_size,
+    .read_sector = read_sector,
+    .write_sector = write_sector,
+};
+
+static struct disk test_disk = {
+    .ops = &ops,
+    // Unused in tests.
+    .data = NULL,
+};
+
+static bool disk_read_test_multiple_of_sectors(void) {
+    test_num_sectors = -1UL;
+
+    size_t const buf_len = test_disk.ops->sector_size(&test_disk);
+    uint8_t * const buf = kmalloc(buf_len);
+
+    for (sector_t s = 0; s < 16; ++s) {
+        void const * addr = (void*)0x0 + s * buf_len;
+        size_t const read = disk_read(&test_disk, addr, buf, buf_len);
+        TEST_ASSERT(read == buf_len);
+        TEST_ASSERT(check_buf(buf, read, addr));
+    }
+
+    kfree(buf);
+    return true;
+}
+
+static bool disk_read_test_middle_of_sector(void) {
+    test_num_sectors = -1UL;
+
+    size_t const sector_len = test_disk.ops->sector_size(&test_disk);
+    size_t const buf_len = 2 * sector_len;
+    uint8_t * const buf = kmalloc(buf_len);
+
+    for (uint32_t s = 0; s < sector_len; ++s) {
+        void const * addr = (void*)0x0 + s;
+        size_t const read = disk_read(&test_disk, addr, buf, buf_len);
+        TEST_ASSERT(read == buf_len);
+        TEST_ASSERT(check_buf(buf, read, addr));
+    }
+
+    kfree(buf);
+    return true;
+}
+
+static bool disk_read_test_end_of_disk(void) {
+    test_num_sectors = 2;
+
+    size_t const sector_len = test_disk.ops->sector_size(&test_disk);
+    size_t const buf_len = 2 * sector_len;
+    uint8_t * const buf = kmalloc(buf_len);
+
+    for (uint32_t s = 0; s < sector_len; ++s) {
+        void const * addr = (void*)0x0 + s;
+        size_t const read = disk_read(&test_disk, addr, buf, buf_len);
+        TEST_ASSERT(read == buf_len - s);
+        TEST_ASSERT(check_buf(buf, read, addr));
+    }
+
+    kfree(buf);
+    return true;
+}
+
+void disk_test(void) {
+    TEST_FWK_RUN(disk_read_test_multiple_of_sectors);
+    TEST_FWK_RUN(disk_read_test_middle_of_sector);
+    TEST_FWK_RUN(disk_read_test_end_of_disk);
+}

@@ -16,3 +16,5 @@ typedef uint32_t v_addr;
 typedef uint32_t reg_t;
 // Process ID.
 typedef uint32_t pid_t;
+// Index of a sector of a disk.
+typedef uint64_t sector_t;
