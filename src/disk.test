@@ -3,15 +3,15 @@
 static uint32_t test_sector_size = 512;
 static uint32_t test_num_sectors = -1UL;
 
-static uint8_t get_byte_for_addr(void const * const addr) {
-    return (uint32_t)addr & 0xFF;
+static uint8_t get_byte_for_offset(off_t const offset) {
+    return (uint8_t)(offset & 0xFF);
 }
 
 static bool check_buf(uint8_t const * const buf,
                       size_t const len,
-                      uint8_t const * const addr) {
+                      off_t const offset) {
     for (size_t i = 0; i < len; ++i) {
-        uint8_t const exp = get_byte_for_addr(addr + i);
+        uint8_t const exp = get_byte_for_offset(offset + i);
         if (buf[i] != exp) {
             return false;
         }
@@ -31,9 +31,9 @@ static uint32_t read_sector(struct disk * const disk,
         return 0;
     }
 
-    void const * const start_addr = sector_to_addr(sector_index, test_sector_size);
+    off_t const start_off = sector_to_offset(sector_index, test_sector_size);
     for (uint32_t i = 0; i < test_sector_size; ++i) {
-        buf[i] = get_byte_for_addr(start_addr + i);
+        buf[i] = get_byte_for_offset(start_off + i);
     }
     return test_sector_size;
 }
@@ -64,10 +64,10 @@ static bool disk_read_test_multiple_of_sectors(void) {
     uint8_t * const buf = kmalloc(buf_len);
 
     for (sector_t s = 0; s < 16; ++s) {
-        void const * addr = (void*)0x0 + s * buf_len;
-        size_t const read = disk_read(&test_disk, addr, buf, buf_len);
+        off_t const off = 0x0 + s * buf_len;
+        size_t const read = disk_read(&test_disk, off, buf, buf_len);
         TEST_ASSERT(read == buf_len);
-        TEST_ASSERT(check_buf(buf, read, addr));
+        TEST_ASSERT(check_buf(buf, read, off));
     }
 
     kfree(buf);
@@ -82,10 +82,10 @@ static bool disk_read_test_middle_of_sector(void) {
     uint8_t * const buf = kmalloc(buf_len);
 
     for (uint32_t s = 0; s < sector_len; ++s) {
-        void const * addr = (void*)0x0 + s;
-        size_t const read = disk_read(&test_disk, addr, buf, buf_len);
+        off_t const off = 0x0 + s;
+        size_t const read = disk_read(&test_disk, off, buf, buf_len);
         TEST_ASSERT(read == buf_len);
-        TEST_ASSERT(check_buf(buf, read, addr));
+        TEST_ASSERT(check_buf(buf, read, off));
     }
 
     kfree(buf);
@@ -100,10 +100,10 @@ static bool disk_read_test_end_of_disk(void) {
     uint8_t * const buf = kmalloc(buf_len);
 
     for (uint32_t s = 0; s < sector_len; ++s) {
-        void const * addr = (void*)0x0 + s;
-        size_t const read = disk_read(&test_disk, addr, buf, buf_len);
+        off_t const off = 0x0 + s;
+        size_t const read = disk_read(&test_disk, off, buf, buf_len);
         TEST_ASSERT(read == buf_len - s);
-        TEST_ASSERT(check_buf(buf, read, addr));
+        TEST_ASSERT(check_buf(buf, read, off));
     }
 
     kfree(buf);

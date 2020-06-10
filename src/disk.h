@@ -58,23 +58,23 @@ struct disk {
 
 // Read data from a disk.
 // @param disk: The disk to read from.
-// @param addr: The address on the disk to read from.
+// @param offset: The offset on the disk to read from.
 // @param buf: The buffer to read the data into.
 // @param len: The number of bytes to read.
 // @return: The number of bytes successfully read.
 size_t disk_read(struct disk * const disk,
-                 void const * const addr,
+                 off_t const offset,
                  uint8_t * const buf,
                  size_t const len);
 
 // Write data to a disk.
 // @param disk: The disk to write to.
-// @param addr: The address on the disk to read from.
+// @param offset: The offset on the disk to write to.
 // @param buf: The buffer containing the data to write onto disk.
 // @param len: The number of bytes to read.
 // @return: The number of bytes successfully read.
 size_t disk_write(struct disk * const disk,
-                  void const * const addr,
+                  off_t const addr,
                   uint8_t const * const buf,
                   size_t const len);
 

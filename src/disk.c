@@ -4,29 +4,29 @@
 #include <debug.h>
 #include <kmalloc.h>
 
-// Get the index of the sector containing a particular address on disk.
-// @param addr: The address to convert to sector index.
+// Get the index of the sector containing a particular offset on disk.
+// @param offset: The offset to convert to sector index.
 // @param sec_size: The sector size of the device.
-// @return: The index of the sector containing the word at `addr`.
-static sector_t addr_to_sector(void const * const addr, size_t const sec_size) {
-    return (sector_t)((uint32_t)(void*)addr / sec_size);
+// @return: The index of the sector containing the word at `offset`.
+static sector_t offset_to_sector(off_t const offset, size_t const sec_size) {
+    return (sector_t)(offset / sec_size);
 }
 
-// Get the address of the first word in a sector.
+// Get the offset of the first word in a sector.
 // @param sec: The index of the sector.
 // @param sec_size: THe sector size of the device.
-// @return: The address of the first word of the sector with index == `sec`.
-static void *sector_to_addr(sector_t const sec, size_t const sec_size) {
-    return (void*)(uint32_t)(sec * sec_size);
+// @return: The offset of the first word of the sector with index == `sec`.
+static off_t sector_to_offset(sector_t const sec, size_t const sec_size) {
+    return (off_t)(sec * sec_size);
 }
 
 size_t disk_read(struct disk * const disk,
-                 void const * const addr,
+                 off_t const offset,
                  uint8_t * const buf,
                  size_t const len) {
     uint32_t const sector_size = disk->ops->sector_size(disk);
-    sector_t const start_sector = addr_to_sector(addr, sector_size);
-    sector_t const end_sector = addr_to_sector(addr + len - 1, sector_size);
+    sector_t const start_sector = offset_to_sector(offset, sector_size);
+    sector_t const end_sector = offset_to_sector(offset + len - 1, sector_size);
 
     // The number of bytes written to the buffer `buf` so far.
     uint32_t written = 0;
@@ -50,10 +50,10 @@ size_t disk_read(struct disk * const disk,
 
         uint32_t start_offset = 0;
         if (sector == start_sector) {
-            // This is the first sector, the address to read from might point
+            // This is the first sector, the offset to read from might point
             // to the middle of this sector.
-            ASSERT(sector_to_addr(sector, sector_size) <= addr);
-            start_offset = addr - sector_to_addr(sector, sector_size);
+            ASSERT(sector_to_offset(sector, sector_size) <= offset);
+            start_offset = offset - sector_to_offset(sector, sector_size);
         } else {
             // For all sectors after the fist one copy from the start of the
             // sector.
@@ -73,7 +73,7 @@ size_t disk_read(struct disk * const disk,
 }
 
 size_t disk_write(struct disk * const disk,
-                  void const * const addr,
+                  off_t const offset,
                   uint8_t const * const buf,
                   size_t const len) {
     // TODO: Implement write.
