@@ -76,9 +76,76 @@ size_t disk_write(struct disk * const disk,
                   off_t const offset,
                   uint8_t const * const buf,
                   size_t const len) {
-    // TODO: Implement write.
-    PANIC("disk_write() not implemented\n");
-    return 0;
+    if (!len) {
+        // Empty write.
+        return 0;
+    }
+
+    uint32_t const sector_size = disk->ops->sector_size(disk);
+    sector_t const start_sector = offset_to_sector(offset, sector_size);
+    sector_t const end_sector = offset_to_sector(offset + len - 1, sector_size);
+
+    // The number of bytes written onto disk.
+    uint32_t written = 0;
+
+    for (sector_t sector = start_sector; sector <= end_sector; ++sector) {
+        if ((sector == start_sector && offset % sector_size != 0) ||
+            (sector == end_sector && (offset + len) % sector_size != 0)) {
+            // The first and last sectors might need a partial update, which is
+            // only possible by reading the sector and writting it back again.
+
+            // Read the current data on the sector.
+            uint8_t * const curr = kmalloc(sector_size);
+            uint32_t const read = disk->ops->read_sector(disk, sector, curr);
+            if (read != sector_size) {
+                // We failed to read the sector to update it, this could happen
+                // if the write tries to write outside the boundaries of the
+                // disk. Just abort now.
+                kfree(curr);
+                break;
+            }
+
+            // Compute the offset and length to use when moving data from the
+            // buffer to `curr`.
+            off_t const sec_start_off = sector_to_offset(sector, sector_size);
+            off_t const next_start_off = sector_to_offset(sector + 1,
+                                                          sector_size);
+            uint32_t const c_off = offset + written - sec_start_off;
+            uint32_t const cpy_len =
+                min_u32(next_start_off - (sec_start_off+c_off), len - written);
+
+            // Update the `curr`.
+            memcpy(curr + c_off, buf + written, cpy_len);
+
+            // Write back the updated sector onto the disk.
+            uint32_t const res = disk->ops->write_sector(disk, sector, curr);
+
+            kfree(curr);
+
+            // The "effective" amount of written bytes is the number of bytes
+            // that were overwritten in the current sector NOT the returned
+            // value from write_sector since we may have updated the sector
+            // partially.
+            written += cpy_len;
+            if (res != sector_size) {
+                // Having an error in the middle of the write should abort.
+                break;
+            }
+        } else {
+            // All sectors between the first and last will receive a full
+            // update.
+            uint8_t const * const data = buf + written;
+            ASSERT(data < buf + len);
+            ASSERT(data + sector_size <= buf + len);
+            uint32_t const res = disk->ops->write_sector(disk, sector, data);
+            written += res;
+            if (res != sector_size) {
+                // Having an error in the middle of the write should abort.
+                break;
+            }
+        }
+    }
+    return written;
 }
 
 #include <disk.test>
