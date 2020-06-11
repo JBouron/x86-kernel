@@ -123,7 +123,33 @@ static bool memdisk_write_sector_test(void) {
     return true;
 }
 
+static bool memdisk_read_only_test(void) {
+    size_t const disk_size = 0x600;
+    struct disk * const disk = create_test_disk(disk_size, true);
+
+    // Initialize the content of the disk.
+    struct memdisk_data * const data = get_data(disk);
+    fill(data->mapped_addr, data->size, 0x0);
+
+    uint32_t const sec_size = MEMDISK_SEC_SIZE;
+    uint32_t const num_sectors = disk_size / sec_size;
+
+    uint8_t * const buf = kmalloc(sec_size);
+    fill(buf, sec_size, 0x0);
+
+    for (uint32_t i = 0; i < num_sectors; ++i) {
+        uint32_t const res = disk->ops->write_sector(disk, i, buf);
+        TEST_ASSERT(res == 0);
+    }
+    kfree(buf);
+    // Check that no write occured.
+    check_buf(data->mapped_addr, data->size, 0x0);
+    delete_test_disk(disk);
+    return true;
+}
+
 void memdisk_test(void) {
     TEST_FWK_RUN(memdisk_read_sector_test);
     TEST_FWK_RUN(memdisk_write_sector_test);
+    TEST_FWK_RUN(memdisk_read_only_test);
 }
