@@ -2,13 +2,11 @@
 #include <disk.h>
 
 // This file contains definitions of functions used to interact with the initrd.
-// The assumption is that there is a single initrd on the system. This module
-// provides an abstraction on the initrd (through a struct disk).
+// The assumption is that there at most initrd on the system. This module
+// provides an abstraction on the initrd (through a memdisk).
 
-// Init the initial ram-disk driver.
-void init_initrd_driver(void);
-
-// Get the struct disk abstraction of the initrd.
+// Get a memdisk of the initrd.
 // @return: A pointer on the struct disk capable of reading the content of the
-// initrd.
+// initrd. If no initrd has been loaded by the bootloader then this function
+// returns NULL.
 struct disk *get_initrd_disk(void);
