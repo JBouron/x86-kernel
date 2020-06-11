@@ -1,117 +1,195 @@
 #include <test.h>
+#include <memdisk.h>
+#include <paging.h>
+#include <frame_alloc.h>
 
-static uint32_t test_sector_size = 512;
-static uint32_t test_num_sectors = -1UL;
+// We are using memdisks to test disk_read() and disk_write(). The reason is
+// that the read_sector() and write_sector() of memdisks have already been
+// tested in memdisk.test.
+
+// Create a test memdisk of a given size. The virtual memory will be allocated
+// for the disk.
+// @param size: The size of the disk in bytes.
+// @param read_only: Indicate if the memdisk should be read only.
+// @parma mapped_addr[out]: The value pointed by this pointer will contain the
+// address where the disk data has been mapped into virtual memory.
+// @return: The memdisk.
+static struct disk *create_test_disk(size_t const size,
+                                     bool const read_only,
+                                     void ** const mapped_addr) {
+    uint32_t const num_frames = ceil_x_over_y_u32(size, PAGE_SIZE);
+    void *frames[num_frames];
+
+    for (uint32_t i = 0; i < num_frames; ++i) {
+        frames[i] = alloc_frame();
+    }
+
+    void * const p = paging_map_frames_above(0x0, frames, num_frames, VM_WRITE);
+    *mapped_addr = p;
+    return create_memdisk(p, size, read_only);
+}
+
+// Delete a test memdisk, this will remove the page mapping and free the
+// physical frames.
+// @param disk: The disk to delete.
+// @param size: The size of the disk.
+// @param map_addr: The address where the disk has been mapped.
+static void delete_test_disk(struct disk * const disk,
+                             size_t const size,
+                             void ** const map_addr) {
+    uint32_t const num_frames = ceil_x_over_y_u32(size, PAGE_SIZE);
+    paging_unmap_and_free_frames(map_addr, num_frames * PAGE_SIZE);
+    delete_memdisk(disk);
+}
 
 static uint8_t get_byte_for_offset(off_t const offset) {
     return (uint8_t)(offset & 0xFF);
 }
 
-static bool check_buf(uint8_t const * const buf,
+static void fill(void * const addr, size_t const size, off_t const offset) {
+    uint8_t * const ptr = addr;
+    for (size_t i = 0; i < size; ++i) {
+        ptr[i] = get_byte_for_offset(offset + i);
+    }
+}
+
+static bool check_buf(void const * const buf,
                       size_t const len,
                       off_t const offset) {
+    uint8_t const * const ptr = buf;
     for (size_t i = 0; i < len; ++i) {
         uint8_t const exp = get_byte_for_offset(offset + i);
-        if (buf[i] != exp) {
+        if (ptr[i] != exp) {
             return false;
         }
     }
     return true;
 }
 
-static uint32_t sector_size(struct disk * const disk) {
-    return test_sector_size;
-}
+// Execute the disk_read test case with given disk size and read size.
+// @param disk_size: The size of the disk.
+// @param buf_size: The size of the buffer to be read.
+static bool disk_read_test_case(size_t const disk_size, size_t const buf_size) {
+    void * mapped_addr = NULL;
+    struct disk * const disk = create_test_disk(disk_size, false, &mapped_addr);
 
-static uint32_t read_sector(struct disk * const disk,
-                            sector_t const sector_index,
-                            uint8_t * const buf) {
-    if (sector_index >= test_num_sectors) {
-        // Reached the end of the test disk.
-        return 0;
+    // Fill the memdisk with the pattern.
+    fill(mapped_addr, disk_size, 0);
+
+    uint8_t * const buf = kmalloc(buf_size);
+
+    // Read at every offset. Also make sure to test the case where we try to
+    // read outside the bounds of the disk.
+    for (off_t offset = 0; offset < disk_size + 2; offset++) {
+        size_t const read = disk_read(disk, offset, buf, buf_size);
+
+        if (offset >= disk_size) {
+            TEST_ASSERT(!read);
+        } else {
+            size_t const exp_read = min_u32(buf_size, disk_size - offset);
+            TEST_ASSERT(exp_read == read);
+            TEST_ASSERT(check_buf(buf, read, offset));
+        }
     }
-
-    off_t const start_off = sector_to_offset(sector_index, test_sector_size);
-    for (uint32_t i = 0; i < test_sector_size; ++i) {
-        buf[i] = get_byte_for_offset(start_off + i);
-    }
-    return test_sector_size;
-}
-
-static uint32_t write_sector(struct disk * const disk,
-                             sector_t const sector_index,
-                             uint8_t const * const buf) {
-    PANIC("Un-implemented\n");
-    return 0;
-}
-
-static struct disk_ops ops = {
-    .sector_size = sector_size,
-    .read_sector = read_sector,
-    .write_sector = write_sector,
-};
-
-static struct disk test_disk = {
-    .ops = &ops,
-    // Unused in tests.
-    .driver_private = NULL,
-};
-
-static bool disk_read_test_multiple_of_sectors(void) {
-    test_num_sectors = -1UL;
-
-    size_t const buf_len = test_disk.ops->sector_size(&test_disk);
-    uint8_t * const buf = kmalloc(buf_len);
-
-    for (sector_t s = 0; s < 16; ++s) {
-        off_t const off = 0x0 + s * buf_len;
-        size_t const read = disk_read(&test_disk, off, buf, buf_len);
-        TEST_ASSERT(read == buf_len);
-        TEST_ASSERT(check_buf(buf, read, off));
-    }
-
     kfree(buf);
+
+    delete_test_disk(disk, disk_size, mapped_addr);
     return true;
 }
 
-static bool disk_read_test_middle_of_sector(void) {
-    test_num_sectors = -1UL;
-
-    size_t const sector_len = test_disk.ops->sector_size(&test_disk);
-    size_t const buf_len = 2 * sector_len;
-    uint8_t * const buf = kmalloc(buf_len);
-
-    for (uint32_t s = 0; s < sector_len; ++s) {
-        off_t const off = 0x0 + s;
-        size_t const read = disk_read(&test_disk, off, buf, buf_len);
-        TEST_ASSERT(read == buf_len);
-        TEST_ASSERT(check_buf(buf, read, off));
+static bool disk_read_test(void) {
+    for (size_t disk_size = 0x0; disk_size <= 0x800; disk_size += 0x200) {
+        for (size_t buf_size = 0; buf_size <= 0xA00; buf_size += 0x100) {
+            TEST_ASSERT(disk_read_test_case(disk_size, buf_size));
+        }
     }
-
-    kfree(buf);
     return true;
 }
 
-static bool disk_read_test_end_of_disk(void) {
-    test_num_sectors = 2;
-
-    size_t const sector_len = test_disk.ops->sector_size(&test_disk);
-    size_t const buf_len = 2 * sector_len;
-    uint8_t * const buf = kmalloc(buf_len);
-
-    for (uint32_t s = 0; s < sector_len; ++s) {
-        off_t const off = 0x0 + s;
-        size_t const read = disk_read(&test_disk, off, buf, buf_len);
-        TEST_ASSERT(read == buf_len - s);
-        TEST_ASSERT(check_buf(buf, read, off));
+// Check that the buffer contains expected data after a write.
+// @param buf: The buffer.
+// @param buf_len: The length of the buffer.
+// @param write_off: The offset at which the write was performed.
+// @param write_len: The length of the write.
+// @return: true if the data in buf is expected, that is only 0s before the
+// write offset, then the pattern, then only 0s after the write location. false
+// otherwise.
+static bool check_buf_for_write(uint8_t const * const buf,
+                                size_t const buf_len,
+                                off_t const write_off,
+                                size_t const write_len) {
+    ASSERT(write_off + write_len <= buf_len);
+    uint8_t const * ptr = buf;
+    for (size_t i = 0; i < write_off; ++i, ++ptr) {
+        if (*ptr) {
+            return false;
+        }
     }
 
+    if (!check_buf(ptr, write_len, write_off)) {
+        return false;
+    }
+
+    ptr += write_len;
+    for (size_t i = 0; i < buf_len - (write_off + write_len); ++i, ++ptr) {
+        if (*ptr) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Execute the disk_write test case with given disk size and write size.
+// @param disk_size: The size of the disk.
+// @param buf_size: The size of the buffer to be written.
+static bool disk_write_test_case(size_t const disk_size,
+                                 size_t const buf_size) {
+    void * mapped_addr = NULL;
+    struct disk * const disk = create_test_disk(disk_size, false, &mapped_addr);
+
+    uint8_t * const buf = kmalloc(buf_size);
+
+    // Write at every offset. Also make sure to test the case where we try to
+    // write outside the bounds of the disk.
+    for (off_t offset = 0; offset < disk_size + 2; offset++) {
+        // Zero the memdisk. This is to avoid data from previous writes.
+        memzero(mapped_addr, disk_size);
+
+        // Prepare the buffer to be written.
+        fill(buf, buf_size, offset);
+
+        size_t const written = disk_write(disk, offset, buf, buf_size);
+
+        if (offset >= disk_size) {
+            // Writes outside the boundaries of the disk should return 0.
+            TEST_ASSERT(!written);
+        } else {
+            // Check the content of the memdisk. We expect zeros, then the
+            // pattern at the write offset, then zeros again.
+            size_t const exp_write = min_u32(buf_size, disk_size - offset);
+            TEST_ASSERT(exp_write == written);
+            TEST_ASSERT(check_buf_for_write(mapped_addr,
+                                            disk_size,
+                                            offset,
+                                            written));
+        }
+    }
     kfree(buf);
+
+    delete_test_disk(disk, disk_size, mapped_addr);
+    return true;
+}
+
+static bool disk_write_test(void) {
+    for (size_t disk_size = 0x0; disk_size <= 0x800; disk_size += 0x200) {
+        for (size_t buf_size = 0; buf_size <= 0xA00; buf_size += 0x100) {
+            TEST_ASSERT(disk_write_test_case(disk_size, buf_size));
+        }
+    }
     return true;
 }
 
 void disk_test(void) {
-    TEST_FWK_RUN(disk_read_test_multiple_of_sectors);
-    TEST_FWK_RUN(disk_read_test_middle_of_sector);
-    TEST_FWK_RUN(disk_read_test_end_of_disk);
+    TEST_FWK_RUN(disk_read_test);
+    TEST_FWK_RUN(disk_write_test);
 }
