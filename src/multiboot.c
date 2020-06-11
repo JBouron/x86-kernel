@@ -79,7 +79,11 @@ static void init_initrd(void) {
 
     struct multiboot_mod_entry *entry = (void*)MULTIBOOT_INFO->mods_addr;
     INIT_RD_START = (void*)entry->mod_start;
-    INIT_RD_SIZE = entry->mod_end - entry->mod_start + 1;
+
+    // There is little documentation about whether entry->mod_end points to the
+    // last valid byte or the next. After some experiment is seems that it
+    // points to the last valid byte.
+    INIT_RD_SIZE = entry->mod_end - entry->mod_start;
 }
 
 void init_multiboot(struct multiboot_info const * const ptr) {
