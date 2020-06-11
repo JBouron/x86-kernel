@@ -64,11 +64,17 @@ struct fs_ops {
     // @return: A struct file for the new created file.
     struct file *(*create_file)(struct disk * disk, char const * path);
 
+#define NO_FILE NULL
     // Open a file on the filesystem.
     // @param disk: The disk to open the file from.
     // @param path: The full path of the file to be opened.
-    // @return: A struct file for the opened file.
+    // @return: A struct file for the opened file. If no such file exists on the
+    // filesystem, this function should return NO_FILE.
     struct file *(*open_file)(struct disk * disk, char const * path);
+
+    // Close an opened file on the filesystem.
+    // @param file: The file to be closed.
+    void (*close_file)(struct file * file);
 
     // Delete a file from the filesystem.
     // @param disk: The disk to delete the file from.
