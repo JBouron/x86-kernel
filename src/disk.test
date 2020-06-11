@@ -54,7 +54,7 @@ static struct disk_ops ops = {
 static struct disk test_disk = {
     .ops = &ops,
     // Unused in tests.
-    .data = NULL,
+    .driver_private = NULL,
 };
 
 static bool disk_read_test_multiple_of_sectors(void) {

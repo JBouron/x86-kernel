@@ -77,6 +77,7 @@ size_t disk_write(struct disk * const disk,
                   uint8_t const * const buf,
                   size_t const len) {
     // TODO: Implement write.
+    PANIC("disk_write() not implemented\n");
     return 0;
 }
 

@@ -53,7 +53,7 @@ struct disk {
     struct disk_ops const * ops;
 
     // Additional data available for the driver.
-    void * data;
+    void * driver_private;
 };
 
 // Read data from a disk.
