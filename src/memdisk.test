@@ -123,34 +123,7 @@ static bool memdisk_write_sector_test(void) {
     return true;
 }
 
-// Test the disk_read function on a memdisk.
-static bool memdisk_disk_read_test(void) {
-    size_t const disk_size = 0x800;
-    struct disk * const disk = create_test_disk(disk_size, false);
-
-    // Fill the disk with a deterministic pattern.
-    struct memdisk_data * const data = get_data(disk);
-    fill(data->mapped_addr, data->size, 0x0);
-
-    for (off_t offset = 0; offset < disk_size; ++offset) {
-        size_t const len = disk_size - offset; 
-        uint8_t * const buf = kmalloc(len);
-        uint32_t const read = disk_read(disk, offset, buf, len);
-        // We should always be able to read with memdisks.
-        TEST_ASSERT(read == len);
-        TEST_ASSERT(check_buf(buf, len, offset));
-        kfree(buf);
-    }
-
-    delete_test_disk(disk);
-    return true;
-
-}
-
-// TODO: Add test calling disk_write on a memdisk.
-
 void memdisk_test(void) {
     TEST_FWK_RUN(memdisk_read_sector_test);
     TEST_FWK_RUN(memdisk_write_sector_test);
-    TEST_FWK_RUN(memdisk_disk_read_test);
 }
