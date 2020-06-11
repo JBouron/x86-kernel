@@ -70,7 +70,8 @@ struct ustar_header {
             uint64_t device_major_number;
             // Unused.
             uint64_t device_minor_number;
-            // Prefix for the filename. 
+            // Prefix for the filename. If this prefix is non-empty then the
+            // full filename is : filename_prefix + "/" + filename.
             char filename_prefix[155];
         } __attribute__((packed));
     } __attribute__((packed));
@@ -131,22 +132,28 @@ static bool find_file(struct disk * const disk,
 
     while (read_header(disk, offset, hdr)) {
         char * const prefix = hdr->filename_prefix;
-        size_t const prefix_len = strlen(prefix);
+        size_t prefix_len = strlen(prefix);
         char * const filename = hdr->filename;
         size_t const filename_len = strlen(filename);
         size_t const full_filename_len = prefix_len + strlen(filename);
 
-        char * const fullname = kmalloc(full_filename_len + 1);
+        // +1 for the potential "/" between the prefix and the file
+        // +1 for the '\0'.
+        char * const fullname = kmalloc(full_filename_len + 2);
 
         if (prefix_len) {
             // Most of the time, there is no prefix.
             memcpy(fullname, prefix, prefix_len);
+            // Add the '/'.
+            fullname[prefix_len] = '/';
+            prefix_len ++;
         }
         memcpy(fullname + prefix_len, filename, filename_len);
 
-        if (streq(fullname, filepath)) {
+        found = streq(fullname, filepath);
+        kfree(fullname);
+        if (found) {
             // File is found.
-            found = true;
             break;
         } else {
             // Skip header.
