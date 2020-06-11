@@ -48,6 +48,9 @@ struct file {
     void *fs_private;
 };
 
+// Special value to be used when a file cannot be found or created.
+#define NO_FILE NULL
+
 // Each supported filesystem must define a struct fs which defines basic
 // operations on the filesystem. Note: If a given filesystem is used twice (i.e.
 // on two different disks), only one such struct is defined and used.
@@ -61,10 +64,10 @@ struct fs_ops {
     // Create a new file on the filesystem.
     // @param disk: The disk on which the new file should be created.
     // @param path: The full path of the file to be created.
-    // @return: A struct file for the new created file.
+    // @return: A struct file for the new created file. If the file cannot be
+    // created for any reason, NO_FILE should be returned.
     struct file *(*create_file)(struct disk * disk, char const * path);
 
-#define NO_FILE NULL
     // Open a file on the filesystem.
     // @param disk: The disk to open the file from.
     // @param path: The full path of the file to be opened.
