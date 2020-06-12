@@ -198,6 +198,11 @@ static size_t ustar_read(struct file * const file,
 
     uint64_t const file_len = octal_string_to_u64(file_header->filesize);
 
+    if (offset >= file_len) {
+        // This read is beyond the end of the file.
+        return 0;
+    }
+
     uint32_t const data_off = data->header_offset + sizeof(*file_header);
     off_t const read_off = data_off + offset;
     size_t const read_len = min_u32(file_len - offset, len);
@@ -294,6 +299,7 @@ static struct file *ustar_open_file(struct disk * const disk,
 static void ustar_close_file(struct file * const file) {
     // Free the ustar_file_private_data.
     kfree(file->fs_private);
+    kfree(file);
 }
 
 // The filesystem operations for a USTAR filesystem.
@@ -339,7 +345,7 @@ static void pretty_print_header(struct ustar_header const * const header) {
 // used for debugging purposes.
 // @param disk: The disk to read from.
 __attribute__((unused))
-static void log_ustar(struct disk * const disk) {
+void log_ustar(struct disk * const disk) {
     struct ustar_header * const hdr = kmalloc(sizeof(*hdr));
     size_t read = 0;
     off_t off = 0x0;
@@ -353,4 +359,7 @@ static void log_ustar(struct disk * const disk) {
             off += ceil_x_over_y_u32(size, 512) * 512;
         }
     }
+    LOG("End of USTAR\n");
 }
+
+#include <ustar.test>
