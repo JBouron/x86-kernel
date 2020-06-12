@@ -21,5 +21,13 @@ void memset(void * const to, uint8_t const byte, size_t const len);
 // @param len: The number of bytes in the memory region.
 void memzero(void * const to, size_t const len);
 
+// Check if two memory areas contain the same data.
+// @param s1: The first memory area.
+// @param s2: The first memory area.
+// @param size: The number of bytes to check.
+// @return: true if the data pointed by s1 and s2 is the same for `size` bytes,
+// false otherwise.
+bool memeq(void const * const s1, void const * const s2, size_t const size);
+
 // Execute tests of the above functions.
 void mem_test(void);
