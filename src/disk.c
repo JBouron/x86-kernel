@@ -24,6 +24,11 @@ size_t disk_read(struct disk * const disk,
                  off_t const offset,
                  uint8_t * const buf,
                  size_t const len) {
+    if (!len) {
+        // Empty read optmization.
+        return 0;
+    }
+
     uint32_t const sector_size = disk->ops->sector_size(disk);
     sector_t const start_sector = offset_to_sector(offset, sector_size);
     sector_t const end_sector = offset_to_sector(offset + len - 1, sector_size);
@@ -77,7 +82,7 @@ size_t disk_write(struct disk * const disk,
                   uint8_t const * const buf,
                   size_t const len) {
     if (!len) {
-        // Empty write.
+        // Empty write optimization.
         return 0;
     }
 
