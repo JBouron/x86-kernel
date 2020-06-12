@@ -31,6 +31,10 @@
 #include <sched.h>
 #include <syscalls.h>
 #include <disk.h>
+#include <initrd.h>
+#include <fs.h>
+#include <memdisk.h>
+#include <ustar.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -61,6 +65,8 @@ void test_kernel(void) {
     sched_test();
     syscall_test();
     disk_test();
+    memdisk_test();
+    ustar_test();
 
     print_test_summary();
 }
