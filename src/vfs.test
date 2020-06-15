@@ -1,0 +1,163 @@
+#include <test.h>
+#include <memdisk.h>
+#include <math.h>
+#include <memory.h>
+
+// In this test, we re-use the baked in TAR archive to simulate a USTAR
+// filesystem on a memdisk.
+extern uint8_t ARCHIVE[];
+extern size_t const ARCHIVE_SIZE;
+
+// Create a read only memdisk of the TAR archive.
+// @return: The disk.
+static struct disk *create_test_disk(void) {
+    return create_memdisk(ARCHIVE, ARCHIVE_SIZE, true);
+}
+
+static bool get_fs_for_disk_test(void) {
+    struct disk * const disk = create_test_disk();
+    struct fs const * const fs = get_fs_for_disk(disk);
+    delete_memdisk(disk);
+    return fs == &ustar_fs;
+}
+
+static bool mount_target_is_valid_test(void) {
+    TEST_ASSERT(mount_target_is_valid("/root/some/dir/"));
+    TEST_ASSERT(mount_target_is_valid("/"));
+    TEST_ASSERT(!mount_target_is_valid("/root/someotherdir"));
+    TEST_ASSERT(!mount_target_is_valid(""));
+    TEST_ASSERT(!mount_target_is_valid("root/someotherdir"));
+    TEST_ASSERT(!mount_target_is_valid("root/someotherdir/"));
+    return true;
+}
+
+static bool vfs_mount_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    vfs_mount(disk, mount_point);
+
+    // Check that the MOUNTS linked list contains the correct information.
+    TEST_ASSERT(list_size(&MOUNTS) == 1);
+    struct mount * mount = list_first_entry(&MOUNTS,
+                                            struct mount,
+                                            mount_point_list);
+    TEST_ASSERT(mount);
+    TEST_ASSERT(streq(mount->mount_point, mount_point));
+    TEST_ASSERT(mount->disk == disk);
+    TEST_ASSERT(mount->fs == &ustar_fs);
+
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return true;
+}
+
+static bool is_under_mount_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    vfs_mount(disk, mount_point);
+
+    // Check that the MOUNTS linked list contains the correct information.
+    TEST_ASSERT(list_size(&MOUNTS) == 1);
+    struct mount * mount = list_first_entry(&MOUNTS,
+                                            struct mount,
+                                            mount_point_list);
+    TEST_ASSERT(mount);
+
+    size_t const len = strlen(mount_point);
+    TEST_ASSERT(is_under_mount(mount, mount_point) == len);
+    TEST_ASSERT(!is_under_mount(mount, "/some/mount/point"));
+    TEST_ASSERT(is_under_mount(mount, "/some/mount/point/some/file") == len);
+    TEST_ASSERT(!is_under_mount(mount, "some/mount/point/some/file"));
+    TEST_ASSERT(is_under_mount(mount, "/some/mount/point/somefile") == len);
+    TEST_ASSERT(is_under_mount(mount, "/some/mount/point/somedir/") == len);
+
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return true;
+}
+
+static bool find_mount_for_file_test(void) {
+    struct disk * const disk = create_test_disk();
+    struct disk * const disk2 = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    pathname_t const mount_point_nested = "/some/mount/point/nested/";
+
+    vfs_mount(disk, mount_point);
+    vfs_mount(disk2, mount_point_nested);
+
+    struct mount * mount = list_first_entry(&MOUNTS,
+                                            struct mount,
+                                            mount_point_list);
+
+    struct mount * nested = list_last_entry(&MOUNTS,
+                                            struct mount,
+                                            mount_point_list);
+    TEST_ASSERT(streq(mount->mount_point, mount_point));
+    TEST_ASSERT(streq(nested->mount_point, mount_point_nested));
+
+    TEST_ASSERT(find_mount_for_file("/some/mount/point/file") == mount);
+    TEST_ASSERT(find_mount_for_file("/some/mount/point/nested") == mount);
+    TEST_ASSERT(find_mount_for_file("/some/mount/point/nested/") == nested);
+    TEST_ASSERT(find_mount_for_file("/some/mount/point/nested/file") == nested);
+
+    vfs_unmount(mount_point);
+    vfs_unmount(mount_point_nested);
+    delete_memdisk(disk);
+    delete_memdisk(disk2);
+    return true;
+}
+
+static bool vfs_read_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    vfs_mount(disk, mount_point);
+
+    pathname_t const filename = "/some/mount/point/root/file0";
+
+    struct file * const file = vfs_open(filename);
+    TEST_ASSERT(file);
+
+    // See comment in ustar.test to know which offset corresponds to the file
+    // data and its file size.
+    uint8_t const * const file_data = ARCHIVE + 0xE00;
+    size_t const file_size = 1078;
+
+    for (size_t size = 0; size < file_size + 10; size += 4) {
+        for (off_t offset = 0; offset < file_size + 10; offset += 4) {
+            uint8_t * const buf = kmalloc(size);
+            size_t exp_read;
+            if (offset >= file_size) {
+                exp_read = 0;
+            } else {
+                exp_read = min_u32(size, file_size - offset);
+            }
+
+            size_t const read = vfs_read(file, offset, buf, size);
+            TEST_ASSERT(read == exp_read);
+
+            // Now check that the data checks out.
+            TEST_ASSERT(memeq(file_data + offset, buf, read));
+
+            kfree(buf);
+        }
+    }
+
+    vfs_close(file);
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return true;
+}
+
+void vfs_test(void) {
+    init_vfs();
+
+    TEST_FWK_RUN(get_fs_for_disk_test);
+    TEST_FWK_RUN(mount_target_is_valid_test);
+    TEST_FWK_RUN(vfs_mount_test);
+    TEST_FWK_RUN(is_under_mount_test);
+    TEST_FWK_RUN(find_mount_for_file_test);
+    TEST_FWK_RUN(vfs_read_test);
+
+    // Call init_vfs() a second time to remove any state changed by the tests.
+    init_vfs();
+}

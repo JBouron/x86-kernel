@@ -35,6 +35,7 @@
 #include <fs.h>
 #include <memdisk.h>
 #include <ustar.h>
+#include <vfs.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -67,6 +68,7 @@ void test_kernel(void) {
     disk_test();
     memdisk_test();
     ustar_test();
+    vfs_test();
 
     print_test_summary();
 }
