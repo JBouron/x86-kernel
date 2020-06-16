@@ -151,13 +151,13 @@ void sched_run_next_proc(struct register_save_area const * const regs) {
         }
         ASSERT(proc_is_runnable(next));
         
-        if (prev != next) {
-            // We have a context switch, save the registers of the current
-            // process.  (current in this case is `prev).
-            if (regs && !curr_dead) {
-                save_registers(prev, regs);
-            }
+        if (regs && !curr_dead) {
+            // FIXME: There is an inefficiency here. If prev == next (there is a
+            // resched but only one proc is runnable) then we could skip saving
+            // the registers and re-read them again in switch_to_proc().
+            save_registers(prev, regs);
         }
+
         this_cpu_var(resched_flag) = false;
     } else {
         // No resched requested, resume execution of the current process.
