@@ -19,6 +19,8 @@
 // Below is the list of syscall numbers.
 #define NR_SYSCALL_TEST     0x0
 #define NR_SYSCALL_EXIT     0x1
+#define NR_SYSCALL_OPEN     0x2
+#define NR_SYSCALL_READ     0x3
 
 // This struct represents the arguments passed to a syscall in order. This is
 // the same order as in Linux for 32-bit kernels. However, the similarity ends
@@ -42,6 +44,18 @@ void syscall_init(void);
 // Exit the current process. This function will obviously not return.
 // @param exit_code: The value of the exit code.
 void do_exit(uint8_t const exit_code);
+
+// Open a file.
+// @param path: The absolute path of the file to be opened.
+// @return: A file descriptor of the opened file.
+fd_t do_open(pathname_t const path);
+
+// Read from a file descriptor.
+// @param fd: The file descriptor to read from.
+// @param buf: The buffer to read into.
+// @param len: The size of the read/buffer.
+// @return: The number of bytes read into buf.
+size_t do_read(fd_t const fd, uint8_t * const buf, size_t const len);
 
 // Return the PID of the current process.
 pid_t do_get_pid(void);

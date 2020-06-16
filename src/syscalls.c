@@ -3,12 +3,16 @@
 #include <debug.h>
 #include <sched.h>
 #include <interrupt.h>
+#include <vfs.h>
+#include <kmalloc.h>
 
 // The mapping syscall number -> function.
 static void *SYSCALL_MAP[] = {
     // Syscall 0 is used for testing purposes.
     [NR_SYSCALL_TEST]     =   NULL,
     [NR_SYSCALL_EXIT]     =   (void*)do_exit,
+    [NR_SYSCALL_OPEN]     =   (void*)do_open,
+    [NR_SYSCALL_READ]     =   (void*)do_read,
 };
 
 // The number of entries in the SYSCALL_MAP.
@@ -100,6 +104,45 @@ void do_exit(uint8_t const exit_code) {
     // to a new process.
     sched_run_next_proc(NULL);
     __UNREACHABLE__;
+}
+
+fd_t do_open(pathname_t const path) {
+    struct proc * const curr = this_cpu_var(curr_proc);
+
+    // Open the file.
+    struct file * const file = vfs_open(path);
+    ASSERT(file);
+
+    // Allocate a new entry for the file table.
+    struct file_table_entry * const op_file = kmalloc(sizeof(*op_file));
+    op_file->file = file;
+    op_file->file_pointer = 0x0;
+
+    // Find the next available id in the process's file table.
+    fd_t fd = 0;
+    for (fd = 0; fd < MAX_FDS && curr->file_table[fd]; ++fd);
+    if (fd == MAX_FDS) {
+        PANIC("No FDs left for process %u.\n", curr->pid);
+    }
+
+    // Insert the entry in the file table.
+    curr->file_table[fd] = op_file;
+    return fd;
+}
+
+size_t do_read(fd_t const fd, uint8_t * const buf, size_t const len) {
+    struct proc * const curr = this_cpu_var(curr_proc);
+
+    // Get the file from the file table.
+    struct file_table_entry * const op_file = curr->file_table[fd];
+    if (!op_file) {
+        PANIC("Invalid fd %u for process %u\n", fd, curr->pid);
+    }
+
+    size_t const ret = vfs_read(op_file->file, op_file->file_pointer, buf, len);
+
+    op_file->file_pointer += ret;
+    return ret;
 }
 
 pid_t do_get_pid(void) {
