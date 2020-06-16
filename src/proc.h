@@ -2,6 +2,7 @@
 #include <addr_space.h>
 #include <list.h>
 #include <percpu.h>
+#include <fs.h>
 
 // Process related functions and types.
 
@@ -34,6 +35,18 @@ struct register_save_area {
     reg_t cs;
     reg_t es;
 } __attribute__((packed));
+
+// This struct contains the state of an opened file of a process.
+struct file_table_entry {
+    // The file in question, as returned by vfs_open().
+    struct file * file;
+    // Pointer within the file, that is the offset at which the next call to
+    // read() write() will read from/write to.
+    off_t file_pointer;
+};
+
+// The maximum number of opened file per process.
+#define MAX_FDS 32
 
 // A process running on the system.
 struct proc {
@@ -69,6 +82,10 @@ struct proc {
 
     // The Process ID of this process.
     pid_t pid;
+
+    // The file table contains the state of all the files opened by this
+    // process. It maps a file descriptor to its corresponding file.
+    struct file_table_entry *file_table[MAX_FDS];
 } __attribute__((packed));
 
 // Below are the flags used in the struct proc' state_flags field.
