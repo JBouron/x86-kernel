@@ -11,7 +11,7 @@ extern size_t const ARCHIVE_SIZE;
 // Create a read only memdisk of the TAR archive.
 // @return: The disk.
 static struct disk *create_test_disk(void) {
-    return create_memdisk(ARCHIVE, ARCHIVE_SIZE, true);
+    return create_memdisk(ARCHIVE, ARCHIVE_SIZE, false);
 }
 
 static bool get_fs_for_disk_test(void) {
@@ -148,6 +148,60 @@ static bool vfs_read_test(void) {
     return true;
 }
 
+static void fill_buf(uint8_t * const buf, size_t const len) {
+    for (size_t i = 0; i < len; ++i) {
+        // Use the TSC to generate a """random""" value.
+        uint8_t const val = read_tsc() & 0xFF; 
+        buf[i] = val;
+    }
+}
+
+static bool vfs_write_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    vfs_mount(disk, mount_point);
+
+    pathname_t const filename = "/some/mount/point/root/file0";
+
+    struct file * const file = vfs_open(filename);
+    TEST_ASSERT(file);
+    size_t const file_size = 1078;
+
+    uint8_t * const filedata = kmalloc(file_size);
+    // See comment in ustar.test to know which offset corresponds to the file
+    // data and its file size.
+    memcpy(filedata, ARCHIVE + 0xE00, file_size);
+
+    for (size_t size = 0; size < file_size + 10; size += 4) {
+        for (off_t offset = 0; offset < file_size + 10; offset += 4) {
+            uint8_t * const buf = kmalloc(size);
+            fill_buf(buf, size);
+
+            size_t const written = vfs_write(file, offset, buf, size);
+
+            size_t exp_written;
+            if (offset >= file_size) {
+                exp_written = 0;
+            } else {
+                exp_written = min_u32(size, file_size - offset);
+                memcpy(filedata + offset, buf, written);
+            }
+            TEST_ASSERT(written == exp_written);
+
+            // Now check that the data checks out.
+            TEST_ASSERT(memeq(filedata, ARCHIVE + 0xE00, file_size));
+
+            kfree(buf);
+        }
+    }
+
+    kfree(filedata);
+    vfs_close(file);
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return true;
+}
+
 void vfs_test(void) {
     init_vfs();
 
@@ -157,6 +211,7 @@ void vfs_test(void) {
     TEST_FWK_RUN(is_under_mount_test);
     TEST_FWK_RUN(find_mount_for_file_test);
     TEST_FWK_RUN(vfs_read_test);
+    TEST_FWK_RUN(vfs_write_test);
 
     // Call init_vfs() a second time to remove any state changed by the tests.
     init_vfs();
