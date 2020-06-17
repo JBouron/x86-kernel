@@ -168,7 +168,25 @@ void switch_to_proc(struct proc * const proc) {
     do_far_return_to_proc(proc);
 }
 
+// Close all the files opened by a process.
+// @param proc: The process for which all opened files should be closed.
+static void close_all_opened_files(struct proc * const proc) {
+    for (fd_t fd = 0; fd < MAX_FDS; ++fd) {
+        struct file_table_entry * const entry = proc->file_table[fd];
+        if (!entry) {
+            continue;
+        }
+        vfs_close(entry->file);
+        kfree(entry);
+        // Reset the entry to avoid use after free.
+        proc->file_table[fd] = NULL;
+    }
+}
+
 void delete_proc(struct proc * const proc) {
+    // Close any file that remained opened until now.
+    close_all_opened_files(proc);
+
     if (proc->is_kernel_proc) {
         // Kernel processes use the kernel address space as their address space,
         // therefore it should not be deleted.
