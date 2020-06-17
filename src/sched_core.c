@@ -175,7 +175,6 @@ void sched_run_next_proc(struct register_save_area const * const regs) {
         }
     }
 
-    this_cpu_var(curr_proc) = next;
     switch_to_proc(next);
 }
 

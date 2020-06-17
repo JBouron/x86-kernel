@@ -6,6 +6,8 @@
 #include <kernel_map.h>
 #include <cpu.h>
 #include <segmentation.h>
+#include <sched.h>
+#include <vfs.h>
 
 // The number of stack frames to be allocated by default for a new process.
 #define DEFAULT_NUM_STACK_FRAMES    4
@@ -161,6 +163,7 @@ uint32_t const GS_OFF = offsetof(struct register_save_area, gs);
 void do_far_return_to_proc(struct proc * const proc);
 
 void switch_to_proc(struct proc * const proc) {
+    this_cpu_var(curr_proc) = proc;
     switch_to_addr_space(proc->addr_space);
     do_far_return_to_proc(proc);
 }
