@@ -131,6 +131,80 @@ rstc_dead:
 .global read_syscall_test_code_end
 read_syscall_test_code_end:
 
+
+//void write_syscall_test_code(void * unused);
+ASM_FUNC_DEF(write_syscall_test_code):
+.global write_syscall_test_code_start
+write_syscall_test_code_start:
+    // Skip strings buffers and helper functions.
+    jmp     wstc_start
+wstc_filename:
+.asciz "/write_syscall_test/root/file0"
+wstc_buffer:
+.byte   0xAA
+.byte   0xAB
+.byte   0xAC
+.byte   0xAD
+.byte   0xAE
+.byte   0xAF
+.byte   0xBA
+.byte   0xBB
+.byte   0xBC
+.byte   0xBD
+.byte   0xBE
+.byte   0xBF
+.byte   0xCA
+.byte   0xCB
+.byte   0xCC
+.byte   0xCD
+.byte   0xCE
+.byte   0xCF
+wstc_buffer_end:
+
+// Some helper nested functions.
+// Call the open() syscall with a given path. The path is passed to Lcall_open
+// on the stack like a regular function.
+// This function returns the file descriptor.
+wstc_call_open:
+    mov     0x4(%esp), %ebx
+    mov     $0x2, %eax
+    int     $0x80
+    // EAX already contains the file descriptor.
+    ret
+
+wstc_call_write:
+    mov     0x4(%esp), %ebx
+    mov     0x8(%esp), %ecx
+    mov     0xC(%esp), %edx
+    mov     $0x5, %eax
+    int     $0x80
+    ret
+
+wstc_start:
+    // Open file.
+    mov     $wstc_filename, %eax
+    push    %eax
+    call    wstc_call_open
+    // EAX = fd
+    // ECX = buffer size
+    mov     $wstc_buffer_end, %ecx
+    sub     $wstc_buffer, %ecx
+
+    // Write to the file until we cannot write anymore.
+    push    %ecx
+    pushl   $wstc_buffer
+    push    %eax
+wstc_write_loop:
+    call    wstc_call_write
+    test    %eax, %eax
+    jnz     wstc_write_loop
+
+wstc_dead:
+    jmp     wstc_dead
+.global write_syscall_test_code_end
+write_syscall_test_code_end:
+
+
 //void getpid_syscall_test_code(void * unused);
 ASM_FUNC_DEF(getpid_syscall_test_code):
 .global getpid_syscall_test_code_start

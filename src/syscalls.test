@@ -174,7 +174,7 @@ extern uint8_t ARCHIVE[];
 extern size_t ARCHIVE_SIZE;
 
 static struct disk *create_test_disk(void) {
-    return create_memdisk(ARCHIVE, ARCHIVE_SIZE, true);
+    return create_memdisk(ARCHIVE, ARCHIVE_SIZE, false);
 }
 
 static bool open_syscall_test_success(struct proc * const proc) {
@@ -226,6 +226,8 @@ static bool open_syscall_test(void) {
     delete_memdisk(disk);
     return true;
 }
+
+// read() syscall test.
 
 static bool volatile read_syscall_test_success_flag = false;
 static off_t read_syscall_test_prev_file_ptr = 0;
@@ -309,6 +311,101 @@ static bool read_syscall_test(void) {
     return true;
 }
 
+// write() syscall test.
+
+static bool volatile write_syscall_test_success_flag = false;
+static off_t write_syscall_test_prev_file_ptr = 0;
+static uint8_t * write_syscall_test_filedata = NULL;
+
+static bool write_syscall_test_success(struct proc * const proc) {
+    return write_syscall_test_success_flag;
+}
+
+static void write_syscall_test_pre_hook(struct proc * const proc,
+                                       struct syscall_args const * const args) {
+    fd_t const fd = args->ebx;
+
+    // Since the process only opened a single file, we expect fd to be 0.
+    ASSERT(fd == 0);
+    struct file_table_entry const * const entry = proc->file_table[fd];
+    write_syscall_test_prev_file_ptr = entry->file_pointer;
+}
+
+static void write_syscall_test_post_hook(struct proc * const proc,
+                                        struct syscall_args const * const args,
+                                        reg_t const res) {
+    fd_t const fd = args->ebx;
+    uint8_t const * const buf = (uint8_t const*)args->ecx;
+    size_t const len = args->edx;
+
+    // Since the process only opened a single file, we expect fd to be 0.
+    ASSERT(fd == 0);
+    struct file_table_entry const * const entry = proc->file_table[fd];
+    // See comment in ustar.test. The size of file0 is 1078 bytes.
+    size_t const file_len = 1078;
+    ASSERT(res == min_u32(len, file_len - write_syscall_test_prev_file_ptr));
+    ASSERT(entry->file_pointer == write_syscall_test_prev_file_ptr + res);
+
+    // Do the same update on our copy of the data.
+    memcpy(write_syscall_test_filedata + write_syscall_test_prev_file_ptr,
+           buf,
+           res);
+
+    // Compare our copy (expected) with the current content of the file.
+    uint8_t const * const curr_data = ARCHIVE + 0xE00 +
+        write_syscall_test_prev_file_ptr;
+    ASSERT(memeq(write_syscall_test_filedata, curr_data, res));
+
+    if (!res) {
+        // This was the last read from the process. Test is successful.
+        write_syscall_test_success_flag = true;
+    }
+}
+
+static bool write_syscall_test(void) {
+    extern void write_syscall_test_code(void*);
+    extern uint8_t write_syscall_test_code_start;
+    extern uint8_t write_syscall_test_code_end;
+    size_t const code_size =
+        &write_syscall_test_code_end - &write_syscall_test_code_start;
+
+    struct test_scenario scenario = {
+        .code = (void*)write_syscall_test_code,
+        .code_size = code_size,
+        .arg = NULL,
+        .ring = 0,
+        .syscall_nr = 0x5,
+        .pre_syscall_hook = write_syscall_test_pre_hook,
+        .post_syscall_hook = write_syscall_test_post_hook,
+        .success = write_syscall_test_success,
+    };
+
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/write_syscall_test/";
+    vfs_mount(disk, mount_point);
+
+    size_t const filesize = 1078;
+    write_syscall_test_filedata = kmalloc(filesize);
+    memcpy(write_syscall_test_filedata, ARCHIVE + 0xE00, filesize);
+
+    write_syscall_test_success_flag = false;
+    write_syscall_test_prev_file_ptr = 0;
+
+    TEST_ASSERT(run_scenario(&scenario));
+
+    // Run the same scenario in ring 3 this time.
+    scenario.ring = 3;
+    write_syscall_test_success_flag = false;
+    write_syscall_test_prev_file_ptr = 0;
+    TEST_ASSERT(run_scenario(&scenario));
+
+    kfree(write_syscall_test_filedata);
+
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return true;
+}
+
 // getpid() test.
 
 static bool volatile getpid_syscall_test_success_flag = false;
@@ -361,6 +458,7 @@ void syscall_test(void) {
     TEST_FWK_RUN(simple_syscall_test);
     TEST_FWK_RUN(open_syscall_test);
     TEST_FWK_RUN(read_syscall_test);
+    TEST_FWK_RUN(write_syscall_test);
     TEST_FWK_RUN(getpid_syscall_test);
 
     syscall_revert_init();

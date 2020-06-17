@@ -14,6 +14,7 @@ static void *SYSCALL_MAP[] = {
     [NR_SYSCALL_OPEN]     =   (void*)do_open,
     [NR_SYSCALL_READ]     =   (void*)do_read,
     [NR_SYSCALL_GETPID]   =   (void*)do_get_pid,
+    [NR_SYSCALL_WRITE]    =   (void*)do_write,
 };
 
 // The number of entries in the SYSCALL_MAP.
@@ -159,6 +160,25 @@ size_t do_read(fd_t const fd, uint8_t * const buf, size_t const len) {
 
     op_file->file_pointer += ret;
     return ret;
+}
+
+size_t do_write(fd_t const fd, uint8_t const * const buf, size_t const len) {
+    struct proc * const curr = this_cpu_var(curr_proc);
+
+    // Get the file from the file table.
+    struct file_table_entry * const op_file = curr->file_table[fd];
+    if (!op_file) {
+        PANIC("Invalid fd %u for process %u\n", fd, curr->pid);
+    }
+
+    size_t const ret = vfs_write(op_file->file,
+                                 op_file->file_pointer,
+                                 buf,
+                                 len);
+
+    op_file->file_pointer += ret;
+    return ret;
+
 }
 
 pid_t do_get_pid(void) {

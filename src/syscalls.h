@@ -22,6 +22,7 @@
 #define NR_SYSCALL_OPEN     0x2
 #define NR_SYSCALL_READ     0x3
 #define NR_SYSCALL_GETPID   0x4
+#define NR_SYSCALL_WRITE    0x5
 
 // This struct represents the arguments passed to a syscall in order. This is
 // the same order as in Linux for 32-bit kernels. However, the similarity ends
@@ -57,6 +58,13 @@ fd_t do_open(pathname_t const path);
 // @param len: The size of the read/buffer.
 // @return: The number of bytes read into buf.
 size_t do_read(fd_t const fd, uint8_t * const buf, size_t const len);
+
+// Write to a file descriptor.
+// @param fd: The file descriptor to write into.
+// @param buf: The data to write.
+// @param len: The size of the data to be written, in bytes.
+// @return: The number of bytes written.
+size_t do_write(fd_t const fd, uint8_t const * const buf, size_t const len);
 
 // Return the PID of the current process.
 pid_t do_get_pid(void);
