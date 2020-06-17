@@ -3,6 +3,7 @@
 #include <list.h>
 #include <percpu.h>
 #include <fs.h>
+#include <syscalls.h>
 
 // Process related functions and types.
 
@@ -86,6 +87,20 @@ struct proc {
     // The file table contains the state of all the files opened by this
     // process. It maps a file descriptor to its corresponding file.
     struct file_table_entry *file_table[MAX_FDS];
+
+    // The following is used for debugging purposes exclusively. It makes
+    // possible to call hooks before and after calling a particular syscall.
+#define _DEBUG_ALL_SYSCALLS -2UL
+    // The syscall number for which the hooks should be called.
+    uint32_t _debug_syscall_nr;
+    // The function to call _before_ executing the syscall.
+    void (*_pre_syscall_hook)(struct proc * proc,
+                              struct syscall_args const * args);
+    // The function to call _after_ executing the syscall.
+    void (*_post_syscall_hook)(struct proc * proc,
+                               struct syscall_args const * args,
+                               reg_t res);
+
 } __attribute__((packed));
 
 // Below are the flags used in the struct proc' state_flags field.

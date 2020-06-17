@@ -51,7 +51,22 @@ static reg_t syscall_dispatch(struct syscall_args const * const args) {
         // NULL pointer (in the case of the test syscall for instance).
         PANIC("Unimplemented syscall number: %u\n", syscall_nr);
     }
-    return do_syscall_dispatch(func, args);
+    struct proc * const curr = this_cpu_var(curr_proc);
+    uint32_t const debug_n = curr->_debug_syscall_nr;
+
+    // Do we need to debug that syscall ?
+    bool const debug = debug_n == syscall_nr || debug_n == _DEBUG_ALL_SYSCALLS;
+
+    if (debug && curr->_pre_syscall_hook) {
+        curr->_pre_syscall_hook(curr, args);
+    }
+
+    reg_t const res = do_syscall_dispatch(func, args);
+
+    if (debug && curr->_post_syscall_hook) {
+        curr->_post_syscall_hook(curr, args, res);
+    }
+    return res;
 }
 
 // The interrupt handler for syscalls.
