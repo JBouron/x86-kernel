@@ -124,18 +124,17 @@ size_t disk_write(struct disk * const disk,
 
             // Write back the updated sector onto the disk.
             uint32_t const res = disk->ops->write_sector(disk, sector, curr);
-
             kfree(curr);
+            if (res != sector_size) {
+                // Having an error in the middle of the write should abort.
+                break;
+            }
 
             // The "effective" amount of written bytes is the number of bytes
             // that were overwritten in the current sector NOT the returned
             // value from write_sector since we may have updated the sector
             // partially.
             written += cpy_len;
-            if (res != sector_size) {
-                // Having an error in the middle of the write should abort.
-                break;
-            }
         } else {
             // All sectors between the first and last will receive a full
             // update.
