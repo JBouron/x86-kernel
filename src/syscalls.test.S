@@ -130,3 +130,14 @@ rstc_dead:
 
 .global read_syscall_test_code_end
 read_syscall_test_code_end:
+
+//void getpid_syscall_test_code(void * unused);
+ASM_FUNC_DEF(getpid_syscall_test_code):
+.global getpid_syscall_test_code_start
+getpid_syscall_test_code_start:
+    mov     $0x4, %eax
+    int     $0x80
+gpst_dead:
+    jmp     gpst_dead
+.global getpid_syscall_test_code_end
+getpid_syscall_test_code_end:

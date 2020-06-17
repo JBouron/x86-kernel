@@ -13,6 +13,7 @@ static void *SYSCALL_MAP[] = {
     [NR_SYSCALL_EXIT]     =   (void*)do_exit,
     [NR_SYSCALL_OPEN]     =   (void*)do_open,
     [NR_SYSCALL_READ]     =   (void*)do_read,
+    [NR_SYSCALL_GETPID]   =   (void*)do_get_pid,
 };
 
 // The number of entries in the SYSCALL_MAP.

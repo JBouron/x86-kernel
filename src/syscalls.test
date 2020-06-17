@@ -309,6 +309,49 @@ static bool read_syscall_test(void) {
     return true;
 }
 
+// getpid() test.
+
+static bool volatile getpid_syscall_test_success_flag = false;
+
+static void getpid_syscall_test_post_hook(struct proc * const proc,
+                                          struct syscall_args const * const arg,
+                                          reg_t const res) {
+    getpid_syscall_test_success_flag = res == proc->pid;
+}
+
+static bool getpid_syscall_test_success(struct proc * const proc) {
+    return getpid_syscall_test_success_flag;
+}
+
+static bool getpid_syscall_test(void) {
+    extern void getpid_syscall_test_code(void*);
+    extern uint8_t getpid_syscall_test_code_start;
+    extern uint8_t getpid_syscall_test_code_end;
+    size_t const code_size =
+        &getpid_syscall_test_code_end - &getpid_syscall_test_code_start;
+
+    struct test_scenario scenario = {
+        .code = (void*)getpid_syscall_test_code,
+        .code_size = code_size,
+        .arg = NULL,
+        .ring = 0,
+        .syscall_nr = NR_SYSCALL_GETPID,
+        .pre_syscall_hook = NULL,
+        .post_syscall_hook = getpid_syscall_test_post_hook,
+        .success = getpid_syscall_test_success,
+    };
+
+    getpid_syscall_test_success_flag = false;
+    TEST_ASSERT(run_scenario(&scenario));
+
+    // Run the same scenario in ring 3 this time.
+    scenario.ring = 3;
+    getpid_syscall_test_success_flag = false;
+    TEST_ASSERT(run_scenario(&scenario));
+
+    return true;
+}
+
 void syscall_test(void) {
     syscall_init();
     // Avoid deadlocks in case of TLB shootdowns coming from the cpu on which
@@ -318,6 +361,7 @@ void syscall_test(void) {
     TEST_FWK_RUN(simple_syscall_test);
     TEST_FWK_RUN(open_syscall_test);
     TEST_FWK_RUN(read_syscall_test);
+    TEST_FWK_RUN(getpid_syscall_test);
 
     syscall_revert_init();
 }

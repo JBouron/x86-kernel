@@ -21,6 +21,7 @@
 #define NR_SYSCALL_EXIT     0x1
 #define NR_SYSCALL_OPEN     0x2
 #define NR_SYSCALL_READ     0x3
+#define NR_SYSCALL_GETPID   0x4
 
 // This struct represents the arguments passed to a syscall in order. This is
 // the same order as in Linux for 32-bit kernels. However, the similarity ends
