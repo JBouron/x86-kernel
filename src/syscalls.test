@@ -4,71 +4,85 @@
 #include <proc_test_helpers.h>
 #include <acpi.h>
 #include <smp.h>
+#include <vfs.h>
+#include <memdisk.h>
+#include <string.h>
+#include <math.h>
 
-// Sums all args of the syscall.
-// @param ...: The register values.
-// @return: The sum of all the registers.
-static reg_t sum_syscall(reg_t const ebx,
-                         reg_t const ecx,
-                         reg_t const edx,
-                         reg_t const esi,
-                         reg_t const edi,
-                         reg_t const ebp) {
-    uint8_t const cpu = this_cpu_var(cpu_id);
-    reg_t const sum = ebx + ecx + edx + esi + edi + ebp;
-    LOG("[%u] Sum syscall, res = %x\n", cpu, sum);
-    return sum;
-}
+// Describe a syscall test scenario.
+struct test_scenario {
+    // The code to be run by the process.
+    void (*code)(void*);
+    // The size of the code in bytes. This is only used for ring 3 processes as
+    // we need to copy the code to their address space. Ring 0 processes can
+    // execute code directly from kernel addresses.
+    size_t code_size;
+    // The argument to passe to the code.
+    void *arg;
+    // The privilege level of the process.
+    uint8_t ring;
+    // Which syscall to be debuged (if required). See struct proc.
+    uint32_t syscall_nr;
+    // Pre syscall hook to be called before the syscall `syscall_nr` if
+    // applicable. This function will be called on the cpu executing the
+    // process/syscall.
+    void (*pre_syscall_hook)(struct proc * proc,
+                             struct syscall_args const * args);
+    // Post syscall hook to be called before the syscall `syscall_nr` if
+    // applicable. This function will be called on the cpu executing the
+    // process/syscall.
+    void (*post_syscall_hook)(struct proc * proc,
+                              struct syscall_args const * args,
+                              reg_t res);
+    // Pointer on a function indicating if the test is over and successful.
+    bool (*success)(struct proc * proc);
+};
 
-// Set the GP registers to some specific values and invoke the test syscall
-// (which is assumed to be sum). After the syscall returns check that EAX
-// contains the expected value.
-// @param dest: Pointer to a dword that will contain the result of the test,
-// that is 1 if EAX has the expected value after the syscall, 0 otherwise.
-extern void exec_sum_syscall(void * dest);
+// Run a scenario described by a struct test_scenario.
+// @param scenario: The test scenario to be run.
+// @return: true if the test is successful, false otherwise.
+static bool run_scenario(struct test_scenario const * const scenario) {
+    struct proc * proc;
 
-static bool syscall_in_user_process_test(void) {
-    struct proc * const proc = create_proc();
+    if (!scenario->ring) {
+        // With kernel processes we don't have to copy the code to a user
+        // accessible address, just use create_kproc() ...
+        proc = create_kproc(scenario->code, scenario->arg);
+    } else {
+        // With ring 3 processes, we need to copy the code and setup the arg on
+        // the stack manually.
+        proc = create_proc();
+        copy_code_to_proc(proc, scenario->code, scenario->code_size);
 
-    extern uint8_t exec_sum_syscall_start;
-    extern uint8_t exec_sum_syscall_end;
-    size_t const len = &exec_sum_syscall_end - &exec_sum_syscall_start;
-    void const * const code = exec_sum_syscall;
+        switch_to_addr_space(proc->addr_space);
 
-    copy_code_to_proc(proc, code, len);
+        // Push the argument onto the stack.
+        proc->registers_save.esp -= 4;
+        *((void const**)proc->registers_save.esp) = scenario->arg;
+        // Push a dummy return address.
+        proc->registers_save.esp -= 4;
+        *((uint32_t*)proc->registers_save.esp) = 0xDEADDEAD;
 
-    switch_to_addr_space(proc->addr_space);
+        switch_to_addr_space(get_kernel_addr_space());
+    }
 
-    // The destination for the result will be on the stack.
-    // Make space on stack for result.
-    proc->registers_save.esp -= 4;
-    uint32_t *result_addr = (void*)proc->registers_save.esp;
-    *result_addr = 0;
-    // Push result pointer onto the stack. This is the argument for
-    // exec_sum_syscall.
-    proc->registers_save.esp -= 4;
-    *((uint32_t const**)proc->registers_save.esp) = result_addr;
-    // Push a dummy return address.
-    proc->registers_save.esp -= 4;
-    *((uint32_t*)proc->registers_save.esp) = 0xDEADDEAD;
+    // Setup syscall debug hooks.
+    proc->_debug_syscall_nr = scenario->syscall_nr;
+    proc->_pre_syscall_hook = scenario->pre_syscall_hook;
+    proc->_post_syscall_hook = scenario->post_syscall_hook;
 
-    switch_to_addr_space(get_kernel_addr_space());
-
-
+    // Choose a cpu on which the process should be run.
     TEST_ASSERT(acpi_get_number_cpus() > 1);
     uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
-
-    SYSCALL_MAP[NR_SYSCALL_TEST] = (void*)sum_syscall;
 
     // Make the other cpu execute the process. we cannot wait since the
     // exec_proc function does not return.
     exec_remote_call(target, exec_proc, proc, false);
 
-    switch_to_addr_space(proc->addr_space);
-    while (!*result_addr) {
+    // Wait for test case to finish.
+    while (!scenario->success(proc)) {
         cpu_pause();
     }
-    switch_to_addr_space(get_kernel_addr_space());
 
     init_aps();
     delete_proc(proc);
@@ -76,37 +90,234 @@ static bool syscall_in_user_process_test(void) {
     return true;
 }
 
-// While there shouldn't be a particular reason to call syscalls from kernel
-// process (since they can access the functions directly anyway), it is still
-// possible and should be tested.
-static bool syscall_in_kernel_process_test(void) {
-    uint32_t volatile result = 0;
-    struct proc * const proc = create_kproc(exec_sum_syscall, (void*)&result);
+// Simple syscall test (using NR_SYSCALL_TEST):
+// 1. Set NR_SYSCALL_TEST to sum_syscall.
+// 2. Run prog, set random values in regs, call NR_SYSCALL_TEST.
+// 3. With syscall, save return value.
+// 4. With syscall, change NR_SYSCALL_TEST to verify_sum_syscall.
+// 5. Run prog again, call NR_SYSCALL_TEST while passing value returned in
+// previous syscall.
+// 6. In verify_sum_syscall(), assert correct value, set success flag.
 
-    TEST_ASSERT(acpi_get_number_cpus() > 1);
-    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+static bool simple_syscall_success = false;
+static reg_t simple_syscall_exp_value = 0;
 
-    SYSCALL_MAP[NR_SYSCALL_TEST] = (void*)sum_syscall;
+static void simple_syscall_verify(reg_t const ebx) {
+    simple_syscall_success = simple_syscall_exp_value == ebx;
+    LOG("Verify = %u\n", simple_syscall_success);
+}
 
-    // Make the other cpu execute the process. we cannot wait since the
-    // exec_proc function does not return.
-    exec_remote_call(target, exec_proc, proc, false);
+// Sums all args of the syscall.
+// @param ...: The register values.
+// @return: The sum of all the registers.
+static reg_t simple_syscall(reg_t const ebx,
+                            reg_t const ecx,
+                            reg_t const edx,
+                            reg_t const esi,
+                            reg_t const edi,
+                            reg_t const ebp) {
+    uint8_t const cpu = this_cpu_var(cpu_id);
+    reg_t const sum = ebx + ecx + edx + esi + edi + ebp;
+    LOG("[%u] Sum syscall, res = %x\n", cpu, sum);
 
-    while (!result) {
-        cpu_pause();
+    SYSCALL_MAP[NR_SYSCALL_TEST] = (void*)simple_syscall_verify;
+    simple_syscall_exp_value = sum;
+    return sum;
+}
+
+static bool simple_syscall_sucess_test(struct proc * const proc) {
+    return simple_syscall_success;
+}
+
+static bool simple_syscall_test(void) {
+    extern void simple_syscall_test_code(void*);
+    extern uint8_t simple_syscall_test_code_start;
+    extern uint8_t simple_syscall_test_code_end;
+    size_t const code_size =
+        &simple_syscall_test_code_end - &simple_syscall_test_code_start;
+
+    struct test_scenario scenario = {
+        .code = (void*)simple_syscall_test_code,
+        .code_size = code_size,
+        .arg = NULL,
+        .ring = 0,
+        .syscall_nr = 0,
+        .pre_syscall_hook = NULL,
+        .post_syscall_hook = NULL,
+        .success = simple_syscall_sucess_test,
+    };
+
+    simple_syscall_success = false;
+    simple_syscall_exp_value = 0;
+    SYSCALL_MAP[NR_SYSCALL_TEST] = (void*)simple_syscall;
+
+    TEST_ASSERT(run_scenario(&scenario));
+
+    scenario.ring = 3;
+    simple_syscall_success = false;
+    simple_syscall_exp_value = 0;
+    SYSCALL_MAP[NR_SYSCALL_TEST] = (void*)simple_syscall;
+
+    TEST_ASSERT(run_scenario(&scenario));
+    return true;
+}
+
+// open() syscall test.
+
+// This is the code executed by the process. In this function, the process opens
+// two files "/open_syscall_test/root/file0" and
+// "/open_syscall_test/root/dir1/file1"
+extern void open_syscall_test_code(void * unused);
+
+// Re-use the fake file system from ustar.test.
+extern uint8_t ARCHIVE[];
+extern size_t ARCHIVE_SIZE;
+
+static struct disk *create_test_disk(void) {
+    return create_memdisk(ARCHIVE, ARCHIVE_SIZE, true);
+}
+
+static bool open_syscall_test_success(struct proc * const proc) {
+    // We expect two entries in the file table of the process.
+    if (!proc->file_table[0] || !proc->file_table[1]) {
+        return false;
     }
 
-    init_aps();
-    delete_proc(proc);
-    SYSCALL_MAP[NR_SYSCALL_TEST] = (void*)NULL;
+    struct file_table_entry const * entry = proc->file_table[0];
+    struct file * const file = entry->file;
+
+    // The first entry should be for "/open_syscall_test/root/file0".
+    // Re-use the TEST_ASSERT() macro here even though this is not a test.
+    TEST_ASSERT(!entry->file_pointer);
+    // The path field of the file contains the path relative to the mount point.
+    TEST_ASSERT(streq(file->path, "root/file0"));
+    return true;
+}
+
+static bool open_syscall_test(void) {
+    extern void open_syscall_test_code(void*);
+    extern uint8_t open_syscall_test_code_start;
+    extern uint8_t open_syscall_test_code_end;
+    size_t const code_size =
+        &open_syscall_test_code_end - &open_syscall_test_code_start;
+
+    struct test_scenario scenario = {
+        .code = (void*)open_syscall_test_code,
+        .code_size = code_size,
+        .arg = NULL,
+        .ring = 0,
+        .syscall_nr = 0,
+        .pre_syscall_hook = NULL,
+        .post_syscall_hook = NULL,
+        .success = open_syscall_test_success,
+    };
+
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/open_syscall_test/";
+    vfs_mount(disk, mount_point);
+
+    TEST_ASSERT(run_scenario(&scenario));
+
+    // Run the same scenario in ring 3 this time.
+    scenario.ring = 3;
+    TEST_ASSERT(run_scenario(&scenario));
+
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return true;
+}
+
+static bool volatile read_syscall_test_success_flag = false;
+static off_t read_syscall_test_prev_file_ptr = 0;
+
+static bool read_syscall_test_success(struct proc * const proc) {
+    return read_syscall_test_success_flag;
+}
+
+static void read_syscall_test_pre_hook(struct proc * const proc,
+                                       struct syscall_args const * const args) {
+    fd_t const fd = args->ebx;
+
+    // Since the process only opened a single file, we expect fd to be 0.
+    ASSERT(fd == 0);
+    struct file_table_entry const * const entry = proc->file_table[fd];
+    read_syscall_test_prev_file_ptr = entry->file_pointer;
+}
+
+static void read_syscall_test_post_hook(struct proc * const proc,
+                                        struct syscall_args const * const args,
+                                        reg_t const res) {
+    fd_t const fd = args->ebx;
+    uint8_t const * const buf = (uint8_t const*)args->ecx;
+    size_t const len = args->edx;
+
+    // Since the process only opened a single file, we expect fd to be 0.
+    ASSERT(fd == 0);
+    struct file_table_entry const * const entry = proc->file_table[fd];
+    // See comment in ustar.test. The size of file0 is 1078 bytes.
+    size_t const file_len = 1078;
+    ASSERT(res == min_u32(len, file_len - read_syscall_test_prev_file_ptr));
+    ASSERT(entry->file_pointer == read_syscall_test_prev_file_ptr + res);
+
+    // Now make sure that the read() syscall indeed returned the correct data at
+    // the correct offset. Note: The data for file0 starts at offset 0xE00
+    // according to ustar.test comment.
+    uint8_t const * const exp_data = ARCHIVE + 0xE00 +
+        read_syscall_test_prev_file_ptr;
+    ASSERT(memeq(exp_data, buf, res));
+
+    if (!res) {
+        // This was the last read from the process. Test is successful.
+        read_syscall_test_success_flag = true;
+    }
+}
+
+static bool read_syscall_test(void) {
+    extern void read_syscall_test_code(void*);
+    extern uint8_t read_syscall_test_code_start;
+    extern uint8_t read_syscall_test_code_end;
+    size_t const code_size =
+        &read_syscall_test_code_end - &read_syscall_test_code_start;
+
+    struct test_scenario scenario = {
+        .code = (void*)read_syscall_test_code,
+        .code_size = code_size,
+        .arg = NULL,
+        .ring = 0,
+        .syscall_nr = 0x3,
+        .pre_syscall_hook = read_syscall_test_pre_hook,
+        .post_syscall_hook = read_syscall_test_post_hook,
+        .success = read_syscall_test_success,
+    };
+
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/read_syscall_test/";
+    vfs_mount(disk, mount_point);
+
+    read_syscall_test_success_flag = false;
+    read_syscall_test_prev_file_ptr = 0;
+    TEST_ASSERT(run_scenario(&scenario));
+
+    // Run the same scenario in ring 3 this time.
+    scenario.ring = 3;
+    read_syscall_test_success_flag = false;
+    read_syscall_test_prev_file_ptr = 0;
+    TEST_ASSERT(run_scenario(&scenario));
+
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
     return true;
 }
 
 void syscall_test(void) {
     syscall_init();
+    // Avoid deadlocks in case of TLB shootdowns coming from the cpu on which
+    // the process is run.
+    cpu_set_interrupt_flag(true);
 
-    TEST_FWK_RUN(syscall_in_user_process_test);
-    TEST_FWK_RUN(syscall_in_kernel_process_test);
+    TEST_FWK_RUN(simple_syscall_test);
+    TEST_FWK_RUN(open_syscall_test);
+    TEST_FWK_RUN(read_syscall_test);
 
     syscall_revert_init();
 }
