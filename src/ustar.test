@@ -649,7 +649,7 @@ size_t const ARCHIVE_SIZE = 6144;
 
 // Create the test memdisk on the archive.
 static struct disk *create_test_disk(void) {
-    return create_memdisk(ARCHIVE, ARCHIVE_SIZE, true);
+    return create_memdisk(ARCHIVE, ARCHIVE_SIZE, false);
 }
 
 static bool ustar_octal_string_to_u64_test(void) {
@@ -794,10 +794,82 @@ static bool ustar_read_file_test(void) {
                 // Now check that we have read the correct data.
                 uint8_t const * const raw = ARCHIVE + data->header_offset +
                     sizeof(struct ustar_header) + offset;
-                memeq(buf, raw, read);
+                TEST_ASSERT(memeq(buf, raw, read));
             }
         }
         kfree(buf);
+        ustar_close_file(file);
+    }
+    delete_memdisk(disk);
+    return true;
+}
+
+static void fill_buf(uint8_t * const buf, size_t const len) {
+    for (size_t i = 0; i < len; ++i) {
+        // Use the TSC to generate a """random""" value.
+        uint8_t const val = read_tsc() & 0xFF; 
+        buf[i] = val;
+    }
+}
+
+static bool ustar_write_file_test(void) {
+    struct disk * const disk = create_test_disk();
+    size_t const num_files = 3;
+
+    char const *filenames[] = {
+        "root/dir1/WhatKindOfFileIsThisIMeanLookAtTheLengthOfTheFilenameIn"
+            "ThisShitIsItEvenSupported0123456789abcd",
+        "root/dir1/file1",
+        "root/file0",
+    };
+
+    for (uint8_t i = 0; i < num_files; ++i) {
+        struct file * const file = ustar_open_file(disk, filenames[i]);
+        TEST_ASSERT(file != NO_FILE);
+
+        struct ustar_file_private_data * const data = file->fs_private;
+        size_t const filesize = octal_string_to_u64(data->header.filesize);
+
+        // Copy the entire content of the file into a buffer `filedata`. This
+        // buffer will be used to make sure that the ustar_write() wrote the
+        // buffer at the right location and only the number of bytes requested.
+        uint8_t * const filedata = kmalloc(filesize);
+        memcpy(filedata,
+               ARCHIVE + data->header_offset + sizeof(struct ustar_header),
+               filesize);
+
+        // Try to write any size from 0 to something bigger than the file
+        // itself.
+        for (size_t size = 0; size < filesize + 10; ++size) {
+            // Try to write at any offset including beyond the end of the file.
+            for (off_t offset = 0; offset < filesize + 10; ++offset) {
+                // Prepare the buffer that will be written to the file.
+                uint8_t * const buf = kmalloc(size);
+                fill_buf(buf, size);
+
+                size_t const written = ustar_write(file, offset, buf, size);
+                size_t exp_written;
+                if (offset >= filesize) {
+                    // We tried writting beyond the file. This should return 0.
+                    exp_written = 0;
+                } else {
+                    // We should not write beyond the end of the file.
+                    exp_written = min_u32(filesize - offset, size);
+
+                    // Update the copy of the file content.
+                    memcpy(filedata + offset, buf, written);
+                }
+                TEST_ASSERT(written == exp_written);
+
+                // Now check that the correct data was written by comparing the
+                // raw file content (in ARCHIVE/memdisk) and filedata.
+                uint8_t const * const raw = ARCHIVE + data->header_offset +
+                    sizeof(struct ustar_header);
+                TEST_ASSERT(memeq(filedata, raw, written));
+                kfree(buf);
+            }
+        }
+        kfree(filedata);
         ustar_close_file(file);
     }
     delete_memdisk(disk);
@@ -811,4 +883,5 @@ void ustar_test(void) {
     TEST_FWK_RUN(ustar_create_file_test);
     TEST_FWK_RUN(ustar_open_file_test);
     TEST_FWK_RUN(ustar_read_file_test);
+    TEST_FWK_RUN(ustar_write_file_test);
 }

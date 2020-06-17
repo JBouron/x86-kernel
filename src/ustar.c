@@ -183,15 +183,22 @@ struct ustar_file_private_data {
     struct ustar_header header;
 };
 
-// Read a file stored on a USTAR filesystem.
-// @param file: The file to read from.
-// @param offset: The offset to read from in the file.
-// @param buf: The buffer to read into.
-// @parma len: The length of the buffer to read.
-static size_t ustar_read(struct file * const file,
-                         off_t const offset,
-                         uint8_t * const buf,
-                         size_t const len) {
+// Access a file in a read or write manner.
+// @param file: The file to access.
+// @param offset: The offset at which the access should be carried out.
+// @param buf: If this is a read, then this is the buffer in which this function
+// should read the file's content. If this is a write then this is the buffer
+// that contains the data to be written.
+// @param len: The size of the buffer `buf`.
+// @param is_read: If true, this function performs a read, otherwise it performs
+// a write.
+// @return: If is_read, return the number of bytes read, else the number of
+// bytes written.
+static size_t ustar_do_file_update(struct file * const file,
+                                   off_t const offset,
+                                   uint8_t * const buf,
+                                   size_t const len,
+                                   bool const is_read) {
     struct ustar_file_private_data const * const data = file->fs_private;
     struct ustar_header const * const file_header = &data->header;
     ASSERT(file_header);
@@ -203,15 +210,33 @@ static size_t ustar_read(struct file * const file,
         return 0;
     }
 
-    uint32_t const data_off = data->header_offset + sizeof(*file_header);
-    off_t const read_off = data_off + offset;
-    size_t const read_len = min_u32(file_len - offset, len);
+    off_t const data_off = data->header_offset + sizeof(*file_header);
+    off_t const update_off = data_off + offset;
+    size_t const update_len = min_u32(file_len - offset, len);
 
-    size_t const read = disk_read(file->disk, read_off, buf, read_len);
-    if (read != read_len) {
+    size_t res = 0;
+    if (is_read) {
+        res = disk_read(file->disk, update_off, buf, update_len);
+    } else {
+        res = disk_write(file->disk, update_off, buf, update_len);
+    }
+
+    if (res != update_len) {
         WARN("Couldn't read entire buffer from %s\n", file->path);
     }
-    return read;
+    return res;
+}
+
+// Read a file stored on a USTAR filesystem.
+// @param file: The file to read from.
+// @param offset: The offset to read from in the file.
+// @param buf: The buffer to read into.
+// @parma len: The length of the buffer to read.
+static size_t ustar_read(struct file * const file,
+                         off_t const offset,
+                         uint8_t * const buf,
+                         size_t const len) {
+    return ustar_do_file_update(file, offset, buf, len, true);
 }
 
 // Write a file stored on a USTAR filesystem.
@@ -219,13 +244,14 @@ static size_t ustar_read(struct file * const file,
 // @param offset: The offset to write to in the file.
 // @param buf: The buffer containing the data to be written.
 // @parma len: The length of the buffer to write.
-// Note: Writting in USTAR filesystems is currently not supported, this is
-// because such filesystems are used as initrd images and hence are read-only.
+// Note: With USTAR filesystems, it is only possible to overwrite a file's data,
+// not append. This is because the primary use of USTAR is for initrd (which is
+// read only) and VFS/Syscall testing.
 static size_t ustar_write(struct file * file,
                           off_t const offset,
                           uint8_t const * buf,
                           size_t const len) {
-    return 0;    
+    return ustar_do_file_update(file, offset, (uint8_t *)buf, len, false);
 }
 
 // The file operations on a USTAR filesystem.
