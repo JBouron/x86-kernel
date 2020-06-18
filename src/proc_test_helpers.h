@@ -20,6 +20,7 @@ static inline void copy_code_to_proc(struct proc * const proc,
     // Map the frame to the current address space an copy the code.
     uint8_t * const mc = paging_map_frames_above(0x0, &code_frame, 1, VM_WRITE);
     memcpy(mc, code, len);
+    paging_unmap(mc, PAGE_SIZE);
 
     // Now map the frame to the process' address space.
     uint32_t const flags = VM_USER | VM_NON_GLOBAL;
