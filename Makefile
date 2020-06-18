@@ -2,13 +2,12 @@
 # cross-compiler i686-gcc and assembler i686-as which are installed in the
 # root's home directory.
 CC=/root/opt/cross/bin/i686-elf-gcc
-AS=/root/opt/cross/bin/i686-elf-as
+
 # The flags used to compile all the source files of the kernel.
 # Note: The -Wno-array-bounds is necessary as some physical pointer arithmetic
 # would trigger warning messages about an out-of-bounds access.
-KERNEL_CFLAGS=-O2 -g -Wall -Wextra -Werror -ffreestanding -nostdlib -I./src \
+KERNEL_CFLAGS=-Wall -Wextra -Werror -ffreestanding -nostdlib -I./src \
 	-static-libgcc -lgcc -Wno-array-bounds -Wno-unused-parameter
-KERNEL_ASFLAGS=-O2 -g
 # The name of the linker script used to build the kernel image.
 LINKER_SCRIPT=linker.ld
 
@@ -26,17 +25,23 @@ ISO_DIR=$(BUILD_DIR)/iso
 SRC_DIR=./src
 
 # Find all the source files recursively in the $(SRC_DIR) directory.
-ASM_FILES:=$(shell find $(SRC_DIR) -type f -name "*.s")
 ASM_GCC_FILES:=$(shell find $(SRC_DIR) -type f -name "*.S")
 SOURCE_FILES:=$(shell find $(SRC_DIR) -type f -name "*.c")
 HEADER_FILES:=$(shell find $(SRC_DIR) -type f -name "*.h")
 # This is the set of object files that will be used for the compilation. Note
 # that the object files should be located in the $(BUILD_DIR), thus the
 # substitution.
-_OBJ_FILES:=$(SOURCE_FILES:.c=.o) $(ASM_FILES:.s=.o) $(ASM_GCC_FILES:.S=.o)
+_OBJ_FILES:=$(SOURCE_FILES:.c=.o) $(ASM_GCC_FILES:.S=.o)
 OBJ_FILES:=$(patsubst $(SRC_DIR)/%,$(BUILD_DIR)/%,$(_OBJ_FILES))
 
-.PHONY: clean build
+.PHONY: clean build release debug
+all: debug
+
+release: CONT_RULE = release_in_cont
+release: build
+
+debug: CONT_RULE = debug_in_cont
+debug: build
 # This is the main rule. This rule will start the builder docker container that
 # will build the kernel for us.
 build:
@@ -44,10 +49,19 @@ build:
 	@# debug info in the kernel image are correct. (Eg. the paths for the source
 	@# files are the same).
 	@# We use the -t to get colored output.
-	sudo docker run -v $(PWD):$(PWD) -t kernel_builder make -C $(PWD) -j $(NJOBS) build_in_cont
+	@# The -r flag is of outmost importance: it turns out that not using -r
+	@# (i.e. using implicit rules) the build will fail on .test.S files as it
+	@# will not follow the .S rule below. This could be a `make` bug.
+	sudo docker run -v $(PWD):$(PWD) -t kernel_builder make -r -C $(PWD) -j $(NJOBS) $(CONT_RULE)
 	@# Since the user in the docker container is root, we need to change the
 	@# owner once the build is complete.
 	sudo chown $(USER):$(USER) $(BUILD_DIR) -R
+
+release_in_cont: KERNEL_CFLAGS += -O2
+release_in_cont: build_in_cont
+
+debug_in_cont: KERNEL_CFLAGS += -O0 -g
+debug_in_cont: build_in_cont
 
 # This rule is to be used *within* the builder docker container. It performs the
 # following:
@@ -72,13 +86,15 @@ $(BUILD_DIR)/$(KERNEL_LIB_NAME): $(OBJ_FILES)
 	@# test functions.
 	ar rcs $@ $^
 
-# Given a .o under the $(BUILD_DIR), it should depend on the *.c, or *.s, in the
-# $(SRC_DIR).
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c $(HEADER_FILES)
+# This rule is for .c files that have an associated .test file. This is because
+# the .test is included in the .c and therefore any change to the .test should
+# trigger a recompilation of the .c file.
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c $(SRC_DIR)/%.test $(HEADER_FILES)
 	$(CC) -o $@ -c $< $(KERNEL_CFLAGS)
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.s
-	$(AS) -o $@ $< $(KERNEL_ASFLAGS)
+# Rule for .c file that do not have an associated .test file.
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c $(HEADER_FILES)
+	$(CC) -o $@ -c $< $(KERNEL_CFLAGS)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.S
 	$(CC) -o $@ -c $< $(KERNEL_CFLAGS)
