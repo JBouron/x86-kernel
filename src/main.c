@@ -36,6 +36,7 @@
 #include <memdisk.h>
 #include <ustar.h>
 #include <vfs.h>
+#include <elf.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -69,6 +70,7 @@ void test_kernel(void) {
     memdisk_test();
     ustar_test();
     vfs_test();
+    elf_test();
 
     print_test_summary();
 }
@@ -131,6 +133,10 @@ void kernel_main(struct multiboot_info const * const multiboot_info) {
 
     // Wake up Application Processors.
     init_aps();
+
+    // Initialize the Virtual File System. This must be done before running the
+    // tests.
+    init_vfs();
 
     // Run tests.
     test_kernel();
