@@ -15,6 +15,7 @@ static void *SYSCALL_MAP[] = {
     [NR_SYSCALL_READ]     =   (void*)do_read,
     [NR_SYSCALL_GETPID]   =   (void*)do_get_pid,
     [NR_SYSCALL_WRITE]    =   (void*)do_write,
+    [NR_SYSCALL_KLOG]     =   (void*)do_klog,
 };
 
 // The number of entries in the SYSCALL_MAP.
@@ -74,10 +75,6 @@ static reg_t syscall_dispatch(struct syscall_args const * const args) {
 // The interrupt handler for syscalls.
 // @param frame: The interrupt frame of this syscall.
 static void syscall_int_handler(struct interrupt_frame const * const frame) {
-    uint8_t const cpu = this_cpu_var(cpu_id);
-    uint32_t const syscall_nr = frame->registers->eax;
-    LOG("[%u] Syscall %u received\n", cpu, syscall_nr);
-
     // Prepare the struct syscall_args.
     struct syscall_args args = {
         .eax = frame->registers->eax,
@@ -184,6 +181,14 @@ size_t do_write(fd_t const fd, uint8_t const * const buf, size_t const len) {
 pid_t do_get_pid(void) {
     struct proc * const curr = this_cpu_var(curr_proc);
     return curr->pid;
+}
+
+void do_klog(char const * const message) {
+    struct proc * const curr = this_cpu_var(curr_proc);
+    uint64_t const tsc = read_tsc();
+    pid_t const pid = curr->pid;
+    uint8_t const cpu = this_cpu_var(cpu_id);
+    LOG("[%X | cpu %u | pid %u] %s", tsc, cpu, pid, message);
 }
 
 #include <syscalls.test>

@@ -23,6 +23,7 @@
 #define NR_SYSCALL_READ     0x3
 #define NR_SYSCALL_GETPID   0x4
 #define NR_SYSCALL_WRITE    0x5
+#define NR_SYSCALL_KLOG     0x6
 
 // This struct represents the arguments passed to a syscall in order. This is
 // the same order as in Linux for 32-bit kernels. However, the similarity ends
@@ -68,6 +69,8 @@ size_t do_write(fd_t const fd, uint8_t const * const buf, size_t const len);
 
 // Return the PID of the current process.
 pid_t do_get_pid(void);
+
+void do_klog(char const * const message);
 
 // Execute syscall related tests.
 void syscall_test(void);
