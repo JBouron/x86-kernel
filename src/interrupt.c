@@ -6,6 +6,8 @@
 #include <lock.h>
 #include <percpu.h>
 #include <ipm.h>
+#include <proc.h>
+#include <sched.h>
 
 // Interrupt gate descriptor.
 union interrupt_descriptor_t {
@@ -76,10 +78,20 @@ DECLARE_PER_CPU(int_callback_t, local_callbacks[IDT_SIZE]);
 // Get the address/offset of the interrupt handler for a given vector.
 extern uint32_t get_interrupt_handler(uint8_t const vector);
 
+// The number of nested interrupts on the cpu. This variable _MUST_ be updated
+// with interrupt disabled to avoid race conditions.
+DECLARE_PER_CPU(uint32_t, interrupt_nest_level);
+
 // The generic interrupt handler. Eventually all the interrupts call the generic
 // handler.
 // @param frame: Information about the interrupt.
-void generic_interrupt_handler(struct interrupt_frame const * const frame) {
+// @return: true if this interrupt was a nested interrupt, false otherwise.
+bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
+    ASSERT(!interrupts_enabled());
+    this_cpu_var(interrupt_nest_level) ++;
+
+    bool const is_nested = this_cpu_var(interrupt_nest_level) > 1;
+
     uint8_t const vector = frame->vector;
     // A sanity check that the low level interrupt handler did not send garbage
     // to us.
@@ -130,6 +142,14 @@ void generic_interrupt_handler(struct interrupt_frame const * const frame) {
         // This was done already for IPM interrupts.
         lapic_eoi();
     }
+
+    // Be safe and disable interrupts here. We are on our way to return to the
+    // interrupted context or do a context switch.
+    cpu_set_interrupt_flag(false);
+
+    this_cpu_var(interrupt_nest_level) --;
+    
+    return is_nested;
 }
 
 // Disable the legacy Programable Interrupt Controller. This is important as it

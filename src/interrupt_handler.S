@@ -131,16 +131,20 @@ do_fixup_priv_change_end:
     push    %esp 
     // Call the generic_interrupt_handler.
     call generic_interrupt_handler
-    
-    // Be safe and disable interrupts here. We are on our way to return to the
-    // interrupted context or do a context switch.
-    cli
 
     // The interrupt has been dealt with. We can now restore the registers and
     // return from the interrupt.
     // Get rid of the struct interrupt_frame and the pointer in the stack.
     add     $0x18, %esp
 
+    // Note: EAX = return val of generic_interrupt_handler = interrupt nested ?
+    // If the current interrupt was a nested interrupt then we can skip the
+    // scheduler. The rationale is that the saved registers belong to the
+    // interrupted kernel context, not the current process.
+    test    %eax, %eax
+    jnz      skip_sched
+
+    // Scheduler not running on the current cpu, skip.
     call    sched_running_on_cpu
     test    %eax, %eax
     jz      skip_sched
