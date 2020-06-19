@@ -113,7 +113,20 @@ static struct group * create_group(size_t const size) {
     for (size_t i = 0; i < size; ++i) {
         frames[i] = alloc_frame();
     }
+
+    // Modifying kernel mappings requires using the kernel address space.
+    // FIXME: This can be avoided once this rule is removed.
+    struct addr_space * const curr_addr_space = get_curr_addr_space();
+    struct addr_space * const kernel_addr_space = get_kernel_addr_space();
+    bool const change_addr_space = curr_addr_space != kernel_addr_space;
+
+    if (change_addr_space) {
+        switch_to_addr_space(kernel_addr_space);
+    }
     void * const pages = paging_map_frames_above(low, frames, size, VM_WRITE);
+    if (change_addr_space) {
+        switch_to_addr_space(curr_addr_space);
+    }
 
     // Zero the pages to avoid random garbage.
     memzero(pages, size * PAGE_SIZE);
@@ -160,7 +173,20 @@ static void free_group(struct group * const group) {
     // Unmap the pages used by the group.
     void * const addr = (void*)group;
     uint32_t const len = group->num_pages * PAGE_SIZE;
+
+    // Modifying kernel mappings requires using the kernel address space.
+    // FIXME: This can be avoided once this rule is removed.
+    struct addr_space * const curr_addr_space = get_curr_addr_space();
+    struct addr_space * const kernel_addr_space = get_kernel_addr_space();
+    bool const change_addr_space = curr_addr_space != kernel_addr_space;
+
+    if (change_addr_space) {
+        switch_to_addr_space(kernel_addr_space);
+    }
     paging_unmap_and_free_frames(addr, len);
+    if (change_addr_space) {
+        switch_to_addr_space(curr_addr_space);
+    }
 }
 
 // Get the address of the data for a given node.

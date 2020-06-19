@@ -130,3 +130,19 @@ static inline bool is_4kib_aligned(void const * const p) {
 // @param ptr: The address to get its page address from.
 // @return: A 4KiB aligned address corresponding to the page containing `ptr`.
 void * get_page_addr(void const * const ptr);
+
+// Test if an address is a kernel address.
+// @param addr: The address to test.
+// @return: true if `addr` is a kernel address (that is in the range
+// KERNEL_PHY_OFFSET to 0xFFFFFFFF), false otherwise.
+static inline bool is_kernel_addr(void const * const addr) {
+    return (void*)KERNEL_PHY_OFFSET <= addr;
+}
+
+// Test if an address is a userspace address.
+// @param addr: The address to test.
+// @return: true if `addr` is a userspace address (that is in the range
+// 0x00000000 to KERNEL_PHY_OFFSET-1), false otherwise.
+static inline bool is_user_addr(void const * const addr) {
+    return !is_kernel_addr(addr);
+}

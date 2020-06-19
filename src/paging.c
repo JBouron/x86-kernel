@@ -277,6 +277,13 @@ static void map_page_in(struct addr_space * const addr_space,
     ASSERT(is_4kib_aligned(paddr));
     ASSERT(is_4kib_aligned(vaddr));
 
+    // Since the address space of processes are sharing the kernel address, if
+    // one modify kernel mappings with any address space then the lock will not
+    // protect against race condition. Hence we enforce the rule: Modifying a
+    // kernel mapping can only be done in the kernel address space, not from a
+    // process' address space.
+    ASSERT(addr_space == get_kernel_addr_space() || (is_user_addr(vaddr)));
+
     struct page_dir * const page_dir = get_page_dir(addr_space);
 
     if (cpu_paging_enabled() && !is_higher_half(page_dir)) {
@@ -489,6 +496,13 @@ static void unmap_page_in(struct addr_space * const addr_space,
                           void const * const vaddr,
                           bool const free_phy_frame) {
     ASSERT(is_4kib_aligned(vaddr));
+    // Since the address space of processes are sharing the kernel address, if
+    // one modify kernel mappings with any address space then the lock will not
+    // protect against race condition. Hence we enforce the rule: Modifying a
+    // kernel mapping can only be done in the kernel address space, not from a
+    // process' address space.
+    ASSERT(addr_space == get_kernel_addr_space() || (is_user_addr(vaddr)));
+
     struct page_dir * const page_dir = get_page_dir(addr_space);
 
     uint32_t const pde_idx = pde_index(vaddr);
