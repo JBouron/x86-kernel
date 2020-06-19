@@ -189,8 +189,8 @@ static bool open_syscall_test_success(struct proc * const proc) {
     // The first entry should be for "/open_syscall_test/root/file0".
     // Re-use the TEST_ASSERT() macro here even though this is not a test.
     TEST_ASSERT(!entry->file_pointer);
-    // The path field of the file contains the path relative to the mount point.
-    TEST_ASSERT(streq(file->path, "root/file0"));
+    TEST_ASSERT(streq(file->fs_relative_path, "root/file0"));
+    TEST_ASSERT(streq(file->abs_path, "/open_syscall_test/root/file0"));
     return true;
 }
 

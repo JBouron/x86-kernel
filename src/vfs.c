@@ -160,8 +160,12 @@ struct file *vfs_open(pathname_t const filename) {
         PANIC("Cannot find mount point for file %s\n", filename);
     }
 
-    pathname_t const rel_name = filename + strlen(mount->mount_point);
-    return mount->fs->ops->open_file(mount->disk, rel_name);
+    pathname_t const rel_path = filename + strlen(mount->mount_point);
+    struct file * const file = mount->fs->ops->open_file(mount->disk, rel_path);
+    file->abs_path = filename;
+    file->fs_relative_path = rel_path;
+    file->disk = mount->disk;
+    return file;
 }
 
 void vfs_close(struct file * const file) {

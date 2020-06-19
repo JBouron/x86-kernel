@@ -736,7 +736,7 @@ static bool ustar_open_file_test(void) {
         struct file * const file = ustar_open_file(disk, filenames[i]);
         TEST_ASSERT(file != NO_FILE);
 
-        TEST_ASSERT(streq(file->path, filenames[i]));
+        TEST_ASSERT(streq(file->fs_relative_path, filenames[i]));
         TEST_ASSERT(file->disk == disk);
         TEST_ASSERT(file->ops == &ustar_file_ops);
 

@@ -222,7 +222,7 @@ static size_t ustar_do_file_update(struct file * const file,
     }
 
     if (res != update_len) {
-        WARN("Couldn't read entire buffer from %s\n", file->path);
+        WARN("Couldn't read entire buffer from %s\n", file->abs_path);
     }
     return res;
 }
@@ -305,7 +305,7 @@ static struct file *ustar_open_file(struct disk * const disk,
     }
 
     struct file * const file = kmalloc(sizeof(*file));
-    file->path = path;
+    file->fs_relative_path = path;
     file->disk = disk;
     file->ops = &ustar_file_ops;
 

@@ -178,7 +178,8 @@ struct file_ops const _file_ops = {
 };
 
 struct file ELF_FILE = {
-    .path = "Somewhere",
+    .abs_path = "Somewhere",
+    .fs_relative_path = "Somewhere",
     .disk = NULL,
     .ops = &_file_ops,
     .fs_private = NULL,

@@ -37,8 +37,13 @@ struct file_ops {
 // is opened by multiple processes then there are multiple struct file for the
 // same physical file.
 struct file {
-    // The full path of this file.
-    char const * path;
+    // The absolute path of this file.
+    char const * abs_path;
+    // The path of this file relative to the fs it is stored on. That is, if the
+    // absolute path is /mydir/subdir/a and the fs is mounted at /mydir/, then
+    // this field would be subdir/a. Note that there is no '/' at the begining
+    // of the path.
+    char const * fs_relative_path;
     // The disk from which this file has been opened.
     struct disk * disk;
     // The file operations as defined by the filesystem from which this file was
