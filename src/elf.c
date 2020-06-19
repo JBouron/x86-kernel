@@ -354,6 +354,8 @@ void load_elf_binary(struct file * const file, struct proc * const proc) {
 
     // Set the EIP to the entry point of the program.
     proc->registers_save.eip = (reg_t)header.entry;
+
+    proc->state_flags &= ~PROC_WAITING_EIP;
 }
 
 #include <elf.test>
