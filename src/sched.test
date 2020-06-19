@@ -60,7 +60,7 @@ static void test_sched_update_curr(uint8_t const cpu) {
 }
 
 static void test_sched_tick(uint8_t const cpu) {
-    LOG("[%u] Tick in test scheduler.\n");
+    LOG("[%u] Tick in test scheduler.\n", cpu);
     ASSERT(cpu == test_cpu);
     // No-op
 }

@@ -78,10 +78,6 @@ DECLARE_PER_CPU(int_callback_t, local_callbacks[IDT_SIZE]);
 // Get the address/offset of the interrupt handler for a given vector.
 extern uint32_t get_interrupt_handler(uint8_t const vector);
 
-// The number of nested interrupts on the cpu. This variable _MUST_ be updated
-// with interrupt disabled to avoid race conditions.
-DECLARE_PER_CPU(uint32_t, interrupt_nest_level);
-
 // The generic interrupt handler. Eventually all the interrupts call the generic
 // handler.
 // @param frame: Information about the interrupt.

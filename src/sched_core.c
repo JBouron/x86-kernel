@@ -69,7 +69,18 @@ static void sched_tick(struct interrupt_frame const * const frame) {
 }
 
 void sched_start(void) {
+    cpu_set_interrupt_flag(false);
+
+    // We need to reset the interrupt_nest_level here. The reason is that we
+    // might already be inside an interrupt handler (in case the scheduler is
+    // started using a remote call) and therefore interrupt_nest_level >= 1. If
+    // we don't reset it, the first interrupt received by one of the processes
+    // will wrongly think it is in a nested interrupt and will skip the
+    // scheduler.
+    this_cpu_var(interrupt_nest_level) = 0;
+
     // Start the scheduler timer to fire every SCHED_TICK_PERIOD ms.
+    // This will enable interrupts.
     lapic_start_timer(SCHED_TICK_PERIOD, true, SCHED_TICK_VECTOR, sched_tick);
 
     this_cpu_var(sched_running) = true;
