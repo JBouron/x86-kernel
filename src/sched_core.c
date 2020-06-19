@@ -22,7 +22,7 @@ DECLARE_PER_CPU(bool, resched_flag) = false;
 #define SCHED_TICK_VECTOR   34
 
 // The period between two scheduler ticks in ms.
-#define SCHED_TICK_PERIOD   5
+#define SCHED_TICK_PERIOD   4
 
 // Each cpu has an idle kernel process which only goal is to put the current cpu
 // in idle. This process is run any time there is no other process to run on a
@@ -62,6 +62,9 @@ bool sched_running_on_cpu(void) {
 static void sched_tick(struct interrupt_frame const * const frame) {
     ASSERT(SCHEDULER);
     uint8_t const this_cpu = this_cpu_var(cpu_id);
+    if (!cpu_is_idle(this_cpu)) {
+        LOG("[%u] Sched tick.\n", this_cpu);
+    }
     SCHEDULER->tick(this_cpu);
 }
 
@@ -162,7 +165,7 @@ void sched_run_next_proc(struct register_save_area const * const regs) {
     } else {
         // No resched requested, resume execution of the current process.
         next = this_cpu_var(curr_proc);
-        ASSERT(!proc_is_dead(next));
+        ASSERT(proc_is_runnable(next));
 
         // FIXME: Despite resuming the current process, we still need to save
         // the registers into the struct proc. This is because we are using
@@ -175,6 +178,7 @@ void sched_run_next_proc(struct register_save_area const * const regs) {
         }
     }
 
+    ASSERT(proc_is_runnable(next));
     switch_to_proc(next);
 }
 
