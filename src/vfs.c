@@ -169,17 +169,13 @@ struct file *vfs_open(pathname_t const filename) {
 }
 
 void vfs_close(struct file * const file) {
-    // FIXME: There is no way to get the mount from an already mounted file,
-    // this is because the path field in struct file contains the path relative
-    // to the file system, not the absolute path. Hence re-detect the fs on the
-    // file's disk to be able to call the right close_file() function.
-    struct fs const * const fs = get_fs_for_disk(file->disk);
-    ASSERT(fs);
+    struct mount const * const mount = find_mount_for_file(file->abs_path);
+    ASSERT(mount);
 
     // For now, the FS are responsible to allocate and de-allocate the struct
     // file* in open_file() and close_file(). Hence, nothing to do after the
     // call to close_file().
-    fs->ops->close_file(file);
+    mount->fs->ops->close_file(file);
 }
 
 size_t vfs_read(struct file * const file,
