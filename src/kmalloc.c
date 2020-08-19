@@ -588,9 +588,95 @@ void kfree(void * const addr) {
     spinlock_unlock(&KMALLOC_LOCK);
 }
 
+#ifdef KMALLOC_DEBUG
+#include <string.h>
+
+struct kmalloc_debug_info {
+    char const * filename;
+    uint32_t line;
+    uint32_t cpu;
+};
+
+void * kmalloc_debug_wrapper(char const * const filename,
+                             uint32_t const line_number,
+                             size_t const size) {
+    // The number of additional bytes to request in order to store debug
+    // information.
+    size_t const excess = sizeof(uint32_t) + sizeof(struct kmalloc_debug_info);
+
+    void * const addr = kmalloc(size + excess);
+    *(uint32_t*)(addr) = size;
+
+    // The address to return to the requestor.
+    void * const ret_addr = addr + sizeof(size);
+
+    struct kmalloc_debug_info * const info = ret_addr + size;
+    info->filename = filename;
+    info->line = line_number;
+    uint8_t const cpu = percpu_initialized() ? this_cpu_var(cpu_id) : 0;
+    info->cpu = cpu;
+
+    return ret_addr;
+}
+
+void kfree_debug_wrapper(char const * const filename,
+                         uint32_t const line_number,
+                         void * const addr) {
+    // For now the filename and line number are not useful when freeing memory.
+    kfree(addr - sizeof(uint32_t));
+}
+
+// List all the memory regions currently allocated.
+static void list_allocations(void) {
+    ASSERT(spinlock_is_held(&KMALLOC_LOCK));
+
+    struct group *group;
+    list_for_each_entry(group, &GROUP_LIST, group_list) {
+        void * const start_addr = (void*)group + sizeof(*group);
+        void * const end_addr = ((void*)group) + group->num_pages * PAGE_SIZE;
+
+        // Groups are always multiples of pages.
+        ASSERT(is_4kib_aligned(end_addr));
+
+        // Traverse the nodes of this group. We could optimize this by only
+        // looking between the free node using the free list but this is for
+        // debugging only.
+        void const * ptr = start_addr;
+        while (ptr < end_addr) {
+            struct node const * const node = ptr;            
+            if (node->header.tag == ALLOCATED) {
+                void const * const data = node_data_start((struct node*)node);
+                uint32_t const orig_size = *(uint32_t*)data;
+
+                // The start address of the actual data, that is after the orig
+                // size DWORD.
+                void const * const real_data = data + sizeof(orig_size);
+
+                struct kmalloc_debug_info const * const info =
+                    real_data + orig_size;
+
+                LOG("[KMD] addr = %p, size = %x, cpu = %d, loc = %s:%d\n",
+                    real_data,
+                    orig_size,
+                    info->cpu,
+                    info->filename,
+                    info->line);
+            }
+            ASSERT(MIN_SIZE <= node->header.size);
+            ptr = node_data_start((struct node*)node) + node->header.size;
+        }
+    }
+
+}
+#endif
+
 // Compute the number of total bytes currently allocated through kmalloc.
 size_t kmalloc_total_allocated(void) {
     spinlock_lock(&KMALLOC_LOCK);
+
+#ifdef KMALLOC_DEBUG
+    list_allocations();
+#endif
 
     size_t tot = 0;
     struct group *group;

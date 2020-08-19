@@ -60,7 +60,7 @@ build:
 release_in_cont: KERNEL_CFLAGS += -O2
 release_in_cont: build_in_cont
 
-debug_in_cont: KERNEL_CFLAGS += -O0 -g
+debug_in_cont: KERNEL_CFLAGS += -O0 -g -DKMALLOC_DEBUG
 debug_in_cont: build_in_cont
 
 # This rule is to be used *within* the builder docker container. It performs the
