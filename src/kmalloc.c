@@ -591,13 +591,22 @@ void kfree(void * const addr) {
 #ifdef KMALLOC_DEBUG
 #include <string.h>
 
+// This struct contains all the debugging information appended to each dynamic
+// allocation.
 struct kmalloc_debug_info {
+    // The function in which the memory was allocated.
+    char const * func_name;
+    // The file containing the call to kmalloc().
     char const * filename;
+    // The line in the file above containing the kmalloc() call.
     uint32_t line;
-    uint32_t cpu;
+    // The cpu requesting this allocation. If percpu variable is not yet enabled
+    // this field is 0.
+    uint8_t cpu;
 };
 
-void * kmalloc_debug_wrapper(char const * const filename,
+void * kmalloc_debug_wrapper(char const * const func_name,
+                             char const * const filename,
                              uint32_t const line_number,
                              size_t const size) {
     // The number of additional bytes to request in order to store debug
@@ -611,6 +620,7 @@ void * kmalloc_debug_wrapper(char const * const filename,
     void * const ret_addr = addr + sizeof(size);
 
     struct kmalloc_debug_info * const info = ret_addr + size;
+    info->func_name = func_name;
     info->filename = filename;
     info->line = line_number;
     uint8_t const cpu = percpu_initialized() ? this_cpu_var(cpu_id) : 0;
@@ -619,7 +629,8 @@ void * kmalloc_debug_wrapper(char const * const filename,
     return ret_addr;
 }
 
-void kfree_debug_wrapper(char const * const filename,
+void kfree_debug_wrapper(char const * const func_name,
+                         char const * const filename,
                          uint32_t const line_number,
                          void * const addr) {
     // For now the filename and line number are not useful when freeing memory.
@@ -655,10 +666,11 @@ static void list_allocations(void) {
                 struct kmalloc_debug_info const * const info =
                     real_data + orig_size;
 
-                LOG("[KMD] addr = %p, size = %x, cpu = %d, loc = %s:%d\n",
+                LOG("[KMD] addr = %p, size = %x, cpu = %d, loc = %s @ %s:%d\n",
                     real_data,
                     orig_size,
                     info->cpu,
+                    info->func_name,
                     info->filename,
                     info->line);
             }
