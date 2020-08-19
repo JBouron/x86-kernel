@@ -73,5 +73,9 @@ void kfree(void * const addr);
 // Compute the number of total bytes currently allocated through kmalloc.
 size_t kmalloc_total_allocated(void);
 
+// Log all the currently allocated memory regions. If debug information is
+// present, log them as well.
+void kmalloc_list_allocations(void);
+
 // Execute memory allocation tests.
 void kmalloc_test(void);

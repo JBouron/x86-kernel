@@ -588,6 +588,20 @@ void kfree(void * const addr) {
     spinlock_unlock(&KMALLOC_LOCK);
 }
 
+// Compute the number of total bytes currently allocated through kmalloc.
+size_t kmalloc_total_allocated(void) {
+    spinlock_lock(&KMALLOC_LOCK);
+
+    size_t tot = 0;
+    struct group *group;
+    list_for_each_entry(group, &GROUP_LIST, group_list) {
+        tot += group->size - group->free;
+    }
+
+    spinlock_unlock(&KMALLOC_LOCK);
+    return tot;
+}
+
 #ifdef KMALLOC_DEBUG
 #include <string.h>
 
@@ -637,9 +651,40 @@ void kfree_debug_wrapper(char const * const func_name,
     kfree(addr - sizeof(uint32_t));
 }
 
-// List all the memory regions currently allocated.
-static void list_allocations(void) {
-    ASSERT(spinlock_is_held(&KMALLOC_LOCK));
+// Log a kmalloc allocation. This version will log all debug informations.
+// @param node: The node to be logged.
+static void log_allocation(struct node const * const node) {
+    void const * const data = node_data_start((struct node*)node);
+    uint32_t const orig_size = *(uint32_t*)data;
+
+    // The start address of the actual data, that is after the orig
+    // size DWORD.
+    void const * const real_data = data + sizeof(orig_size);
+
+    struct kmalloc_debug_info const * const info =
+        real_data + orig_size;
+
+    LOG("[KMD] addr = %p, size = %x, cpu = %d, loc = %s @ %s:%d\n",
+        real_data,
+        orig_size,
+        info->cpu,
+        info->func_name,
+        info->filename,
+        info->line);
+}
+
+#else
+// Log a kmalloc allocation. This can only log addresses and sizes. Enable
+// KMALLOC_DEBUG at compilation time for more info.
+// @param node: The node to be logged.
+static void log_allocation(struct node const * const node) {
+    void const * const addr = node_data_start((struct node*)node);
+    LOG("[KMD] addr = %p, size = %x\n", addr, node->header.size);
+}
+#endif
+
+void kmalloc_list_allocations(void) {
+    spinlock_lock(&KMALLOC_LOCK);
 
     struct group *group;
     list_for_each_entry(group, &GROUP_LIST, group_list) {
@@ -656,48 +701,13 @@ static void list_allocations(void) {
         while (ptr < end_addr) {
             struct node const * const node = ptr;            
             if (node->header.tag == ALLOCATED) {
-                void const * const data = node_data_start((struct node*)node);
-                uint32_t const orig_size = *(uint32_t*)data;
-
-                // The start address of the actual data, that is after the orig
-                // size DWORD.
-                void const * const real_data = data + sizeof(orig_size);
-
-                struct kmalloc_debug_info const * const info =
-                    real_data + orig_size;
-
-                LOG("[KMD] addr = %p, size = %x, cpu = %d, loc = %s @ %s:%d\n",
-                    real_data,
-                    orig_size,
-                    info->cpu,
-                    info->func_name,
-                    info->filename,
-                    info->line);
+                log_allocation(node);
             }
             ASSERT(MIN_SIZE <= node->header.size);
             ptr = node_data_start((struct node*)node) + node->header.size;
         }
     }
-
-}
-#endif
-
-// Compute the number of total bytes currently allocated through kmalloc.
-size_t kmalloc_total_allocated(void) {
-    spinlock_lock(&KMALLOC_LOCK);
-
-#ifdef KMALLOC_DEBUG
-    list_allocations();
-#endif
-
-    size_t tot = 0;
-    struct group *group;
-    list_for_each_entry(group, &GROUP_LIST, group_list) {
-        tot += group->size - group->free;
-    }
-
     spinlock_unlock(&KMALLOC_LOCK);
-    return tot;
 }
 
 #include <kmalloc.test>
