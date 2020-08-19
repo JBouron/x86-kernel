@@ -29,5 +29,13 @@ void memzero(void * const to, size_t const len);
 // false otherwise.
 bool memeq(void const * const s1, void const * const s2, size_t const size);
 
+// Duplicate a memory buffer into the heap.
+// @param buf: The buffer to be duplicated.
+// @param len: The length of the buffer in bytes.
+// @return: A freshly allocated buffer in the kernel's heap containing the same
+// data as buf.
+// Note: This function uses the kernel's dynamic memory allocator.
+void *memdup(void const * const buf, size_t const len);
+
 // Execute tests of the above functions.
 void mem_test(void);

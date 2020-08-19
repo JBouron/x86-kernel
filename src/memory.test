@@ -60,10 +60,23 @@ static bool memeq_test(void) {
     return true;
 }
 
+static bool memdup_test(void) {
+    size_t const len = 4;
+    uint8_t const buf[] = {16, 12, 1, 11};
+    uint8_t *dup = memdup(buf, len);
+    TEST_ASSERT(dup != buf);
+    for (uint32_t i = 0; i < len; ++i) {
+        TEST_ASSERT(dup[i] == buf[i]);
+    }
+    kfree(dup);
+    return true;
+}
+
 void mem_test(void) {
     // Execute all tests.
     TEST_FWK_RUN(memcpy_test);
     TEST_FWK_RUN(memset_test);
     TEST_FWK_RUN(memzero_test);
     TEST_FWK_RUN(memeq_test);
+    TEST_FWK_RUN(memdup_test);
 }
