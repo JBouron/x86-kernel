@@ -4,6 +4,7 @@
 #include <acpi.h>
 #include <debug.h>
 #include <kmalloc.h>
+#include <memory.h>
 
 // This structure contains all the state necesasry to execute a remote function.
 // This represents the payload of an IPM message with tag REMOTE_CALL.
@@ -18,6 +19,13 @@ struct remote_call_data {
     // A ref count of this instance. If the ref_counts become 0 then it is the
     // responsibility of the core that updated it to 0 to free this structure.
     atomic_t ref_count;
+    // This bit indicates if the sender of the remote call is waiting for the
+    // call to be completed by all dest cpus.
+    bool is_synchronous;
+    // The number of cpus that completed this call. This is only used if the
+    // call is synchronous. It should be incremented by each cpu once the call
+    // is completed.
+    atomic_t completed_count;
 };
 
 // Lock the message queue of the current CPU.
@@ -44,21 +52,57 @@ static void handle_remote_call(struct remote_call_data * const call) {
         PANIC("Try to exec with ref_count = 0");
     }
 
+    // For non-synchronous calls (i.e. calls for whom the sender is not waiting
+    // for completion), copy the the struct remote_call_data onto the stack and
+    // dec the ref_count (+ free if needed) in the original remote_call_data.
+    // This is done to avoid memory leaks if the function call never returns
+    // (this is quite often the case in tests).
+    // The assumption here is that synchronous calls are always returning.
+    // Note: For the synchronous case, we NEED to use the original
+    // remote_call_data, this is due to the fact that the sender is waiting on
+    // the completed_count atomic in this struct and hence a copy would not
+    // work.
+
+    struct remote_call_data call_cpy;
+
+    // Pointer to the actual remote_call_data to be used in the rest of this
+    // function.
+    struct remote_call_data * call_data;
+
+    if (!call->is_synchronous) {
+        memcpy(&call_cpy, call, sizeof(call_cpy));
+        call_data = &call_cpy;
+        if (atomic_dec_and_test(&call->ref_count)) {
+            // This is the job of this cpu to free the remote_call_data_t.
+            kfree(call);
+        }
+    } else {
+        call_data = call;
+    }
+
     // Enable interrupts when running the function. This is necessary to avoid
     // deadlocks if the function is looping and a critical message comes in (TLB
     // for instance as the sender will wait for our ack).
     bool const irqs = interrupts_enabled();
     cpu_set_interrupt_flag(true);
-    call->func(call->arg);
+    call_data->func(call_data->arg);
     cpu_set_interrupt_flag(irqs);
 
-    if (atomic_dec_and_test(&call->ref_count)) {
-        // This is the job of this cpu to free the remote_call_data_t.
-        kfree(call);
+    if (call_data->is_synchronous) {
+        // In the synchronous case we don't use the copy on the stack. This is
+        // because we knew the function would return.
+        ASSERT(call_data == call);
+
+        // Update ref count and potentially free the struct. This must be done
+        // BEFORE updating the completed_count. Additionaly we know for sure
+        // that the ref_count cannot reach 0 here, because in the synchronous
+        // case it is the responsibility of the sending cpu to free the struct
+        // remote_call_data.
+        ASSERT(!atomic_dec_and_test(&call->ref_count));
+
+        // Notify the completion.
+        atomic_inc(&call_data->completed_count);
     }
-    // WARNING: Even if we did not free the remote_call_data_t ourselves, we
-    // cannot use `call` anymore, as it might have been freed by somebody else
-    // at this point.
 }
 
 // Process any message in this cpu's message queue.
@@ -70,46 +114,46 @@ static void process_messages(void) {
     lock_message_queue();
     while (list_size(head)) {
         // Get the first message in the queue and remove it.
-        struct ipm_message * const msg =
+        struct ipm_message * const first =
             list_first_entry(head, struct ipm_message, msg_queue);
-        struct list_node * const node = &msg->msg_queue;
+        struct list_node * const node = &first->msg_queue;
         list_del(node);
 
         // We can now unlock the queue so that remote cpus can still send us
         // message while we are processing this one.
         unlock_message_queue();
 
-        // Check if we need to dealloc this message _before_ processing it. This
-        // is because once a message with receiver_dealloc == false is processed
-        // the pointer on the message might not be valid anymore (ex:
-        // TLB_SHOOTDOWN message: The sender will have moved on after the
-        // atomic_dec().)
-        bool const dealloc_message = msg->receiver_dealloc;
+        // Copy the message structure onto the stack, and free the original
+        // message (if required) before processing it. This is to avoid memory
+        // leak if if this message is a remote call for a function that will
+        // never return. We could only do so if the message is a REMOTE_CALL but
+        // the complexity is not worth the savings.
+        struct ipm_message msg;
+        memcpy(&msg, first, sizeof(msg));
+        if (first->receiver_dealloc) {
+            kfree(first);
+        }
 
-        switch (msg->tag) {
+        switch (msg.tag) {
             case __TEST : {
                 if (TEST_TAG_CALLBACK) {
-                    TEST_TAG_CALLBACK(msg);
+                    TEST_TAG_CALLBACK(&msg);
                 }
                 break;
             }
             case REMOTE_CALL : {
-                struct remote_call_data * const call = msg->data;
+                struct remote_call_data * const call = msg.data;
                 handle_remote_call(call);
                 break;
             }
             case TLB_SHOOTDOWN : {
                 // See exec_tlb_shootdown() for more information about how
                 // TLB-shootdowns are implemented in this kernel.
-                atomic_t * const wait = (atomic_t*)msg->data;
+                atomic_t * const wait = (atomic_t*)msg.data;
                 cpu_invalidate_tlb();
                 atomic_dec(wait);
                 break;
             }
-        }
-
-        if (dealloc_message) {
-            kfree(msg);
         }
 
         // Re-acquire the lock before the next iteration since the condition
@@ -258,13 +302,16 @@ void exec_remote_call(uint8_t const cpu,
     rem_data->func = func;
     rem_data->arg = arg;
     atomic_init(&rem_data->ref_count, ref_count_initial_val);
+    rem_data->is_synchronous = wait;
+    atomic_init(&rem_data->completed_count, 0);
 
     send_ipm(cpu, REMOTE_CALL, rem_data, sizeof(rem_data));
 
     if (wait) {
-        while (atomic_read(&rem_data->ref_count) != 1) {
+        while (atomic_read(&rem_data->completed_count) != 1) {
             cpu_pause();
         }
+        ASSERT(atomic_read(&rem_data->ref_count) == 1);
         kfree(rem_data);
     }
 }
@@ -281,13 +328,17 @@ void broadcast_remote_call(void (*func)(void*),
     rem_data->func = func;
     rem_data->arg = arg;
     atomic_init(&rem_data->ref_count, ref_count_initial_val);
+    rem_data->is_synchronous = wait;
+    atomic_init(&rem_data->completed_count, 0);
 
     broadcast_ipm(REMOTE_CALL, rem_data, sizeof(rem_data));
 
     if (wait) {
-        while (atomic_read(&rem_data->ref_count) != 1) {
+        uint8_t const ncpus = acpi_get_number_cpus();
+        while (atomic_read(&rem_data->completed_count) != ncpus - 1) {
             cpu_pause();
         }
+        ASSERT(atomic_read(&rem_data->ref_count) == 1);
         kfree(rem_data);
     }
 }
