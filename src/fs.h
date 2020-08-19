@@ -1,5 +1,7 @@
 #pragma once
 #include <types.h>
+#include <list.h>
+#include <atomic.h>
 
 // This file declares the filesystem interface. Any supported filesystem must
 // define specific functions and structs described below:
@@ -34,8 +36,8 @@ struct file_ops {
 
 // Each file opened on the system has a corresponding struct file associated to
 // it that contains the state of this file. Note that if a given file on a disk
-// is opened by multiple processes then there are multiple struct file for the
-// same physical file.
+// is opened by multiple processes (or multiple times by the same process) then
+// there is a single shared struct file* between all.
 struct file {
     // The absolute path of this file.
     char const * abs_path;
@@ -51,6 +53,12 @@ struct file {
     struct file_ops const * ops;
     // Available data to the filesytem implementation.
     void *fs_private;
+
+    // Node for the Opened Files Linked List (OFLL) in VFS.
+    struct list_node opened_files_ll;
+    // Reference count to know how many processes are referencing this file.
+    // When this reaches 0, this struct can be removed from the OFLL and freed.
+    atomic_t open_ref_count;
 };
 
 // Special value to be used when a file cannot be found or created.

@@ -107,6 +107,82 @@ static bool find_mount_for_file_test(void) {
     return true;
 }
 
+static bool vfs_open_close_file_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    vfs_mount(disk, mount_point);
+
+    pathname_t const filename = "/some/mount/point/root/file0";
+
+    // See comment in open_file() regarding why we need to hold the
+    // OPENED_FILES_LOCK while opening the file.
+    spinlock_lock(&OPENED_FILES_LOCK);
+    struct file * const file = open_file(filename);
+    spinlock_unlock(&OPENED_FILES_LOCK);
+    TEST_ASSERT(file);
+
+    TEST_ASSERT(streq(file->abs_path, filename));
+    TEST_ASSERT(streq(file->fs_relative_path, "root/file0"));
+    TEST_ASSERT(file->disk == disk);
+
+    // See comment in close_file() regarding why we need to hold the
+    // OPENED_FILES_LOCK while closing the file.
+    spinlock_lock(&OPENED_FILES_LOCK);
+    close_file(file);
+    spinlock_unlock(&OPENED_FILES_LOCK);
+
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return true;
+}
+
+static bool vfs_lookup_file_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    vfs_mount(disk, mount_point);
+
+    pathname_t const filename = "/some/mount/point/root/file0";
+
+    spinlock_lock(&OPENED_FILES_LOCK);
+    TEST_ASSERT(!lookup_file(filename));
+    spinlock_unlock(&OPENED_FILES_LOCK);
+
+    struct file * const file = vfs_open(filename);
+    TEST_ASSERT(file);
+    TEST_ASSERT(streq(file->abs_path, filename));
+    TEST_ASSERT(streq(file->fs_relative_path, "root/file0"));
+    TEST_ASSERT(file->disk == disk);
+
+    spinlock_lock(&OPENED_FILES_LOCK);
+    TEST_ASSERT(lookup_file(filename) == file);
+    spinlock_unlock(&OPENED_FILES_LOCK);
+
+    struct file * const file2 = vfs_open(filename);
+    TEST_ASSERT(file2 == file);
+    TEST_ASSERT(atomic_read(&file->open_ref_count) == 2);
+
+    vfs_close(file);
+
+    // The first close() should not remove the file from the linked list since
+    // it has been opened twice.
+    TEST_ASSERT(atomic_read(&file->open_ref_count) == 1);
+    spinlock_lock(&OPENED_FILES_LOCK);
+    TEST_ASSERT(lookup_file(filename) == file);
+    spinlock_unlock(&OPENED_FILES_LOCK);
+
+    vfs_close(file);
+
+    // Second close() brings the ref count to 0, actually closing the file this
+    // time.
+    spinlock_lock(&OPENED_FILES_LOCK);
+    TEST_ASSERT(!lookup_file(filename));
+    spinlock_unlock(&OPENED_FILES_LOCK);
+
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return true;
+}
+
 static bool vfs_read_test(void) {
     struct disk * const disk = create_test_disk();
     pathname_t const mount_point = "/some/mount/point/";
@@ -210,6 +286,8 @@ void vfs_test(void) {
     TEST_FWK_RUN(vfs_mount_test);
     TEST_FWK_RUN(is_under_mount_test);
     TEST_FWK_RUN(find_mount_for_file_test);
+    TEST_FWK_RUN(vfs_open_close_file_test);
+    TEST_FWK_RUN(vfs_lookup_file_test);
     TEST_FWK_RUN(vfs_read_test);
     TEST_FWK_RUN(vfs_write_test);
 

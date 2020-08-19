@@ -32,8 +32,17 @@ static struct list_node MOUNTS;
 // A lock to protect the MOUNTS linked-list.
 static DECLARE_SPINLOCK(MOUNTS_LOCK);
 
+// A linked list of all the opened struct files * on the system. This linked
+// list is used to share struct file * between processes wishing to open the
+// same file. AKA Opened Files Linked List (OFLL).
+// TODO: Later on, this should be implemented as a hash map filename => file*.
+static struct list_node OPENED_FILES;
+// Lock for the OPENED_FILES list.
+static DECLARE_SPINLOCK(OPENED_FILES_LOCK);
+
 void init_vfs(void) {
     list_init(&MOUNTS);
+    list_init(&OPENED_FILES);
 }
 
 // Detect the filesystem used on a disk.
@@ -153,9 +162,34 @@ static struct mount const *find_mount_for_file(pathname_t const filename) {
     return best_mount;
 }
 
-struct file *vfs_open(pathname_t const filename) {
-    struct mount const * const mount = find_mount_for_file(filename);
+// Opening/Closing files and the Opened Files Linked List (OFLL)
+// =============================================================
+//    When opening a file through vfs_open(), we first need to check if this
+// file is already opened by looking it up in the OFLL. The reason is that we
+// need to maintain the invariant that there is only ONE struct file* per
+// pathname, even if this file is opened in multiple processes concurrently.
+// When closing a file, care must be taken not to remove it from the OFLL if
+// another live process is still using it, this is implemented using a ref count
+// in the struct file (see open_ref_count field).
+//
+// There are two tricky scenarios:
+//   - A file is opened for the first time: We need to allocate its struct file*
+//   and insert it in the OFLL.
+//   - A file is being closed and no other process is using it: We need to
+//   remove it from the OFLL and free its associated struct file*.
+// Note that in both scenarios, we need to hold the OFLL's lock while
+// opening/closing the file. This is because another process might try to open
+// the same file concurrently and, if the opening operation is not in the OFLL's
+// lock critical section, we might end up with two struct file*.
 
+// Open a file.
+// @param filename: The absolute path of the file to be opened.
+// @return: The associated struct file*.
+static struct file *open_file(pathname_t const filename) {
+    // Per the explaination above.
+    ASSERT(spinlock_is_held(&OPENED_FILES_LOCK));
+
+    struct mount const * const mount = find_mount_for_file(filename);
     if (!mount) {
         PANIC("Cannot find mount point for file %s\n", filename);
     }
@@ -165,17 +199,86 @@ struct file *vfs_open(pathname_t const filename) {
     file->abs_path = filename;
     file->fs_relative_path = rel_path;
     file->disk = mount->disk;
+
+    atomic_init(&file->open_ref_count, 1);
+    list_init(&file->opened_files_ll);
+
     return file;
 }
 
-void vfs_close(struct file * const file) {
+// Lookup a file into the OFLL.
+// @param filename: The absolute path of the file to lookup.
+// @return: If the file is present in the list, this function returns the struct
+// file* associated with it. Else return NULL.
+static struct file *lookup_file(pathname_t const filename) {
+    // Per the explaination above.
+    ASSERT(spinlock_is_held(&OPENED_FILES_LOCK));
+
+    bool found = false;
+    struct file * it;
+    list_for_each_entry(it, &OPENED_FILES, opened_files_ll) {
+        if (streq(it->abs_path, filename)) {
+            // This file has already been opened.
+            found = true;
+            break;
+        }
+    }
+    return found ? it : NULL;
+}
+
+// Look up a file in the OFLL or open the file and insert it into the list.
+// @param filename: The absolute path of the file to look up/open.
+// @return: The struct file* associated with `filename`.
+static struct file *lookup_file_or_open(pathname_t const filename) {
+    spinlock_lock(&OPENED_FILES_LOCK);
+
+    struct file *file = lookup_file(filename);
+    if (file) {
+        // File was already opened, we can return now.
+        atomic_inc(&file->open_ref_count);
+        spinlock_unlock(&OPENED_FILES_LOCK);
+        return file;
+    }
+
+    // Open file and insert it into the OFLL.
+    file = open_file(filename);
+    list_add(&OPENED_FILES, &file->opened_files_ll);
+
+    spinlock_unlock(&OPENED_FILES_LOCK);
+    return file;
+}
+
+struct file *vfs_open(pathname_t const filename) {
+    return lookup_file_or_open(filename);
+}
+
+// Close a file. This function must be called on a file that is NOT in the OFLL.
+// @param file: The file to be closed.
+static void close_file(struct file * const file) {
+    // Per the explaination above.
+    ASSERT(spinlock_is_held(&OPENED_FILES_LOCK));
+
+    // The file should be removed from the OFLL before being freed.
+    ASSERT(!lookup_file(file->abs_path));
+
     struct mount const * const mount = find_mount_for_file(file->abs_path);
     ASSERT(mount);
-
     // For now, the FS are responsible to allocate and de-allocate the struct
     // file* in open_file() and close_file(). Hence, nothing to do after the
-    // call to close_file().
+    // call to close_file(). TODO: Change this. Having the FS doing that is a
+    // risk of having memory leaks. Example: Where should we free the abs_path ?
     mount->fs->ops->close_file(file);
+}
+
+void vfs_close(struct file * const file) {
+    spinlock_lock(&OPENED_FILES_LOCK);
+    if (atomic_dec_and_test(&file->open_ref_count)) {
+        // This was the last instance of this file. We can now actually close
+        // the file and remove it from the OFLL.
+        list_del(&file->opened_files_ll);
+        close_file(file);
+    }
+    spinlock_unlock(&OPENED_FILES_LOCK);
 }
 
 size_t vfs_read(struct file * const file,
