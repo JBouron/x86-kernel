@@ -49,9 +49,9 @@ void syscall_init(void);
 void do_exit(uint8_t const exit_code);
 
 // Open a file.
-// @param path: The absolute path of the file to be opened.
+// @param u_path: The absolute path of the file to be opened.
 // @return: A file descriptor of the opened file.
-fd_t do_open(pathname_t const path);
+fd_t do_open(pathname_t const u_path);
 
 // Read from a file descriptor.
 // @param fd: The file descriptor to read from.

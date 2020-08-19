@@ -5,6 +5,8 @@
 #include <interrupt.h>
 #include <vfs.h>
 #include <kmalloc.h>
+#include <memory.h>
+#include <string.h>
 
 // The mapping syscall number -> function.
 static void *SYSCALL_MAP[] = {
@@ -120,7 +122,8 @@ void do_exit(uint8_t const exit_code) {
     __UNREACHABLE__;
 }
 
-fd_t do_open(pathname_t const path) {
+fd_t do_open(pathname_t const u_path) {
+    pathname_t const path = memdup(u_path, strlen(u_path) + 1);
     struct proc * const curr = this_cpu_var(curr_proc);
 
     // Open the file.
