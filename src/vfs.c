@@ -5,6 +5,7 @@
 #include <lock.h>
 #include <kmalloc.h>
 #include <string.h>
+#include <memory.h>
 
 extern struct fs const ustar_fs;
 
@@ -193,17 +194,30 @@ static struct file *open_file(pathname_t const filename) {
     if (!mount) {
         PANIC("Cannot find mount point for file %s\n", filename);
     }
+    struct disk * const disk = mount->disk;
 
-    pathname_t const rel_path = filename + strlen(mount->mount_point);
-    struct file * const file = mount->fs->ops->open_file(mount->disk, rel_path);
-    file->abs_path = filename;
+    // The filename passed as argument is short lived. Make a copy.
+    pathname_t const filename_cpy = memdup(filename, strlen(filename) + 1);
+    // Use the same string to represent the absolute and relative paths.
+    pathname_t const rel_path = filename_cpy + strlen(mount->mount_point);
+
+    // Allocate the file and initialize all the fields except for the FS
+    // specific ones.
+    struct file * const file = kmalloc(sizeof(*file));
+    file->abs_path = filename_cpy;
     file->fs_relative_path = rel_path;
-    file->disk = mount->disk;
-
-    atomic_init(&file->open_ref_count, 1);
+    file->disk = disk;
     list_init(&file->opened_files_ll);
+    atomic_init(&file->open_ref_count, 1);
 
-    return file;
+    // Initialize FS specific fields.
+    enum fs_op_res const res = mount->fs->ops->open_file(disk, file, rel_path);
+    if (res == FS_SUCCESS) {
+        return file;
+    } else {
+        kfree(file);
+        return NULL;
+    }
 }
 
 // Lookup a file into the OFLL.
@@ -263,11 +277,14 @@ static void close_file(struct file * const file) {
 
     struct mount const * const mount = find_mount_for_file(file->abs_path);
     ASSERT(mount);
-    // For now, the FS are responsible to allocate and de-allocate the struct
-    // file* in open_file() and close_file(). Hence, nothing to do after the
-    // call to close_file(). TODO: Change this. Having the FS doing that is a
-    // risk of having memory leaks. Example: Where should we free the abs_path ?
+
     mount->fs->ops->close_file(file);
+
+    // abs_path and fs_relative_path are using the same string. Only one free
+    // necessary for both.
+    kfree((char*)file->abs_path);
+
+    kfree(file);
 }
 
 void vfs_close(struct file * const file) {

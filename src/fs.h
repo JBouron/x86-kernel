@@ -48,11 +48,20 @@ struct file {
     char const * fs_relative_path;
     // The disk from which this file has been opened.
     struct disk * disk;
+
+    // File-system specific fields
+    // ===========================
+    //   The following fields are FS specific. Therefore, when opening or
+    // closing a file, the FS is responsible to fill ONLY THOSE fields. Other
+    // fields will already be initialized and should NOT be modified by the FS
+    // implementation.
+    //
     // The file operations as defined by the filesystem from which this file was
     // opened.
     struct file_ops const * ops;
     // Available data to the filesytem implementation.
     void *fs_private;
+    // End of FS specific fields.
 
     // Node for the Opened Files Linked List (OFLL) in VFS.
     struct list_node opened_files_ll;
@@ -61,8 +70,15 @@ struct file {
     atomic_t open_ref_count;
 };
 
-// Special value to be used when a file cannot be found or created.
-#define NO_FILE NULL
+// Enumeration to indicate success or failures for FS operations.
+enum fs_op_res {
+    // The operation was a success.
+    FS_SUCCESS,
+    // The operation is not implemented for this file system.
+    FS_NOT_IMPL,
+    // File was not found.
+    FS_NOT_FOUND,
+};
 
 // Each supported filesystem must define a struct fs which defines basic
 // operations on the filesystem. Note: If a given filesystem is used twice (i.e.
@@ -76,20 +92,29 @@ struct fs_ops {
 
     // Create a new file on the filesystem.
     // @param disk: The disk on which the new file should be created.
+    // @param file: A struct file to be initialized. As described in the
+    // "File-system specific fields" comment in the struct file declaration,
+    // only FS specific fields should be initialized.
     // @param path: The full path of the file to be created.
-    // @return: A struct file for the new created file. If the file cannot be
-    // created for any reason, NO_FILE should be returned.
-    struct file *(*create_file)(struct disk * disk, char const * path);
+    // @return: A fs_op_res indicating success or failure.
+    enum fs_op_res (*create_file)(struct disk * disk,
+                                  struct file * file,
+                                  char const * path);
 
     // Open a file on the filesystem.
     // @param disk: The disk to open the file from.
+    // @param file: A struct file to be initialized. As described in the
+    // "File-system specific fields" comment in the struct file declaration,
+    // only FS specific fields should be initialized.
     // @param path: The full path of the file to be opened.
-    // @return: A struct file for the opened file. If no such file exists on the
-    // filesystem, this function should return NO_FILE.
-    struct file *(*open_file)(struct disk * disk, char const * path);
+    // @return: A fs_op_res indicating success or failure.
+    enum fs_op_res (*open_file)(struct disk * disk,
+                                struct file * file,
+                                char const * path);
 
     // Close an opened file on the filesystem.
-    // @param file: The file to be closed.
+    // @param file: The file to be closed. Only the FS-specific fields might be
+    // written and/or freed. Other fields must remain untouched.
     void (*close_file)(struct file * file);
 
     // Delete a file from the filesystem.

@@ -281,9 +281,10 @@ static bool ustar_detect_fs(struct disk * const disk) {
 // @param path: The path of the file to be created.
 // @return: A struct file* corresponding to the new file.
 // Note: Not supported on USTAR filesystems.
-static struct file *ustar_create_file(struct disk * const disk,
-                                      char const * const path) {
-    return NO_FILE;
+static enum fs_op_res ustar_create_file(struct disk * const disk,
+                                        struct file * const file,
+                                        char const * const path) {
+    return FS_NOT_IMPL;
 }
 
 // Delete a file from a USTAR filesystem.
@@ -295,18 +296,21 @@ static void ustar_delete_file(struct disk * const disk,
 
 // Open a file on a USTAR filesystem.
 // @param disk: The disk to open the file from.
+// @param file: The struct file to initialize.
 // @param path: The full path of the file to be opened.
 // @return: A struct file for the opened file.
-static struct file *ustar_open_file(struct disk * const disk,
-                                    char const * const path) {
+static enum fs_op_res ustar_open_file(struct disk * const disk,
+                                      struct file * const file,
+                                      char const * const path) {
     uint32_t file_offset = 0;
     if (!find_file(disk, path, &file_offset)) {
-        return NO_FILE;
+        return FS_NOT_FOUND;
     }
 
-    struct file * const file = kmalloc(sizeof(*file));
-    file->fs_relative_path = path;
-    file->disk = disk;
+    // Should have been done by caller.
+    ASSERT(file->fs_relative_path);
+    ASSERT(file->disk);
+
     file->ops = &ustar_file_ops;
 
     // Read the USTAR header for the file and store it into the fs_private
@@ -317,7 +321,7 @@ static struct file *ustar_open_file(struct disk * const disk,
     ASSERT(success);
     file->fs_private = data;
 
-    return file;
+    return FS_SUCCESS;
 }
 
 // Close an opened file on a USTAR filesystem.
@@ -325,7 +329,6 @@ static struct file *ustar_open_file(struct disk * const disk,
 static void ustar_close_file(struct file * const file) {
     // Free the ustar_file_private_data.
     kfree(file->fs_private);
-    kfree(file);
 }
 
 // The filesystem operations for a USTAR filesystem.

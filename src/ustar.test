@@ -711,9 +711,12 @@ static bool ustar_find_file_test(void) {
 
 static bool ustar_create_file_test(void) {
     struct disk * const disk = create_test_disk();
-    struct file * const file = ustar_create_file(disk, "TAGADA");
+    struct file file;
+    file.fs_relative_path = "TAGADA";
+    file.disk = disk;
+    TEST_ASSERT(ustar_open_file(disk, &file, "TAGADA") == FS_NOT_FOUND);
     delete_memdisk(disk);
-    return file == NO_FILE;
+    return true;
 }
 
 static bool ustar_open_file_test(void) {
@@ -733,22 +736,27 @@ static bool ustar_open_file_test(void) {
     off_t const offsets[] = { 0x0, 0x200, 0x400, 0x800, 0xC00 };
 
     for (uint8_t i = 0; i < num_files; ++i) {
-        struct file * const file = ustar_open_file(disk, filenames[i]);
-        TEST_ASSERT(file != NO_FILE);
+        struct file file;
+        // The non FS-specific fields should be set by VFS. This is a test,
+        // hence only set the ones we are actively using.
+        file.fs_relative_path = filenames[i];
+        file.disk = disk;
 
-        TEST_ASSERT(streq(file->fs_relative_path, filenames[i]));
-        TEST_ASSERT(file->disk == disk);
-        TEST_ASSERT(file->ops == &ustar_file_ops);
+        TEST_ASSERT(ustar_open_file(disk, &file, filenames[i]) == FS_SUCCESS);
+        TEST_ASSERT(file.ops == &ustar_file_ops);
 
-        struct ustar_file_private_data * const data = file->fs_private;
+        struct ustar_file_private_data * const data = file.fs_private;
         TEST_ASSERT(data);
         TEST_ASSERT(data->header_offset == offsets[i]);
         TEST_ASSERT(memeq(&data->header,
                           ARCHIVE + offsets[i],
                           sizeof(data->header)));
-        ustar_close_file(file);
+        ustar_close_file(&file);
     }
-    TEST_ASSERT(ustar_open_file(disk, "MEMES") == NO_FILE);
+    struct file file;
+    file.fs_relative_path = "MEMES";
+    file.disk = disk;
+    TEST_ASSERT(ustar_open_file(disk, &file, "MEMES") == FS_NOT_FOUND);
     delete_memdisk(disk);
     return true;
 }
@@ -768,10 +776,15 @@ static bool ustar_read_file_test(void) {
     };
 
     for (uint8_t i = 0; i < num_files; ++i) {
-        struct file * const file = ustar_open_file(disk, filenames[i]);
-        TEST_ASSERT(file != NO_FILE);
+        struct file file;
+        // The non FS-specific fields should be set by VFS. This is a test,
+        // hence only set the ones we are actively using.
+        file.fs_relative_path = filenames[i];
+        file.disk = disk;
 
-        struct ustar_file_private_data * const data = file->fs_private;
+        TEST_ASSERT(ustar_open_file(disk, &file, filenames[i]) == FS_SUCCESS);
+
+        struct ustar_file_private_data * const data = file.fs_private;
         size_t const filesize = octal_string_to_u64(data->header.filesize);
 
         uint8_t * const buf = kmalloc(filesize + 10);
@@ -780,7 +793,7 @@ static bool ustar_read_file_test(void) {
         for (size_t size = 0; size < filesize + 10; ++size) {
             // Try to read at any offset including beyond the end of the file.
             for (off_t offset = 0; offset < filesize + 10; ++offset) {
-                size_t const read = ustar_read(file, offset, buf, size);
+                size_t const read = ustar_read(&file, offset, buf, size);
                 size_t exp_read;
                 if (offset >= filesize) {
                     // We tried reading beyond the file. This should return 0.
@@ -798,7 +811,7 @@ static bool ustar_read_file_test(void) {
             }
         }
         kfree(buf);
-        ustar_close_file(file);
+        ustar_close_file(&file);
     }
     delete_memdisk(disk);
     return true;
@@ -824,10 +837,15 @@ static bool ustar_write_file_test(void) {
     };
 
     for (uint8_t i = 0; i < num_files; ++i) {
-        struct file * const file = ustar_open_file(disk, filenames[i]);
-        TEST_ASSERT(file != NO_FILE);
+        struct file file;
+        // The non FS-specific fields should be set by VFS. This is a test,
+        // hence only set the ones we are actively using.
+        file.fs_relative_path = filenames[i];
+        file.disk = disk;
 
-        struct ustar_file_private_data * const data = file->fs_private;
+        TEST_ASSERT(ustar_open_file(disk, &file, filenames[i]) == FS_SUCCESS);
+
+        struct ustar_file_private_data * const data = file.fs_private;
         size_t const filesize = octal_string_to_u64(data->header.filesize);
 
         // Copy the entire content of the file into a buffer `filedata`. This
@@ -847,7 +865,7 @@ static bool ustar_write_file_test(void) {
                 uint8_t * const buf = kmalloc(size);
                 fill_buf(buf, size);
 
-                size_t const written = ustar_write(file, offset, buf, size);
+                size_t const written = ustar_write(&file, offset, buf, size);
                 size_t exp_written;
                 if (offset >= filesize) {
                     // We tried writting beyond the file. This should return 0.
@@ -870,7 +888,7 @@ static bool ustar_write_file_test(void) {
             }
         }
         kfree(filedata);
-        ustar_close_file(file);
+        ustar_close_file(&file);
     }
     delete_memdisk(disk);
     return true;

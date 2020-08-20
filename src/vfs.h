@@ -26,7 +26,7 @@ void vfs_unmount(pathname_t const pathname);
 // Open a file from VFS.
 // @param filename: The absolute path of the file to be opened.
 // @return: The struct file * associated with the file requested. If no such
-// file is found, NO_FILE is returned instead.
+// file is found, NULL is returned instead.
 struct file *vfs_open(pathname_t const filename);
 
 // Close an opened file.

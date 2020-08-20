@@ -130,6 +130,9 @@ fd_t do_open(pathname_t const u_path) {
     struct file * const file = vfs_open(path);
     ASSERT(file);
 
+    // vfs_open() is supposed to make a copy of path if it is going to use it.
+    kfree((char*)path);
+
     // Allocate a new entry for the file table.
     struct file_table_entry * const op_file = kmalloc(sizeof(*op_file));
     op_file->file = file;
