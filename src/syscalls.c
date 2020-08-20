@@ -116,10 +116,12 @@ void do_exit(uint8_t const exit_code) {
     curr->exit_code = exit_code;
     curr->state_flags |= PROC_DEAD;
 
-    // Now that the process is dead, run a round of scheduling. This will switch
-    // to a new process.
-    sched_run_next_proc(NULL);
-    __UNREACHABLE__;
+    // If we end up, it means we were executing a process and hence it is
+    // expected that we are not in a nested interrupt context.
+    // This assumption is important since this process is dead: we want to run
+    // the scheduler after handling this interrupt/syscall. This require the
+    // nest_level to be 1.
+    ASSERT(this_cpu_var(interrupt_nest_level) == 1);
 }
 
 fd_t do_open(pathname_t const u_path) {
