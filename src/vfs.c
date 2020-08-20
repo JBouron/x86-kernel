@@ -192,7 +192,8 @@ static struct file *open_file(pathname_t const filename) {
 
     struct mount const * const mount = find_mount_for_file(filename);
     if (!mount) {
-        PANIC("Cannot find mount point for file %s\n", filename);
+        LOG("Cannot find mount point for file %s\n", filename);
+        return NULL;
     }
     struct disk * const disk = mount->disk;
 
@@ -215,6 +216,9 @@ static struct file *open_file(pathname_t const filename) {
     if (res == FS_SUCCESS) {
         return file;
     } else {
+        // abs_path and fs_relative_path are using the same string. Only one
+        // free necessary for both.
+        kfree((char*)file->abs_path);
         kfree(file);
         return NULL;
     }
@@ -256,6 +260,12 @@ static struct file *lookup_file_or_open(pathname_t const filename) {
 
     // Open file and insert it into the OFLL.
     file = open_file(filename);
+    if (!file) {
+        // Could not open the file.
+        spinlock_unlock(&OPENED_FILES_LOCK);
+        return NULL;
+    }
+
     list_add(&OPENED_FILES, &file->opened_files_ll);
 
     spinlock_unlock(&OPENED_FILES_LOCK);

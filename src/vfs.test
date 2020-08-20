@@ -107,6 +107,23 @@ static bool find_mount_for_file_test(void) {
     return true;
 }
 
+static bool vfs_open_non_existing_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    vfs_mount(disk, mount_point);
+
+    pathname_t const filename = "/some/mount/point/thisFileDoesNotExist";
+
+    TEST_ASSERT(vfs_open(filename) == NULL);
+
+    pathname_t const filename2 = "/not/even/under/mount/point";
+    TEST_ASSERT(vfs_open(filename2) == NULL);
+
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return true;
+}
+
 static bool vfs_open_close_file_test(void) {
     struct disk * const disk = create_test_disk();
     pathname_t const mount_point = "/some/mount/point/";
@@ -286,6 +303,7 @@ void vfs_test(void) {
     TEST_FWK_RUN(vfs_mount_test);
     TEST_FWK_RUN(is_under_mount_test);
     TEST_FWK_RUN(find_mount_for_file_test);
+    TEST_FWK_RUN(vfs_open_non_existing_test);
     TEST_FWK_RUN(vfs_open_close_file_test);
     TEST_FWK_RUN(vfs_lookup_file_test);
     TEST_FWK_RUN(vfs_read_test);
