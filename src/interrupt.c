@@ -83,38 +83,33 @@ extern uint32_t get_interrupt_handler(uint8_t const vector);
 // @param frame: Information about the interrupt.
 // @return: true if this interrupt was a nested interrupt, false otherwise.
 bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
+    // This should have been taken care of by the IDT entry being an interrupt
+    // gate.
     ASSERT(!interrupts_enabled());
-    this_cpu_var(interrupt_nest_level) ++;
 
+    // Update the nest level. This can only be done while interrupts are
+    // disabled to avoid race conditions.
+    this_cpu_var(interrupt_nest_level) ++;
     bool const is_nested = this_cpu_var(interrupt_nest_level) > 1;
 
-    uint8_t const vector = frame->vector;
-    // A sanity check that the low level interrupt handler did not send garbage
-    // to us.
-    ASSERT(vector < IDT_SIZE);
-
-    // The IPM mechanism might re-enable interrupt for a short time (for remote
-    // calls for instance). Re-enabling interrupts requires signaling interrupt
-    // servicing completion (i.e. lapic_eoi()). The IPM could do it itself, but
-    // then this function/handler would need to figure out if it actually did to
-    // avoid calling lapic_eoi() twice (and possibly messing up).
-    // Instead, signal the end of interrupt before handling an interrupt of
-    // vector == IPM_VECTOR so that the IPM handler can enable interrupts
-    // without worrying about the EOI register. Later, after the IPM handler is
-    // called we know that we can skip the lapic_eoi().
+    // Now that the nesting level has been taken care of we can safely enable
+    // interrupts again.
     // Note: The Intel manual says:
     //  "This write [EOI] must occur at the end of the handler routine, sometime
     //  before the IRET instruction."
     // However it seems that doing it early does no create any issue, and Linux
     // does it early as well for IPIs.
-    if (frame->vector == IPM_VECTOR) {
-        lapic_eoi();
-    }
+    lapic_eoi();
+    cpu_set_interrupt_flag(true);
 
-    int_callback_t callback = NULL;
+    // From this point forward any interrupt can be received while processing
+    // the current one.
+
+    uint8_t const vector = frame->vector;
+    ASSERT(vector < IDT_SIZE);
 
     // Check for local callback first.
-    callback = this_cpu_var(local_callbacks)[vector];
+    int_callback_t callback = this_cpu_var(local_callbacks)[vector];
 
     // Check for global callback.
     if (!callback) {
@@ -134,13 +129,17 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
         PANIC("Unexpected interrupt in kernel\n");
     }
 
-    if (frame->vector != IPM_VECTOR) {
-        // This was done already for IPM interrupts.
-        lapic_eoi();
-    }
-
-    // Be safe and disable interrupts here. We are on our way to return to the
-    // interrupted context or do a context switch.
+    // We __MUST__ disable interrupts from this point forward. The reason is two
+    // fold:
+    //  - First we need to decrease the nest level, to avoid race conditions
+    //  this must be done with interrupts disabled.
+    //  - If this is not a nested interrupt, the scheduler will be called after
+    //  this function returns. If interrupts are not enabled while doing so,
+    //  another interrupt could come in, see nest_level == 0, be serviced and
+    //  call the scheduler as well (since the nest_level == 0). This means that
+    //  there are two "concurrent" calls to the scheduler AND the registers
+    //  values of the first interrupt are lost and the current process will get
+    //  the registers of the first interrupt (in the scheduler) saved instead.
     cpu_set_interrupt_flag(false);
 
     this_cpu_var(interrupt_nest_level) --;
@@ -224,8 +223,9 @@ static void register_callback(uint8_t const vector,
         spinlock_lock(&GLOBAL_CALLBACKS_LOCK);
     }
 
-    // For now there can only be one callback per interrupt vector.
-    ASSERT(!callbacks[vector]);
+    // For now there can only be one callback per interrupt vector. Idempotent
+    // registrations are ok.
+    ASSERT(!callbacks[vector] || callbacks[vector] == callback);
     callbacks[vector] = callback;
 
     if (global) {

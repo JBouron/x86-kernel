@@ -391,7 +391,10 @@ void exec_tlb_shootdown(void) {
         // tries to send us a TLB_SHOOTDOWN message in the meantime.
         bool const irqs = interrupts_enabled();
         cpu_set_interrupt_flag(true);
-        lapic_eoi();
+
+        // No need for the lapic_eoi() call here. In case we are within an
+        // interrupt handler, the generic_interrupt_handler() already called
+        // lapic_eoi() for us.
 
         while (atomic_read(&wait)) {
             cpu_pause();

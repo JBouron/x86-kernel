@@ -21,7 +21,9 @@ static uint8_t get_curr_cpu_id(void) {
 // Do the actual lock operation on the spinlock. Definition in the assembly
 // file.
 // @param lock: The spinlock to acquire.
-void _spinlock_lock(spinlock_t * const lock);
+// @param irq_enabled: If true, the cpu will enable interrupt while waiting for
+// the lock to be available.
+void _spinlock_lock(spinlock_t * const lock, bool const irq_enabled);
 
 // Do the actual unlock operation on the spinlock. Definition in the assembly
 // file.
@@ -34,12 +36,14 @@ void spinlock_init(spinlock_t * const lock) {
 }
 
 void spinlock_lock(spinlock_t * const lock) {
-    // We don't have a way to atomically acquire a lock and disable interrupts,
-    // therefore disable interrupts even before trying to acquire the lock.
     bool const irq = interrupts_enabled();
-    cpu_set_interrupt_flag(false);
 
-    _spinlock_lock(lock);
+    // If interrupts are enabled while calling the spinlock_lock() then enable
+    // interrupt while waiting for the lock.
+    _spinlock_lock(lock, irq);
+
+    // Interrupts are expected to be disabled when acquiring the lock.
+    ASSERT(!interrupts_enabled());
 
     // We can now mutate the fields of the lock.
     lock->interrupts_enabled = irq;
@@ -53,6 +57,7 @@ void spinlock_unlock(spinlock_t * const lock) {
     // Get back the saved IF from the lock.
     bool const interrupts = lock->interrupts_enabled;
 
+    ASSERT(!interrupts_enabled());
     ASSERT(lock->owner == get_curr_cpu_id());
     lock->owner = 0xFF;
 

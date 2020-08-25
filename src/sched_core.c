@@ -128,6 +128,10 @@ void save_registers(struct proc * const proc,
 
 void sched_update_curr(void) {
     ASSERT(SCHEDULER);
+
+    // sched_update_curr() is called after an interrupt has been serviced, hence
+    // interrupts are assumed to be disabled. See comment at the end of
+    // generic_interrupt_handler().
     ASSERT(!interrupts_enabled());
 
     struct proc * const curr = this_cpu_var(curr_proc);
@@ -141,6 +145,10 @@ void sched_update_curr(void) {
 
 void sched_run_next_proc(struct register_save_area const * const regs) {
     ASSERT(SCHEDULER);
+
+    // sched_run_next_proc() is called after an interrupt has been serviced,
+    // hence interrupts are assumed to be disabled. See comment at the end of
+    // generic_interrupt_handler().
     ASSERT(!interrupts_enabled());
 
     uint8_t const this_cpu = this_cpu_var(cpu_id);
@@ -201,7 +209,8 @@ void sched_run_next_proc(struct register_save_area const * const regs) {
 
     ASSERT(proc_is_runnable(next));
 
-    // Re-enable the scheduler tick.
+    // Re-enable the scheduler tick. Interrupts are still disabled and will only
+    // be enabled by the context switch.
     enable_sched_tick();
     switch_to_proc(next);
 
