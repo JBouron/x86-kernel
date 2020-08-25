@@ -68,6 +68,18 @@ static void sched_tick(struct interrupt_frame const * const frame) {
     SCHEDULER->tick(this_cpu);
 }
 
+// Arm the LAPIC timer to send a tick in SCHED_TICK_PERIOD ms.
+static void enable_sched_tick(void) {
+    //if (this_cpu_var(cpu_id)) {
+    //    return;
+    //}
+    ASSERT(!interrupts_enabled());
+
+    // Start the scheduler timer to fire every SCHED_TICK_PERIOD ms.
+    // This will enable interrupts.
+    lapic_start_timer(SCHED_TICK_PERIOD, false, SCHED_TICK_VECTOR, sched_tick);
+}
+
 void sched_start(void) {
     cpu_set_interrupt_flag(false);
 
@@ -78,10 +90,6 @@ void sched_start(void) {
     // will wrongly think it is in a nested interrupt and will skip the
     // scheduler.
     this_cpu_var(interrupt_nest_level) = 0;
-
-    // Start the scheduler timer to fire every SCHED_TICK_PERIOD ms.
-    // This will enable interrupts.
-    lapic_start_timer(SCHED_TICK_PERIOD, true, SCHED_TICK_VECTOR, sched_tick);
 
     this_cpu_var(sched_running) = true;
 
@@ -120,6 +128,7 @@ void save_registers(struct proc * const proc,
 
 void sched_update_curr(void) {
     ASSERT(SCHEDULER);
+    ASSERT(!interrupts_enabled());
 
     struct proc * const curr = this_cpu_var(curr_proc);
     if (proc_is_dead(curr)) {
@@ -132,6 +141,7 @@ void sched_update_curr(void) {
 
 void sched_run_next_proc(struct register_save_area const * const regs) {
     ASSERT(SCHEDULER);
+    ASSERT(!interrupts_enabled());
 
     uint8_t const this_cpu = this_cpu_var(cpu_id);
     struct proc * const curr = this_cpu_var(curr_proc);
@@ -190,7 +200,12 @@ void sched_run_next_proc(struct register_save_area const * const regs) {
     }
 
     ASSERT(proc_is_runnable(next));
+
+    // Re-enable the scheduler tick.
+    enable_sched_tick();
     switch_to_proc(next);
+
+    __UNREACHABLE__;
 }
 
 void sched_resched(void) {
