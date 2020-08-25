@@ -162,7 +162,47 @@ uint32_t const GS_OFF = offsetof(struct register_save_area, gs);
 // @param proc: The process to return into.
 void do_far_return_to_proc(struct proc * const proc);
 
+// Check that the saved segments registers for a process about to run on the
+// current cpu are ok. This means: user segments for user processes and kernel
+// segments (+ percpu segment) for kernel processes.
+// @param proc: The process to check the segment registers for.
+static void check_segments(struct proc const * const proc) {
+    struct register_save_area const * const reg = &proc->registers_save;
+    if (proc->is_kernel_proc) {
+        uint16_t const kcode = kernel_code_selector().value;
+        uint16_t const kdata = kernel_data_selector().value;
+        ASSERT(reg->cs == kcode);
+        ASSERT(reg->es == kdata);
+        ASSERT(reg->ds == kdata);
+        ASSERT(reg->fs == kdata);
+        ASSERT(reg->gs == cpu_read_gs().value);
+        ASSERT(reg->ss == kdata);
+    } else {
+        uint16_t const ucode = user_code_seg_sel().value;
+        uint16_t const udata = user_data_seg_sel().value;
+        ASSERT(reg->cs == ucode);
+        ASSERT(reg->es == udata);
+        ASSERT(reg->ds == udata);
+        ASSERT(reg->fs == udata);
+        ASSERT(reg->gs == udata);
+        ASSERT(reg->ss == udata);
+    }
+}
+
 void switch_to_proc(struct proc * const proc) {
+    if (proc->is_kernel_proc) {
+        // Kernel proc can use percpu variable. Since some of them might not be
+        // tied to specific cpus we need to make sure that the GS segment of the
+        // process correspond to the percpu area of the cpu it is running on. 
+        // Note: We assume that the current GS on the cpu is the percpu area of
+        // this cpu. This is ok since we are in the kernel.
+        proc->registers_save.gs = cpu_read_gs().value;
+    }
+
+    // Check that the segments are sound.
+    check_segments(proc);
+
+    // Do the actual context switch.
     this_cpu_var(curr_proc) = proc;
     switch_to_addr_space(proc->addr_space);
     do_far_return_to_proc(proc);
