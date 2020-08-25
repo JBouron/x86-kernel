@@ -205,9 +205,6 @@ void lapic_start_timer(uint32_t const msec,
     // Register the callback for the given vector.
     interrupt_register_local_callback(vector, callback);
 
-    // Enable the interrupts again.
-    cpu_set_interrupt_flag(true);
-
     // Start the timer without masking it.
     start_timer(count, periodic, vector, false);
 }

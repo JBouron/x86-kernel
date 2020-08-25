@@ -67,6 +67,7 @@ static bool one_shot_lapic_timer_test(void) {
     // Init and start a one shot timer.
     lapic_start_timer(timer_init_count,
         false, timer_vector, timer_interrupt_callback);
+    cpu_set_interrupt_flag(true);
 
     while (!timer_success) {
         cpu_pause();
@@ -84,6 +85,7 @@ static bool periodic_lapic_timer_test(void) {
     // Init and start a one shot timer.
     lapic_start_timer(timer_init_count,
         true, timer_vector, timer_interrupt_callback);
+    cpu_set_interrupt_flag(true);
 
     while (!timer_success) {
         // Nothing to do;

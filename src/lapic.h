@@ -10,7 +10,8 @@ void ap_init_lapic(void);
 // Indicate the End-of-Interrupt to the Local APIC of the current CPU.
 void lapic_eoi(void);
 
-// Initialize and start a timer on the Lapic of the current CPU.
+// Initialize and start a timer on the Lapic of the current CPU. This function
+// disables interrupts on the current processor.
 // @param msec: The number of milliseconds before the LAPIC fires off an
 // interrupt.
 // @param periodic: If true the timer fires an interrupt periodically, every
