@@ -3,6 +3,7 @@
 #include <frame_alloc.h>
 #include <kmalloc.h>
 #include <lapic.h>
+#include <acpi.h>
 
 // Some test statistics:
 // The number of tests run so far.
@@ -79,4 +80,13 @@ void print_test_summary(void) {
         WARN("%u dynamically allocated byte(s) leaked.\n", TOT_DYN_MEM_LEAK);
     }
     LOG("=====================\n");
+}
+
+uint8_t TEST_TARGET_CPU(uint8_t const target_idx) {
+    uint8_t const ncpus = acpi_get_number_cpus();
+    ASSERT(target_idx + 2 <= ncpus);
+    uint8_t const target = (this_cpu_var(cpu_id) + target_idx + 1) % ncpus;
+    // This should not be necessary due to the first ASSERT.
+    ASSERT(target != this_cpu_var(cpu_id));
+    return target;
 }
