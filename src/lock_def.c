@@ -57,7 +57,6 @@ void spinlock_unlock(spinlock_t * const lock) {
     // Get back the saved IF from the lock.
     bool const interrupts = lock->interrupts_enabled;
 
-    ASSERT(!interrupts_enabled());
     ASSERT(lock->owner == get_curr_cpu_id());
     lock->owner = 0xFF;
 
