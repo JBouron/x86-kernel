@@ -1,0 +1,176 @@
+#include <test.h>
+#include <acpi.h>
+#include <ipm.h>
+#include <smp.h>
+
+// Testing for RW locks is primitive, it only makes sure that cpu/requestors are
+// blocked when supposed to. However scenarios cannot simulate unlocks and
+// unblocking for now.
+
+enum acquisition_method {
+    READ,
+    WRITE,
+};
+
+// Indicate to a cpu which lock and how it should acquire it.
+struct remote_acquire_data {
+    // The lock to be acquired.
+    rwlock_t * lock;
+    // How the remote cpu should acquire the lock.
+    enum acquisition_method method;
+    // Once the remote cpu has acquired the lock it will write `true` to this
+    // field.
+    bool volatile signal;
+};
+
+// Acquire a lock described in a struct remote_acquire_data.
+// @param arg: Pointer to a struct remote_acquire_data. This is a void* in order
+// to be compatible with exec_remote_call.
+// This function will acquire the lock and write `true` to the signal field of
+// the struct remote_acquire_data (provided the lock could be acquired).
+static void remote_acquire(void * const arg) {
+    struct remote_acquire_data * const data = arg;
+    ASSERT(data->signal == false);
+    if (data->method == READ) {
+        rwlock_read_lock(data->lock);
+    } else {
+        rwlock_write_lock(data->lock);
+    }
+    data->signal = true;
+
+    // Setting the interrupt flag within a critical section is not a good idea
+    // but in the case of this test this is required since some of the cpus will
+    // be blocked.
+    cpu_set_interrupt_flag(true);
+}
+
+// Get the ACPI index of a target cpu given its index.
+// @param target_idx: The index of the target cpu starting at 0 (the next cpu).
+// @return: The ACPI index of the target cpu i.e. for target_idx = 0 this
+// function returns (this_cpu_var(cpu_id) + 1) % ncpus.
+static uint8_t get_target_cpu(uint8_t const target_idx) {
+    uint8_t const ncpus = acpi_get_number_cpus();
+    ASSERT(target_idx + 2 <= ncpus);
+    uint8_t const target = (this_cpu_var(cpu_id) + target_idx + 1) % ncpus;
+    // This should not be necessary due to the first ASSERT.
+    ASSERT(target != this_cpu_var(cpu_id));
+    return target;
+}
+
+// Run a test scenario. A scenario is simply a list of remote acquisitions.
+// @param name: Name of the scenario. Optional, ignored if NULL.
+// @param num_targets: The number of remote cpus used in this scenario, this
+// also indicates the size of the arrays `datas` and `expected`.
+// @param datas: An array of struct remote_acquire_data. Element i of this array
+// will be "executed" by the target cpu i.
+// @parma expected: For each element in `datas` this array contains the expected
+// value of the "signal" field.
+// @return: true if the scenario was successful (expected matched all values of
+// signal) false otherwise.
+static bool run_scenario(char const * const name,
+                         uint8_t const num_targets,
+                         struct remote_acquire_data * const datas,
+                         bool * const expected) {
+    LOG("Running scenario %s\n", name ? name : "(nil)");
+    for (uint8_t i = 0; i < num_targets; ++i) {
+        datas[i].signal = false;
+        uint8_t const target = get_target_cpu(i);
+        exec_remote_call(target, remote_acquire, &datas[i], false);
+
+        // Make sure to give the target cpu enough time to acquire the lock if
+        // it is supposed to.
+        lapic_sleep(100);
+    }
+
+    LOG("Waiting for scenario to stabilize\n");
+
+    // We don't really have a choice other to sleep until we can somehow know if
+    // a particular cpu is stuck acquiring a lock.
+    lapic_sleep(2000);
+
+    bool res = true;
+    for (uint8_t i = 0; i < num_targets; ++i) {
+        LOG("Target cpu %u signal = %d, expected = %d\n",
+            get_target_cpu(i),
+            datas[i].signal,
+            expected[i]);
+
+        if (datas[i].signal != expected[i]) {
+            res = false;
+            break;
+        }
+    }
+    init_aps();
+    return res;
+}
+
+static bool rwlock_two_readers_test(void) {
+    DECLARE_RW_LOCK(lock);
+    struct remote_acquire_data datas[] = {
+        { .lock = &lock, .method = READ, .signal = false, },
+        { .lock = &lock, .method = READ, .signal = false, },
+    };
+    bool expected[] = {true, true};
+    return run_scenario("2R", 2, datas, expected);
+}
+
+static bool rwlock_two_writers_test(void) {
+    DECLARE_RW_LOCK(lock);
+    struct remote_acquire_data datas[] = {
+        { .lock = &lock, .method = WRITE, .signal = false, },
+        { .lock = &lock, .method = WRITE, .signal = false, },
+    };
+    bool expected[] = {true, false};
+    return run_scenario("2W", 2, datas, expected);
+}
+
+static bool rwlock_single_reader_single_writer_test(void) {
+    DECLARE_RW_LOCK(lock);
+    struct remote_acquire_data datas[] = {
+        { .lock = &lock, .method = READ, .signal = false, },
+        { .lock = &lock, .method = WRITE, .signal = false, },
+    };
+    bool expected[] = {true, false};
+    TEST_ASSERT(run_scenario("RW", 2, datas, expected));
+
+    rwlock_init(&lock);
+    datas[0].method = WRITE;
+    datas[1].method = READ;
+    TEST_ASSERT(run_scenario("WR", 2, datas, expected));
+    return true;
+}
+
+static bool rwlock_multiple_readers_single_writer_test(void) {
+    DECLARE_RW_LOCK(lock);
+    struct remote_acquire_data datas[] = {
+        { .lock = &lock, .method = READ, .signal = false, },
+        { .lock = &lock, .method = READ, .signal = false, },
+        { .lock = &lock, .method = WRITE, .signal = false, },
+    };
+    bool expected[] = {true, true, false};
+    TEST_ASSERT(run_scenario("RRW", 3, datas, expected));
+
+    rwlock_init(&lock);
+    datas[1].method = WRITE;
+    datas[2].method = READ;
+    expected[1] = false;
+    expected[2] = true;
+    TEST_ASSERT(run_scenario("RWR", 3, datas, expected));
+
+    rwlock_init(&lock);
+    datas[0].method = WRITE;
+    datas[1].method = READ;
+    datas[2].method = READ;
+    expected[0] = true;
+    expected[1] = false;
+    expected[2] = false;
+    TEST_ASSERT(run_scenario("WRR", 3, datas, expected));
+    return true;
+}
+
+void rwlock_test(void) {
+    TEST_FWK_RUN(rwlock_two_readers_test);
+    TEST_FWK_RUN(rwlock_two_writers_test);
+    TEST_FWK_RUN(rwlock_single_reader_single_writer_test);
+    TEST_FWK_RUN(rwlock_multiple_readers_single_writer_test);
+}

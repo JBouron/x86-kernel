@@ -37,6 +37,7 @@
 #include <ustar.h>
 #include <vfs.h>
 #include <elf.h>
+#include <rw_lock.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -71,6 +72,7 @@ void test_kernel(void) {
     ustar_test();
     vfs_test();
     elf_test();
+    rwlock_test();
 
     print_test_summary();
 }
