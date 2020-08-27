@@ -2,6 +2,7 @@
 #include <types.h>
 #include <list.h>
 #include <atomic.h>
+#include <rw_lock.h>
 
 // This file declares the filesystem interface. Any supported filesystem must
 // define specific functions and structs described below:
@@ -20,6 +21,7 @@ struct file_ops {
     // @param buf: The buffer to read into.
     // @param len: The length of the buffer in bytes.
     // @return: The number of bytes read.
+    // Note: The caller of this function holds a read lock on the file.
     size_t (*read)(struct file * file, off_t offset, uint8_t * buf, size_t len);
 
     // Write to a file.
@@ -28,6 +30,7 @@ struct file_ops {
     // @param buf: The buffer containing data to be written.
     // @param len: The length of the buffer in bytes.
     // @return: The number of bytes written.
+    // Note: The caller of this function holds a write lock on the file.
     size_t (*write)(struct file * file,
                     off_t offset,
                     uint8_t const * buf,
@@ -48,6 +51,9 @@ struct file {
     char const * fs_relative_path;
     // The disk from which this file has been opened.
     struct disk * disk;
+
+    // The lock protecting this file from concurrent writes.
+    rwlock_t lock;
 
     // File-system specific fields
     // ===========================
@@ -97,6 +103,8 @@ struct fs_ops {
     // only FS specific fields should be initialized.
     // @param path: The full path of the file to be created.
     // @return: A fs_op_res indicating success or failure.
+    // Note: The caller of this function holds a write/exclusive lock on the
+    // file.
     enum fs_op_res (*create_file)(struct disk * disk,
                                   struct file * file,
                                   char const * path);
@@ -108,6 +116,8 @@ struct fs_ops {
     // only FS specific fields should be initialized.
     // @param path: The full path of the file to be opened.
     // @return: A fs_op_res indicating success or failure.
+    // Note: The caller of this function holds a write/exclusive lock on the
+    // file.
     enum fs_op_res (*open_file)(struct disk * disk,
                                 struct file * file,
                                 char const * path);
@@ -115,6 +125,8 @@ struct fs_ops {
     // Close an opened file on the filesystem.
     // @param file: The file to be closed. Only the FS-specific fields might be
     // written and/or freed. Other fields must remain untouched.
+    // Note: The caller of this function holds a write/exclusive lock on the
+    // file.
     void (*close_file)(struct file * file);
 
     // Delete a file from the filesystem.

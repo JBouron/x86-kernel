@@ -210,9 +210,12 @@ static struct file *open_file(pathname_t const filename) {
     file->disk = disk;
     list_init(&file->opened_files_ll);
     atomic_init(&file->open_ref_count, 1);
+    rwlock_init(&file->lock);
 
     // Initialize FS specific fields.
+    rwlock_write_lock(&file->lock);
     enum fs_op_res const res = mount->fs->ops->open_file(disk, file, rel_path);
+    rwlock_write_unlock(&file->lock);
     if (res == FS_SUCCESS) {
         return file;
     } else {
@@ -288,7 +291,9 @@ static void close_file(struct file * const file) {
     struct mount const * const mount = find_mount_for_file(file->abs_path);
     ASSERT(mount);
 
+    rwlock_write_lock(&file->lock);
     mount->fs->ops->close_file(file);
+    rwlock_write_unlock(&file->lock);
 
     // abs_path and fs_relative_path are using the same string. Only one free
     // necessary for both.
@@ -312,14 +317,20 @@ size_t vfs_read(struct file * const file,
                 off_t const offset,
                 uint8_t * const buf,
                 size_t const len) {
-    return file->ops->read(file, offset, buf, len);
+    rwlock_read_lock(&file->lock);
+    size_t const res = file->ops->read(file, offset, buf, len);
+    rwlock_read_unlock(&file->lock);
+    return res;
 }
 
 size_t vfs_write(struct file * const file,
                  off_t const offset,
                  uint8_t const * const buf,
                  size_t const len) {
-    return file->ops->write(file, offset, buf, len);
+    rwlock_write_lock(&file->lock);
+    size_t const res = file->ops->write(file, offset, buf, len);
+    rwlock_write_unlock(&file->lock);
+    return res;
 }
 
 void vfs_delete(pathname_t const filename) {

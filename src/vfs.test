@@ -2,6 +2,7 @@
 #include <memdisk.h>
 #include <math.h>
 #include <memory.h>
+#include <ipm.h>
 
 // In this test, we re-use the baked in TAR archive to simulate a USTAR
 // filesystem on a memdisk.
@@ -295,6 +296,348 @@ static bool vfs_write_test(void) {
     return true;
 }
 
+// =============================================================================
+// Concurrent write test: This test makes sure that file cannot be written
+// concurrently. Two cpus will write on a file at the same index the same number
+// of byte. A third cpu will read from the file at that index and verifies that
+// it what it reads comes from a single write and not both.
+
+// This struct contains all the info necessary for a remote cpu to participate
+// in a concurrency stress test. It is used in multiple concurrent tests to
+// simulate different scenarios.
+struct concurrent_test_info {
+    struct file * file;
+    // If true the remote cpu will do a write, otherwise a read.
+    bool is_write;
+    // The buffer to read into (if is_write is true) or to write (otherwise).
+    uint8_t * buf;
+    size_t offset;
+    size_t length;
+    // The remote cpu will busy loop on this flag to become true before doing
+    // the file operation.
+    bool volatile * start_flag;
+    // The remote cpu will increment this atomic_t once the operation is
+    // completed.
+    atomic_t * completed;
+};
+
+// Execute a test. This function is meant to be executed remotely.
+// @param arg: Pointer on a struct concurrent_test_exec indicating what the
+// cpu should do.
+static void concurrent_test_exec(void * arg) {
+    struct concurrent_test_info * const info = arg;
+    
+    while (!*(info->start_flag));
+
+    size_t res = 0;
+    if (info->is_write) {
+        res = vfs_write(info->file, info->offset, info->buf, info->length);
+    } else {
+        res = vfs_read(info->file, info->offset, info->buf, info->length);
+    }
+    ASSERT(res == info->length);
+
+    atomic_inc(info->completed);
+}
+
+static bool vfs_concurrent_write_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    vfs_mount(disk, mount_point);
+
+    pathname_t const filename = "/some/mount/point/root/file0";
+
+    struct file * const file = vfs_open(filename);
+    TEST_ASSERT(file);
+
+    size_t const file_size = 1078;
+
+    // The original file data. This will be written back after this test.
+    uint8_t * const filedata = kmalloc(file_size);
+    // See comment in ustar.test to know which offset corresponds to the file
+    // data and its file size.
+    size_t const hardcode_file_off = 0xE00;
+    memcpy(filedata, ARCHIVE + hardcode_file_off, file_size);
+
+    // Prepare two buffers, same size as the file, for both writers.
+    uint8_t * const buf1 = kmalloc(file_size);
+    uint8_t * const buf2 = kmalloc(file_size);
+
+    // Fill the buffer with different data.
+    memset(buf1, 0x11, file_size);
+    memset(buf2, 0x22, file_size);
+
+    bool race_cond = false;
+
+    // The number of times to repeat the test. This is necessary since race
+    // conditions are not deterministic. 8192 seems to be enough to trigger it
+    // (tested with commenting out the locks in vfs_write). Each loop is
+    // relatively fast since we are operating on a memdisk.
+    uint32_t const num_tries = 8192;
+    for (uint32_t i = 0; i < num_tries && !race_cond; ++i) {
+        bool volatile start = false;
+        atomic_t complete;
+        atomic_init(&complete, 0);
+
+        struct concurrent_test_info info1 = {
+            .file = file, .is_write = true, .buf = buf1, .offset = 0,
+            .length = file_size, .start_flag = &start, .completed = &complete,
+        };
+
+        struct concurrent_test_info info2 = {
+            .file = file, .is_write = true, .buf = buf2, .offset = 0,
+            .length = file_size, .start_flag = &start, .completed = &complete,
+        };
+
+        void (*func)(void*) = concurrent_test_exec;
+        exec_remote_call(TEST_TARGET_CPU(0), func, &info1, false);
+        exec_remote_call(TEST_TARGET_CPU(1), func, &info2, false);
+
+        cpu_set_interrupt_flag(true);
+        start = true;
+        while (atomic_read(&complete) != 2) {
+            cpu_pause();
+        }
+
+        // Read the file's content.
+        uint8_t * const read_buf = kmalloc(file_size);
+        size_t const read_res = vfs_read(file, 0, read_buf, file_size);
+        ASSERT(read_res == file_size);
+
+        // Make sure the writes were atomic.
+        if (!memeq(buf1, read_buf, file_size) &&
+            !memeq(buf2, read_buf, file_size)) {
+            LOG("Race condition detected after %u tries\n", i + 1);
+            race_cond = true;
+        }
+
+        kfree(read_buf);
+
+        // Clean up the file.
+        ASSERT(vfs_write(file, 0, filedata, file_size) == file_size);
+    }
+
+    kfree(buf1);
+    kfree(buf2);
+    kfree(filedata);
+    vfs_close(file);
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return !race_cond;
+
+}
+
+// =============================================================================
+// Concurrent read and write test: In this test we have a reader and a writer.
+// Both are reading/writing from/to the same file at the same index (0) for the
+// same length (entire file).
+// This test makes sure that both are not reading/writing at the same time. In
+// other words the reader should read either the original contents of the file
+// or the content being written by the writer but not a mix of the two.
+static bool vfs_concurrent_read_and_write_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    vfs_mount(disk, mount_point);
+
+    pathname_t const filename = "/some/mount/point/root/file0";
+
+    struct file * const file = vfs_open(filename);
+    TEST_ASSERT(file);
+
+    size_t const file_size = 1078;
+
+    // The original file data. This will be written back after this test.
+    uint8_t * const filedata = kmalloc(file_size);
+    // See comment in ustar.test to know which offset corresponds to the file
+    // data and its file size.
+    size_t const hardcode_file_off = 0xE00;
+    memcpy(filedata, ARCHIVE + hardcode_file_off, file_size);
+
+    // Prepare the buffer for the writer and fill it with data that is different
+    // of that of the file.
+    uint8_t * const writer_buf = kmalloc(file_size);
+    for (size_t i = 0; i < file_size; ++i) {
+        writer_buf[i] = ~filedata[i];
+    }
+
+    bool race_cond = false;
+
+    // The number of times to repeat the test. This is necessary since race
+    // conditions are not deterministic. 8192 seems to be enough to trigger it
+    // (tested with commenting out the locks in vfs_write). Each loop is
+    // relatively fast since we are operating on a memdisk.
+    uint32_t const num_tries = 8192;
+    for (uint32_t i = 0; i < num_tries && !race_cond; ++i) {
+        bool volatile start = false;
+        atomic_t complete;
+        atomic_init(&complete, 0);
+
+        // Buffer for the reader cpu.
+        uint8_t * const reader_buf = kmalloc(file_size);
+
+        struct concurrent_test_info writer_info = {
+            .file = file, .is_write = true, .buf = writer_buf, .offset = 0,
+            .length = file_size, .start_flag = &start, .completed = &complete,
+        };
+
+        struct concurrent_test_info reader_info = {
+            .file = file, .is_write = false, .buf = reader_buf, .offset = 0,
+            .length = file_size, .start_flag = &start, .completed = &complete,
+        };
+
+        void (*func)(void*) = concurrent_test_exec;
+        exec_remote_call(TEST_TARGET_CPU(0), func, &writer_info, false);
+        exec_remote_call(TEST_TARGET_CPU(1), func, &reader_info, false);
+
+        cpu_set_interrupt_flag(true);
+        start = true;
+        while (atomic_read(&complete) != 2) {
+            cpu_pause();
+        }
+
+        // Make sure the writer was atomic and that the reader did not read a
+        // mix of the two.
+        if (!memeq(filedata, reader_buf, file_size) &&
+            !memeq(writer_buf, reader_buf, file_size)) {
+            LOG("Race condition detected after %u tries\n", i + 1);
+            race_cond = true;
+        }
+
+        kfree(reader_buf);
+
+        // Clean up the file.
+        ASSERT(vfs_write(file, 0, filedata, file_size) == file_size);
+    }
+
+    kfree(writer_buf);
+    kfree(filedata);
+    vfs_close(file);
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return !race_cond;
+
+}
+
+// =============================================================================
+// Concurrent read and write test 2: In this test we have two readers and a
+// writer.
+// All are reading/writing from/to the same file at the same index (0) for the
+// same length (entire file).
+//
+// This test makes sure that the writer is not writing at the same time as the
+// readers are reading. In other words the readers should read either the
+// original contents of the file or the content being written by the writer but
+// not a mix of the two.
+// Additionaly, this test makes sure that the readers are allowed to read
+// concurrently by checking that both readers read the exact same data. This
+// condition is sufficient here because:
+//   - We are in hardware and hence the readers and writer attempt to read/write
+// almost at the same time. This means they try to acquire the RW lock almost at
+// the same time.
+//   - The first cpu acquiring the lock can be either:
+//     * One of the reader, this means that the second reader should also be
+//     acquiring the lock almost at the same time (see above). In this case both
+//     readers proceed _before_ the writter and both are reading what was in the
+//     file _before_ the write.
+//     * The writer. In this case both readers are waiting for the writer to
+//     complete and will both read what the writer wrote.
+static bool vfs_concurrent_multiple_readers_single_writer_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    vfs_mount(disk, mount_point);
+
+    pathname_t const filename = "/some/mount/point/root/file0";
+
+    struct file * const file = vfs_open(filename);
+    TEST_ASSERT(file);
+
+    size_t const file_size = 1078;
+
+    // The original file data. This will be written back after this test.
+    uint8_t * const filedata = kmalloc(file_size);
+    // See comment in ustar.test to know which offset corresponds to the file
+    // data and its file size.
+    size_t const hardcode_file_off = 0xE00;
+    memcpy(filedata, ARCHIVE + hardcode_file_off, file_size);
+
+    // Prepare the buffer for the writer and fill it with data that is different
+    // of that of the file.
+    uint8_t * const writer_buf = kmalloc(file_size);
+    for (size_t i = 0; i < file_size; ++i) {
+        writer_buf[i] = ~filedata[i];
+    }
+
+    bool race_cond = false;
+
+    // The number of times to repeat the test. This is necessary since race
+    // conditions are not deterministic. 8192 seems to be enough to trigger it
+    // (tested with commenting out the locks in vfs_write). Each loop is
+    // relatively fast since we are operating on a memdisk.
+    uint32_t const num_tries = 8192;
+    for (uint32_t i = 0; i < num_tries && !race_cond; ++i) {
+        bool volatile start = false;
+        atomic_t complete;
+        atomic_init(&complete, 0);
+
+        // Buffer for the reader cpus.
+        uint8_t * const reader_buf1 = kmalloc(file_size);
+        uint8_t * const reader_buf2 = kmalloc(file_size);
+
+        struct concurrent_test_info writer_info = {
+            .file = file, .is_write = true, .buf = writer_buf, .offset = 0,
+            .length = file_size, .start_flag = &start, .completed = &complete,
+        };
+
+        struct concurrent_test_info reader_info1 = {
+            .file = file, .is_write = false, .buf = reader_buf1, .offset = 0,
+            .length = file_size, .start_flag = &start, .completed = &complete,
+        };
+
+        struct concurrent_test_info reader_info2 = {
+            .file = file, .is_write = false, .buf = reader_buf2, .offset = 0,
+            .length = file_size, .start_flag = &start, .completed = &complete,
+        };
+
+        void (*func)(void*) = concurrent_test_exec;
+        exec_remote_call(TEST_TARGET_CPU(0), func, &writer_info, false);
+        exec_remote_call(TEST_TARGET_CPU(1), func, &reader_info1, false);
+        exec_remote_call(TEST_TARGET_CPU(2), func, &reader_info2, false);
+
+        cpu_set_interrupt_flag(true);
+        start = true;
+        while (atomic_read(&complete) != 3) {
+            cpu_pause();
+        }
+
+        // Make sure the writer was atomic and that the readers did not read a
+        // mix of the two. And make sure that both readers read the same thing.
+        if ((!memeq(filedata, reader_buf1, file_size) &&
+            !memeq(writer_buf, reader_buf1, file_size)) ||
+            (!memeq(filedata, reader_buf2, file_size) &&
+            !memeq(writer_buf, reader_buf2, file_size))) {
+            LOG("Race condition detected after %u tries\n", i + 1);
+            race_cond = true;
+        } else if (!memeq(reader_buf1, reader_buf2, file_size)) {
+            LOG("Discrepency between readers detected after %u tries\n", i + 1);
+            race_cond = true;
+        }
+
+        kfree(reader_buf2);
+        kfree(reader_buf1);
+
+        // Clean up the file.
+        ASSERT(vfs_write(file, 0, filedata, file_size) == file_size);
+    }
+
+    kfree(writer_buf);
+    kfree(filedata);
+    vfs_close(file);
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    return !race_cond;
+
+}
+
 void vfs_test(void) {
     init_vfs();
 
@@ -308,6 +651,9 @@ void vfs_test(void) {
     TEST_FWK_RUN(vfs_lookup_file_test);
     TEST_FWK_RUN(vfs_read_test);
     TEST_FWK_RUN(vfs_write_test);
+    TEST_FWK_RUN(vfs_concurrent_write_test);
+    TEST_FWK_RUN(vfs_concurrent_read_and_write_test);
+    TEST_FWK_RUN(vfs_concurrent_multiple_readers_single_writer_test);
 
     // Call init_vfs() a second time to remove any state changed by the tests.
     init_vfs();
