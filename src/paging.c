@@ -297,6 +297,7 @@ static void map_page_in(struct addr_space * const addr_space,
         // The table for this index is not present, we need to allocate it and
         // set it up.
         struct page_table * const new_table = alloc_page_table();
+        TODO_PROPAGATE_ERROR(new_table == NO_FRAME);
         page_table_allocated = true;
         union pde_t pde;
         // Try to be as inclusive as possible for the PDE. The PTEs will
@@ -421,6 +422,10 @@ void init_paging(void const * const esp) {
 
     // Allocate a page directory for the kernel itself.
     struct page_dir * const page_dir = alloc_page_dir();
+    if (page_dir == NO_FRAME) {
+        PANIC("Not enough physical memory to even initialize paging ??\n");
+    }
+
     memzero(page_dir, PAGE_SIZE);
 
     // Initialize the kernel's struct addr_space with the frame we just

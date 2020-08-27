@@ -221,11 +221,14 @@ void *alloc_frame(void) {
     // Try to find the next free frame (that is the next free bit in the
     // bitmap). If no frame is available, panic, there is nothing to do.
     uint32_t const frame_idx = bitmap_set_next_bit(bitmap);
+    void * frame_addr;
     if (frame_idx == BM_NPOS) {
-        PANIC("No physical frame available.");
+        LOG("No physical frame left for allocation.\n");
+        frame_addr = NO_FRAME;
+    } else {
+        // A frame is available, its address is the bit position * PAGE_SIZE.
+        frame_addr = (void*)(frame_idx * 0x1000);
     }
-    // A frame is available, its address is the bit position * PAGE_SIZE.
-    void * const frame_addr = (void*)(frame_idx * 0x1000);
     spinlock_unlock(&FRAME_ALLOC_LOCK);
     return frame_addr;
 }

@@ -32,6 +32,7 @@ static void allocate_stack(struct proc * const proc) {
     void * frames[n_stack_frames];
     for (uint32_t i = 0; i < n_stack_frames; ++i) {
         frames[i] = alloc_frame();
+        TODO_PROPAGATE_ERROR(frames[i] == NO_FRAME);
     }
 
     // Map the stack into the process' address space.

@@ -104,13 +104,13 @@ static bool is_under_1mib(void const * const addr) {
 }
 
 // Allocate a physical frame under 1MiB.
-// @return: The physical address of the allocated frame, NULL if not frame is
+// @return: The physical address of the allocated frame, NO_FRAME if no frame is
 // free under 1MiB.
-// TODO: NULL could be a valid physical frame address, we should not rely on it
-// to indicate failure. Rework this function.
 static void * alloc_low_mem_stack_frame(void) {
     void * const frame = alloc_frame();
-    if (is_under_1mib(frame)) {
+    if (frame == NO_FRAME) {
+        return NO_FRAME;
+    } else if (is_under_1mib(frame)) {
         // This frame is under the 1MiB limit, we can use it.
         LOG("Stack frame @ %p\n", frame);
         return frame;
@@ -119,7 +119,7 @@ static void * alloc_low_mem_stack_frame(void) {
         // frame and return a failure.
         LOG("Couldn't find frame under 1MiB\n");
         free_frame(frame);
-        return NULL;
+        return NO_FRAME;
     }
 }
 
@@ -147,6 +147,10 @@ static uint32_t AP_WAKEUP_ROUTINE_MAX_STACKS = 256;
 // @return: The physical address of the data frame.
 static void * create_data_frame(void (*target)(void)) {
     void * const phy_frame = alloc_frame();
+
+    if (phy_frame == NO_FRAME) {
+        PANIC("Cannot create data frame to wake up APs.\n");
+    }
 
     // Since the data frame must be accessible by the APs running in real-mode
     // during their boot sequence, it must be located under the 1MiB physical
@@ -206,7 +210,7 @@ static void * create_data_frame(void (*target)(void)) {
         // Try to allocate a new stack frame under 1MiB.
         void * const frame = alloc_low_mem_stack_frame();
 
-        if (!frame) {
+        if (frame == NO_FRAME) {
             // There are no physical frame left under the 1MiB limit. Some cpus
             // will have to share a stack frame. This is ok since each stack
             // frame has a lock specifically added for this case.
@@ -287,6 +291,9 @@ static void * create_trampoline(void (*target)(void)) {
     static void * code_frame = (void*)0xFFFFFFFF;
     if (code_frame == (void*)0xFFFFFFFF) {
         code_frame = alloc_frame();
+        if (code_frame == NO_FRAME) {
+            PANIC("Cannot allocate code frame to wake up APs.\n");
+        }
     }
 
     LOG("Trampoline code frame at %p\n", code_frame);
@@ -439,6 +446,9 @@ void *ap_alloc_higher_half_stack(void) {
     // kernel.
     for (uint32_t i = 0; i < size; ++i) {
         void * const frame = alloc_frame();
+        if (frame == NO_FRAME) {
+            PANIC("Not enough mem to allocate cpu stack %u\n", cpu_apic_id());
+        }
         paging_map(frame, vaddr + i * PAGE_SIZE, PAGE_SIZE, VM_WRITE);
     }
 

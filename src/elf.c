@@ -268,6 +268,7 @@ static void process_program_header(struct file * const file,
     void **frames = kmalloc(nframes * sizeof(*frames));
     for (uint32_t i = 0; i < nframes; ++i) {
         frames[i] = alloc_frame();
+        TODO_PROPAGATE_ERROR(frames[i] == NO_FRAME);
     }
 
     // ELF and paging do not share the same flags for access permissions. We

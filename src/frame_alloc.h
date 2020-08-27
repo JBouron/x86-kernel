@@ -8,8 +8,15 @@
 // Initialize the frame allocator.
 void init_frame_alloc(void);
 
+// Special value returned by alloc_frame() to indicate that no physical frame
+// could be allocated. We use this invalid value instead of NULL here so that
+// the physical frame 0 can still be allocated/used without being mistaken for
+// an error.
+#define NO_FRAME    (void*)(-1UL)
+
 // Allocate a new physical frame in RAM.
-// @return: The physical address of the allocated physical frame.
+// @return: The physical address of the allocated physical frame. If no physical
+// frame is available for allocation, this function returns NO_FRAME.
 void *alloc_frame(void);
 
 // Free up a physical frame.

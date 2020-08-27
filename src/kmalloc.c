@@ -112,6 +112,7 @@ static struct group * create_group(size_t const size) {
     void *frames[size];
     for (size_t i = 0; i < size; ++i) {
         frames[i] = alloc_frame();
+        TODO_PROPAGATE_ERROR(frames[i] == NO_FRAME);
     }
 
     // Modifying kernel mappings requires using the kernel address space.
