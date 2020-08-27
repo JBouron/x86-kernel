@@ -40,6 +40,11 @@ size_t disk_read(struct disk * const disk,
     // be optimized to read into the buffer `buf` instead.
     uint8_t * const sector_data = kmalloc(sector_size);
 
+    // FIXME: Not sure if we should return 0 here or an error code (-1 ?).
+    // Probably better to get rid of the dynamic allocation and use the buffer
+    // directly.
+    TODO_PROPAGATE_ERROR(!sector_data);
+
     for (sector_t sector = start_sector; sector <= end_sector; ++sector) {
         memzero(sector_data, sector_size);
 
@@ -101,6 +106,7 @@ size_t disk_write(struct disk * const disk,
 
             // Read the current data on the sector.
             uint8_t * const curr = kmalloc(sector_size);
+            TODO_PROPAGATE_ERROR(!curr);
             uint32_t const read = disk->ops->read_sector(disk, sector, curr);
             if (read != sector_size) {
                 // We failed to read the sector to update it, this could happen

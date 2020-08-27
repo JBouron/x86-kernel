@@ -98,7 +98,8 @@ struct node {
 
 // Allocate a new group. The new group is initially empty.
 // @param size: The size of the group in pages.
-// @return: The virtual address of the new group.
+// @return: The virtual address of the new group. If the group cannot be created
+// (not enough memory or other condition), this function returns NULL.
 // Note: This function assumes that KMALLOC_LOCK is not held.
 static struct group * create_group(size_t const size) {
     // The group must reside in kernel memory.
@@ -112,7 +113,15 @@ static struct group * create_group(size_t const size) {
     void *frames[size];
     for (size_t i = 0; i < size; ++i) {
         frames[i] = alloc_frame();
-        TODO_PROPAGATE_ERROR(frames[i] == NO_FRAME);
+
+        if (frames[i] == NO_FRAME) {
+            // Not enough physical memory to allocate the whole group. Free the
+            // frames allocated so far.
+            for (size_t j = 0; j < i; ++j) {
+                free_frame(frames[j]);
+            }
+            return NULL;
+        }
     }
 
     // Modifying kernel mappings requires using the kernel address space.
@@ -465,7 +474,8 @@ DECLARE_SPINLOCK(KMALLOC_LOCK);
 // particular group that will contain the allocation is the first group (in the
 // order of this list) that can hold the requested amount.
 // @param size: The size of the allocation.
-// @return: The address of the allocated memory.
+// @return: The address of the allocated memory. NULL if the memory cannot be
+// allocated.
 static void * do_kmalloc(struct list_node * group_list, size_t const size) {
     void * const addr = try_allocation(group_list, size);
     if (addr) {
@@ -485,6 +495,11 @@ static void * do_kmalloc(struct list_node * group_list, size_t const size) {
         uint32_t const num_pages = ceil_x_over_y_u32(size + sizeof(group) +
             HEADER_SIZE, PAGE_SIZE);
         group = create_group(num_pages);
+
+        if (!group) {
+            // Not enough memory to alloacte the request.
+            return NULL;
+        }
 
         spinlock_lock(&KMALLOC_LOCK);
 

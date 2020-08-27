@@ -81,6 +81,7 @@ void unlock_addr_space(struct addr_space * const addr_space) {
 
 struct addr_space *create_new_addr_space(void) {
     struct addr_space * clone = kmalloc(sizeof(*clone));
+    TODO_PROPAGATE_ERROR(!clone);
     void * const page_dir = alloc_frame();
     TODO_PROPAGATE_ERROR(page_dir == NO_FRAME);
 

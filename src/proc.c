@@ -75,6 +75,7 @@ static pid_t get_new_pid(void) {
 static struct proc *create_proc_in_ring(uint8_t const ring) {
     ASSERT(ring == 0 || ring == 3);
     struct proc * const proc = kmalloc(sizeof(*proc));
+    TODO_PROPAGATE_ERROR(!proc);
     proc->is_kernel_proc = (ring == 0);
 
     // Kernel processes use the kernel address space.

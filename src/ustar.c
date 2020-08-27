@@ -127,6 +127,12 @@ static bool find_file(struct disk * const disk,
                       char const * const filepath,
                       uint32_t *file_offset) {
     struct ustar_header * const hdr = kmalloc(sizeof(*hdr));
+    if (!hdr) {
+        // This is probably not desirable here but this case should not happen
+        // often anyway. This could be solved by using the stack instead.
+        PANIC("Cannot allocate memory to find file\n");
+    }
+
     uint32_t offset = 0x0;
     bool found = false;
 
@@ -140,6 +146,11 @@ static bool find_file(struct disk * const disk,
         // +1 for the potential "/" between the prefix and the file
         // +1 for the '\0'.
         char * const fullname = kmalloc(full_filename_len + 2);
+        if (!fullname) {
+            // This is probably not desirable here but this case should not happen
+            // often anyway. This could be solved by using the stack instead.
+            PANIC("Cannot allocate memory to find file\n");
+        }
 
         if (prefix_len) {
             // Most of the time, there is no prefix.
@@ -316,6 +327,11 @@ static enum fs_op_res ustar_open_file(struct disk * const disk,
     // Read the USTAR header for the file and store it into the fs_private
     // field, this will be used later when reading the file.
     struct ustar_file_private_data * const data = kmalloc(sizeof(*data));
+    if (!data) {
+        // This is probably not desirable here but this case should not happen
+        // often anyway. This could be solved by using the stack instead.
+        PANIC("Cannot allocate memory to open file\n");
+    }
     data->header_offset = file_offset;
     bool const success = read_header(disk, file_offset, &data->header);
     ASSERT(success);

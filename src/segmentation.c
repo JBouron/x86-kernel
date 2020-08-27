@@ -306,6 +306,9 @@ void switch_to_final_gdt(void **per_cpu_areas) {
 
     // Allocate the final GDT. Kmalloc zeroes the GDT for us.
     GDT = kmalloc(num_entries * sizeof(*GDT));
+    if (!GDT) {
+        PANIC("Cannot allocate final GDT\n");
+    }
 
     // Copy the data and code segments from the early GDT. Those stay the same.
     GDT[KERNEL_DATA_INDEX] = EARLY_GDT[KERNEL_DATA_INDEX];

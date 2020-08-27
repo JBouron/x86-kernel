@@ -137,6 +137,8 @@ fd_t do_open(pathname_t const u_path) {
 
     // Allocate a new entry for the file table.
     struct file_table_entry * const op_file = kmalloc(sizeof(*op_file));
+    // FIXME: This syscall should retun an error code here.
+    TODO_PROPAGATE_ERROR(!op_file);
     op_file->file = file;
     op_file->file_pointer = 0x0;
 

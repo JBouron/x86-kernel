@@ -201,6 +201,12 @@ static struct ipm_message * alloc_message(enum ipm_tag_t const tag,
                                             void * const data,
                                             size_t const len) {
     struct ipm_message * const message = kmalloc(sizeof(*message));
+    if (!message) {
+        // It is probably better to just PANIC here, this is used by the kernel
+        // only, not facing user space.
+        PANIC("Cannot allocate IPM message\n");
+    }
+
     message->tag = tag;
     message->sender_id = this_cpu_var(cpu_id);
     // By default make the receiving cpu deallocate the ipm_message_t. This is
@@ -299,6 +305,10 @@ void exec_remote_call(uint8_t const cpu,
     int32_t const ref_count_initial_val = wait ? 2 : 1;
 
     struct remote_call_data *rem_data = kmalloc(sizeof(*rem_data));
+    if (!rem_data) {
+        PANIC("Cannot allocate remote_call_data for remote call\n");
+    }
+
     rem_data->func = func;
     rem_data->arg = arg;
     atomic_init(&rem_data->ref_count, ref_count_initial_val);
@@ -325,6 +335,10 @@ void broadcast_remote_call(void (*func)(void*),
     int32_t const ref_count_initial_val = acpi_get_number_cpus() - (wait?0:1);
 
     struct remote_call_data *rem_data = kmalloc(sizeof(*rem_data));
+    if (!rem_data) {
+        PANIC("Cannot allocate remote_call_data for remote call\n");
+    }
+
     rem_data->func = func;
     rem_data->arg = arg;
     atomic_init(&rem_data->ref_count, ref_count_initial_val);

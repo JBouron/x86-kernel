@@ -422,6 +422,9 @@ static void maybe_allocate_aps_stacks_array(void) {
         }
     } else {
         APS_STACKS = kmalloc(ncpus * sizeof(*APS_STACKS));
+        if (!APS_STACKS) {
+            PANIC("Cannot allocate APs stack array\n");
+        }
     }
     spinlock_unlock(&AP_BOOT_LOCK);
 }

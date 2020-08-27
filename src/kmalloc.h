@@ -31,7 +31,8 @@
 // @param line_number: The line number in the file where the kmalloc() call
 // originated.
 // @param size: The requested amount of memory.
-// @return: The virtual address of the allocated memory.
+// @return: The virtual address of the allocated memory, or NULL in case of
+// error.
 void * kmalloc_debug_wrapper(char const * const func_name,
                              char const * const filename,
                              uint32_t const line_number,
@@ -60,7 +61,8 @@ void kfree_debug_wrapper(char const * const func_name,
 #else // KMALLOC_DEBUG
 // Allocate memory.
 // @param size: The requested amount of memory.
-// @return: The virtual address of the allocated memory.
+// @return: The virtual address of the allocated memory, or NULL in case of
+// error.
 void * kmalloc(size_t const size);
 
 // Free allocated memory.

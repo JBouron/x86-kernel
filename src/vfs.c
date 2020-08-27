@@ -74,6 +74,7 @@ static bool mount_target_is_valid(pathname_t const pathname) {
 void vfs_mount(struct disk * const disk, pathname_t const target) {
     ASSERT(mount_target_is_valid(target));
     struct mount * const mount = kmalloc(sizeof(*mount));
+    TODO_PROPAGATE_ERROR(!mount);
     mount->mount_point = target;
     mount->disk = disk;
     mount->fs = get_fs_for_disk(disk);
@@ -205,6 +206,11 @@ static struct file *open_file(pathname_t const filename) {
     // Allocate the file and initialize all the fields except for the FS
     // specific ones.
     struct file * const file = kmalloc(sizeof(*file));
+    if (!file) {
+        LOG("Cannot allocate memory to open file %s\n", filename);
+        return NULL;
+    }
+
     file->abs_path = filename_cpy;
     file->fs_relative_path = rel_path;
     file->disk = disk;

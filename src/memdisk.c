@@ -123,10 +123,12 @@ struct disk *create_memdisk(void * const addr,
     }
 
     struct disk * const disk = kmalloc(sizeof(*disk));
+    TODO_PROPAGATE_ERROR(!disk);
     disk->ops = &memdisk_ops;
 
     // Allocate a memdisk_data for this new disk containing its state.
     struct memdisk_data * const data = kmalloc(sizeof(*data));
+    TODO_PROPAGATE_ERROR(!data);
     disk->driver_private = data;
 
     data->mapped_addr = addr;

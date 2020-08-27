@@ -266,6 +266,7 @@ static void process_program_header(struct file * const file,
     // Allocate physical frames for this segment.
     size_t const nframes = get_required_num_frames(segment_start, segment_end);
     void **frames = kmalloc(nframes * sizeof(*frames));
+    TODO_PROPAGATE_ERROR(!frames);
     for (uint32_t i = 0; i < nframes; ++i) {
         frames[i] = alloc_frame();
         TODO_PROPAGATE_ERROR(frames[i] == NO_FRAME);

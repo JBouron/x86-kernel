@@ -11,6 +11,10 @@ static void allocate_per_cpu_areas(void) {
 
     // Allocate the PER_CPU_OFFSETS.
     PER_CPU_OFFSETS = kmalloc(ncpus * sizeof(*PER_CPU_OFFSETS));
+    if (!PER_CPU_OFFSETS) {
+        // There is no point in continuing if we can't allocate percpu data.
+        PANIC("Cannot allocate percpu metadata\n");
+    }
 
     // The size of the segment to contain the per-cpu variables is given by the
     // suze of the .percpu section which contain a set of those variables.
@@ -20,6 +24,9 @@ static void allocate_per_cpu_areas(void) {
     // Register the offsets in PER_CPU_OFFSETS.
     for (uint8_t i = 0; i < ncpus; ++i) {
         void * const cpu_var_area = kmalloc(size);
+        if (!cpu_var_area) {
+            PANIC("Cannot allocate percpu area for cpu %u\n", i);
+        }
 
         PER_CPU_OFFSETS[i] = cpu_var_area;
 

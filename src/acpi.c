@@ -209,6 +209,12 @@ struct rsdp_desc const * find_rsdp_desc(void) {
 // function.
 static char * get_sdt_signature(struct sdt_header const * const sdt) {
     char * const str = kmalloc(sizeof(sdt->signature) + 1);
+    if (!str) {
+        // There is no point to propagate the error to the caller here. If we
+        // can't even allocate a single string at early boot time then might as
+        // well PANIC.
+        PANIC("Cannot allocate SDT signature string\n");
+    }
     // The allocation above will already memzero the string.
     strncpy(sdt->signature, str, sizeof(sdt->signature));
     return str;
