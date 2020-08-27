@@ -8,3 +8,8 @@ end
 define _cont
     set var i = 1
 end
+
+define cpu
+    set $__i = $arg0 + 1
+    thread $__i
+end
