@@ -182,6 +182,7 @@ struct file ELF_FILE = {
     .fs_relative_path = "Somewhere",
     .disk = NULL,
     .ops = &_file_ops,
+    .lock = INIT_RW_LOCK(),
     .fs_private = NULL,
 };
 
