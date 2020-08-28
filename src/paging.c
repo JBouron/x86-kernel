@@ -150,7 +150,13 @@ static struct page_dir *get_page_dir(struct addr_space * const addr_space) {
         // directory of the target address space to the current address space
         // and return the virtual address where it has been mapped to.
         void *frame = addr_space->page_dir_phy_addr;
-        return paging_map_frames_above(KERNEL_PHY_OFFSET, &frame, 1, VM_WRITE);
+        void *addr;
+        addr =  paging_map_frames_above(KERNEL_PHY_OFFSET, &frame, 1, VM_WRITE);
+        if (addr == NO_REGION) {
+            // Correctly handling this error would be too complex here.
+            PANIC("Cannot map page directory\n");
+        }
+        return addr;
     }
 }
 
@@ -179,7 +185,13 @@ static struct page_table *get_page_table(struct page_dir * const page_dir,
         // cannot use the recursive entry to get the virtual address of the page
         // table, map it in the current address space instead.
         void *frame = (void*)(page_dir->entry[index].page_table_addr << 12);
-        return paging_map_frames_above(KERNEL_PHY_OFFSET, &frame, 1, VM_WRITE);
+        void *addr;
+        addr = paging_map_frames_above(KERNEL_PHY_OFFSET, &frame, 1, VM_WRITE);
+        if (addr == NO_REGION) {
+            // Correctly handling this error would be too complex here.
+            PANIC("Cannot map page table\n");
+        }
+        return addr;
     }
 }
 
@@ -690,9 +702,8 @@ static bool page_is_mapped(struct addr_space * const addr_space,
 // Find the next non-mapped page in an address space.
 // @param addr_space: The address space in which the search should be performed.
 // @param start: The page address to start searching from.
-// @return: The address of the next non mapped page. Note that if no page is
-// available the function will panic. Therefore the return value of this
-// function is always correct.
+// @return: The address of the next non mapped page. If no such page is found,
+// NO_REGION is returned.
 static void * find_next_non_mapped_page(struct addr_space * const addr_space,
                                         void * const start) {
     void * ptr = start;
@@ -705,8 +716,7 @@ static void * find_next_non_mapped_page(struct addr_space * const addr_space,
         }
         ptr += PAGE_SIZE;
     }
-    PANIC("Virtual address space full");
-    return NULL;
+    return NO_REGION;
 }
 
 // Compute the size of the hole (aka non mapped memory) starting at a virtual
@@ -762,16 +772,16 @@ static void *do_paging_find_contiguous_non_mapped_pages_in(
     size_t const npages) {
 
     void * ptr = find_next_non_mapped_page(addr_space, start_addr);
-    bool done = false;
-    while (!done) {
+    while (ptr != NO_REGION) {
         uint32_t const hole = compute_hole_size(addr_space, ptr);
         if (hole >= npages) {
             return ptr;
         }
         ptr = find_next_non_mapped_page(addr_space, ptr + PAGE_SIZE);
     }
-    PANIC("No hole big enough");
-    return NULL;
+
+    // Could not find a hole big enough.
+    return NO_REGION;
 }
 
 void *paging_find_contiguous_non_mapped_pages_in(
@@ -795,6 +805,12 @@ void *paging_map_frames_above_in(struct addr_space * const addr_space,
     lock_addr_space(addr_space);
     void * const start = do_paging_find_contiguous_non_mapped_pages_in(
         addr_space, start_addr, npages);
+    if (start == NO_REGION) {
+        // Cannot find a region big enough to map all the frames to.
+        unlock_addr_space(addr_space);
+        return NO_REGION;
+    }
+
     for (size_t i = 0; i < npages; ++i) {
         void const * const frame = frames[i];
         do_paging_map_in(addr_space, frame, start + i * PAGE_SIZE, PAGE_SIZE, flags);

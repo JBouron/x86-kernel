@@ -138,6 +138,16 @@ static struct group * create_group(size_t const size) {
         switch_to_addr_space(curr_addr_space);
     }
 
+    if (pages == NO_REGION) {
+        // We were able to allocate the physical frames, however we cannot map
+        // them to a contiguous region in the address space. The group is
+        // unusable here. Free the frames and fail.
+        for (size_t i = 0; i < size; ++i) {
+            free_frame(frames[i]);
+        }
+        return NULL;
+    }
+
     // Zero the pages to avoid random garbage.
     memzero(pages, size * PAGE_SIZE);
 

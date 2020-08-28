@@ -47,6 +47,7 @@ static void allocate_stack(struct proc * const proc) {
     void * const low = (void*)(proc->is_kernel_proc ? 0x100000 : 0x0);
     void * const stack_top =
         paging_map_frames_above_in(as, low, frames, n_stack_frames, map_flags);
+    TODO_PROPAGATE_ERROR(stack_top == NO_REGION);
     void * const stack_bottom = get_stack_bottom(stack_top, n_stack_frames);
 
     // Set the esp in the registers_save of the stack.

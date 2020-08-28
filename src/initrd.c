@@ -35,6 +35,7 @@ struct disk *get_initrd_disk(void) {
 
         if (!phy_addr) {
             // No initrd was detected when parsing the multiboot header.
+            spinlock_unlock(&INIT_RD_GET_DISK_LOCK);
             return NULL;
         }
 
@@ -54,6 +55,11 @@ struct disk *get_initrd_disk(void) {
                                                             frames,
                                                             num_frames,
                                                             0);
+        if (initrd_vaddr == NO_REGION) {
+            spinlock_unlock(&INIT_RD_GET_DISK_LOCK);
+            LOG("Cannot map initrd to virtual address space\n");
+            return NULL;
+        }
         INIT_RD_MEMDISK = create_memdisk(initrd_vaddr, size, true);
     }
     disk = INIT_RD_MEMDISK;

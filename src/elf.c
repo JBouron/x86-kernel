@@ -282,6 +282,7 @@ static void process_program_header(struct file * const file,
                                                   frames,
                                                   nframes,
                                                   map_flags);
+    TODO_PROPAGATE_ERROR(mapped == NO_REGION);
     // FIXME: We could map the frames one by one to make sure that they are
     // mapped at the right virt address. Using paging_map_frames_above_in() is
     // shorter be we could end up in a situation where the mapped address is not
@@ -296,6 +297,7 @@ static void process_program_header(struct file * const file,
                                                      frames,
                                                      nframes,
                                                      VM_NON_GLOBAL | VM_WRITE);
+    TODO_PROPAGATE_ERROR(write_map == NO_REGION);
 
     // Copy the initialized segment data from the file.
     off_t const offset = prog_hdr->offset;

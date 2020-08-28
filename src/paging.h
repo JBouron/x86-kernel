@@ -79,12 +79,18 @@ void paging_unmap_and_free_frames_in(struct addr_space * const addr_space,
 #define paging_unmap_and_free_frames(vaddr, len) \
     paging_unmap_and_free_frames_in(get_curr_addr_space(), (vaddr), (len))
 
+// Special value returned by paging_find_contiguous_non_mapped_pages(_in) and
+// paging_map_frames_above(_in) in case there is no hole big enough in the
+// virtual address space to contain the requested amount of memory.
+#define NO_REGION   (void*)(-1UL)
+
 // Find a memory region in the an address space with at least a certain number
 // of contiguous pages non mapped.
 // @param addr_space: The address space to look into.
 // @param start_addr: The start address to search from.
 // @parma npages: The minimum number of contiguous non mapped pages to look for.
-// @return: The start virtual address of the memory region.
+// @return: The start virtual address of the memory region. If no such region
+// can be found (memory space full) this function return NO_REGION.
 void *paging_find_contiguous_non_mapped_pages_in(
     struct addr_space * const addr_space,
     void * const start_addr,
@@ -94,7 +100,8 @@ void *paging_find_contiguous_non_mapped_pages_in(
 // certain number of contiguous pages non mapped.
 // @param start_addr: The start address to search from.
 // @parma npages: The minimum number of contiguous non mapped pages to look for.
-// @return: The start virtual address of the memory region.
+// @return: The start virtual address of the memory region. If no such region
+// can be found (memory space full) this function return NO_REGION.
 #define paging_find_contiguous_non_mapped_pages(start_addr, npages)     \
     paging_find_contiguous_non_mapped_pages_in(get_curr_addr_space(),   \
                                                (start_addr),    \
@@ -110,7 +117,9 @@ void *paging_find_contiguous_non_mapped_pages_in(
 // virtual memory.
 // @param npages: The number of physical frames to mapped.
 // @param flags: The flags to use when mapping the physical frames.
-// @return: The start virtual address of the memory region.
+// @return: The start virtual address of the memory region. If the function
+// cannot find a region in the address space big enough to contain the requested
+// number of pages it returns NO_REGION and nothing will be mapped.
 void *paging_map_frames_above_in(struct addr_space * const addr_space,
                                  void * const start_addr,
                                  void ** frames,
@@ -127,7 +136,9 @@ void *paging_map_frames_above_in(struct addr_space * const addr_space,
 // virtual memory.
 // @param npages: The number of physical frames to mapped.
 // @param flags: The flags to use when mapping the physical frames.
-// @return: The start virtual address of the memory region.
+// @return: The start virtual address of the memory region. If the function
+// cannot find a region in the address space big enough to contain the requested
+// number of pages it returns NO_REGION and nothing will be mapped.
 #define paging_map_frames_above(start_addr, frames, npages, flags)  \
     paging_map_frames_above_in(get_curr_addr_space(),               \
                                (start_addr),                        \

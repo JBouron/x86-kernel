@@ -443,6 +443,9 @@ void *ap_alloc_higher_half_stack(void) {
     size_t const size = ceil_x_over_y_u32(KERNEL_STACK_SIZE, PAGE_SIZE);
     void * const vaddr = paging_find_contiguous_non_mapped_pages(
         KERNEL_PHY_OFFSET, size);
+    if (vaddr == NO_REGION) {
+        PANIC("Stack for cpu %u doesnt fit in vaddr space\n", cpu_apic_id());
+    }
     LOG("Found stack @ %p\n", vaddr);
 
     // Allocate physical frames for the stack and map them to the higher half
