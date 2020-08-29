@@ -280,21 +280,24 @@ static void *get_data_frame_addr_from_frame(void * const code_frame) {
     return (void*)(*last << 4);
 }
 
+// The physical address of the frame that will contain the AP boot code. This
+// frame will not be released. This is because we might need to reset APs long
+// after initialization (in tests for instance).
+static void *APS_CODE_FRAME = NULL;
+
+void smp_preallocate_code_frame(void) {
+    APS_CODE_FRAME = alloc_frame();
+    if (APS_CODE_FRAME == NO_FRAME) {
+        PANIC("Cannot allocate code frame to wake up APs.\n");
+    }
+}
+
 // Create the trampoline, that is the boot code, data frames and stacks
 // necessarty to boot and initialize the APs all the way to the higher-half
 // kernel.
 // @return: The physical address of the entry point for the APs.
 static void * create_trampoline(void (*target)(void)) {
-    // Hack: The code frame must be under 65K. Because we will easily run out of
-    // physical frames under 65k after booting all the cpus, keep the code_frame
-    // around in case we need to re-init aps (in tests for example).
-    static void * code_frame = (void*)0xFFFFFFFF;
-    if (code_frame == (void*)0xFFFFFFFF) {
-        code_frame = alloc_frame();
-        if (code_frame == NO_FRAME) {
-            PANIC("Cannot allocate code frame to wake up APs.\n");
-        }
-    }
+    void * code_frame = APS_CODE_FRAME;
 
     LOG("Trampoline code frame at %p\n", code_frame);
 

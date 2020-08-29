@@ -95,6 +95,10 @@ static void init_kernel_state(void) {
     serial_init();
     tty_init(NULL, &SERIAL_STREAM);
 
+    // Pre allocate the AP boot frame as early as possible to make sure it is
+    // under 65KiB.
+    smp_preallocate_code_frame();
+
     // Parse ACPI tables.
     acpi_init();
 
