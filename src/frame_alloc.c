@@ -21,6 +21,9 @@ struct bitmap FRAME_BITMAP;
 // The number of physical frames used for the bitmap.
 static uint32_t NUM_FRAMES_FOR_BITMAP = 0;
 
+// Out-Of-Memory simulation flag.
+static bool OOM_SIMULATION = false;
+
 // Get a pointer on the bitmap of the frame allocator.
 // @return: Either a physical or virtual pointer whether or not paging has been
 // enabled already.
@@ -218,6 +221,12 @@ void fixup_frame_alloc_to_virt(void) {
 
 void *alloc_frame(void) {
     struct bitmap * const bitmap = get_bitmap_addr();
+
+    if (OOM_SIMULATION) {
+        spinlock_unlock(&FRAME_ALLOC_LOCK);
+        return NO_FRAME;
+    }
+
     // Try to find the next free frame (that is the next free bit in the
     // bitmap). If no frame is available, panic, there is nothing to do.
     uint32_t const frame_idx = bitmap_set_next_bit(bitmap);
@@ -234,6 +243,7 @@ void *alloc_frame(void) {
 }
 
 void free_frame(void const * const ptr) {
+    ASSERT(ptr != NO_FRAME);
     struct bitmap * const bitmap = get_bitmap_addr();
 
     // The pointer is supposed to describe a physical frame and therefore should
@@ -260,6 +270,10 @@ uint32_t frames_allocated(void) {
     uint32_t const n_allocs = bitmap->size - bitmap->free;
     spinlock_unlock(&FRAME_ALLOC_LOCK);
     return n_allocs;
+}
+
+void frame_alloc_set_oom_simulation(bool const enabled) {
+    OOM_SIMULATION = enabled;
 }
 
 #include <frame_alloc.test>

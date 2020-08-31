@@ -65,7 +65,24 @@ static bool frame_allocator_frames_allocated_test(void) {
     return true;
 }
 
+static bool frame_allocator_oom_simulation_test(void) {
+    struct bitmap * const bitmap = get_bitmap_addr();
+    spinlock_unlock(&FRAME_ALLOC_LOCK);
+
+    TEST_ASSERT(bitmap->free);
+
+    frame_alloc_set_oom_simulation(true);
+    TEST_ASSERT(alloc_frame() == NO_FRAME);
+    frame_alloc_set_oom_simulation(false);
+
+    void * const addr = alloc_frame();
+    TEST_ASSERT(addr != NO_FRAME);
+    free_frame(addr);
+    return true;
+}
+
 void frame_alloc_test(void) {
     TEST_FWK_RUN(frame_allocator_alloc_and_free_frame_test);
     TEST_FWK_RUN(frame_allocator_frames_allocated_test);
+    TEST_FWK_RUN(frame_allocator_oom_simulation_test);
 }

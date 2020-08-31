@@ -36,5 +36,11 @@ uint32_t frames_allocated(void);
 // within its data structure(s)).
 void fixup_frame_alloc_to_virt(void);
 
+// Set or Unset the Out Of Memory simulation.
+// @param enabled: If true OOM simulation will be enabled and any subsequent
+// call to frame_alloc() will return NO_FRAME. If false OOM is disabled and
+// frame_alloc() will operate normally.
+void frame_alloc_set_oom_simulation(bool const enabled);
+
 // Tests related to the frame allocators.
 void frame_alloc_test(void);
