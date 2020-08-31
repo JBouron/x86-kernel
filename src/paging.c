@@ -9,6 +9,70 @@
 #include <smp.h>
 #include <addr_space.h>
 
+// Some helper constants to interact with page tables/dirs.
+#define MAX_PDE_IDX         1024
+#define MAX_PTE_IDX         1024
+#define RECURSIVE_PDE_IDX   1023
+#define TEMP_MAP_PDE_IDX    1022
+
+// Virtual address space organization
+// ==================================
+//   A virtual address space is divided in user and kernel addresses. The
+// separation is @ 0xC000000 (KERNEL_PHY_OFFSET). Addresses below that offset
+// are considered user addresses and addresses above are kernel addresses.
+//
+// Recursive Entry in page dirs
+// ============================
+//   To make page dir/table manipulation easier, the last entry in any page
+// directory (entry with index = 1023) points to the physical frame containing
+// the page directory. This recurisve mapping allows us to directly modify
+// mapping in the current address space loaded in CR3 by using addresses
+// 0xFFC00000 - 0xFFFFFFFF.
+//
+// Temporary Mapping page table
+// ============================
+//   Entry 1023 in the page directory points to a page table used for temporary
+// mappings exclusively (eg. when mapping a page dir of another address space to
+// modify it). This page table (as any kernel page table) is shared between all
+// cpus on the system, however each cpu has a private entry in the page table.
+// In this page table, entry i is reserved for cpu i, only cpu i might modify or
+// access this entry. (For now only 1 entry per cpu, in the future this could be
+// extended to 4 entries per cpu).
+// Because each entry is cpu private, there is no need to hold the lock on the
+// address space when modifying an entry and a TLB shootdown is not needed. This
+// is particularly useful when a cpu wants to modify a foreign address space and
+// needs to map the other address space's page dir or table to its current
+// address space in order to perform the modifications.
+// Temporary mappings are ONLY used in this file while modifying paging
+// structures.
+//
+// Page Directory summary
+// ======================
+//
+//  +-------------+
+//  |      0      | <- First PDE for user addresses.
+//  +-------------+
+//  |      1      | <- Second PDE for user addresses.
+//  +-------------+
+//        ...
+//  +-------------+
+//  |     767     | <- Last PDE for user addresses.
+//  +-------------+
+//  |     768     | <- First PDE for kernel addresses. Mapped to phy 0x0.
+//  +-------------+
+//  |     769     | <- Second PDE kernel addrs, mapped to phy 0x1000.
+//  +-------------+
+//        ...
+//  +-------------+
+//  |     XYZ     | <- Last PDE kernel addrs, mapped to last kernel phy frame.
+//  +-------------+
+//        ...
+//  +-------------+
+//  |    1022     | <- Points to temp mapping page table.
+//  +-------------+
+//  |    1023     | <- Recursive PDE entry pointing to this page directory.
+//  +-------------+
+
 // This is the definition of an entry of a page directory.
 union pde_t {
     uint32_t val;
@@ -70,12 +134,12 @@ STATIC_ASSERT(sizeof(union pte_t) == 4, "");
 
 // A page directory structure.
 struct page_dir {
-    union pde_t entry[1024];
+    union pde_t entry[MAX_PDE_IDX];
 };
 
 // A page table structure.
 struct page_table {
-    union pte_t entry[1024];
+    union pte_t entry[MAX_PTE_IDX];
 };
 
 // Compare two PTEs.
@@ -126,7 +190,63 @@ static void create_recursive_entry(struct page_dir * const page_dir) {
     recursive_entry.page_table_addr = ((uint32_t)page_dir) >> 12;
     recursive_entry.present = 1;
 
-    page_dir->entry[1023] = recursive_entry;
+    page_dir->entry[RECURSIVE_PDE_IDX] = recursive_entry;
+}
+
+// Create the page table that will be used for temporary mappings when
+// reading/writing from/to physical addresses.
+// @param page_dir: The page directory in which the entry will be created.
+static void create_temp_mapping_entry(struct page_dir * const page_dir) {
+    struct page_table * const page_table = alloc_page_table();
+    if (page_table == NO_FRAME) {
+        PANIC("Cannot allocated temp mapping page table\n");
+    }
+
+    ASSERT(!page_dir->entry[TEMP_MAP_PDE_IDX].present);
+
+    union pde_t temp_map_entry;
+    temp_map_entry.writable = 1;
+    temp_map_entry.write_through = 1;
+    temp_map_entry.cache_disable = 1;
+    temp_map_entry.user_accessible = 0;
+    temp_map_entry.page_table_addr = ((uint32_t)page_table) >> 12;
+    temp_map_entry.present = 1;
+
+    page_dir->entry[TEMP_MAP_PDE_IDX] = temp_map_entry;
+}
+
+static void map_page_in(struct addr_space * const addr_space,
+                        void const * const paddr,
+                        void const * const vaddr,
+                        uint32_t const flags);
+
+// Create a temporary mapping using the temp page table.
+// @param phy_addr: The physical address to map.
+// @return: The virtual address mapping to `phy_addr`.
+// No lock on the address space is required.
+static void *create_temp_mapping(void const * const phy_addr) {
+    uint32_t const cpu = cpu_apic_id();
+
+    // Manually disable the old mapping (if existing).
+    union pte_t * const entry = (void*)((RECURSIVE_PDE_IDX << 22) |
+        (TEMP_MAP_PDE_IDX << 12)) + cpu;
+    entry->present = 0;
+
+    void * const vaddr = (void*)((TEMP_MAP_PDE_IDX << 22) | (cpu << 12));
+    uint32_t const flags = VM_WRITE | VM_WRITE_THROUGH | VM_NON_GLOBAL |
+        VM_CACHE_DISABLE;
+
+    // We do not need the lock on the current address space here, because:
+    //  - The page table used for the mapping already exists, hence the page dir
+    //  will not be modified.
+    //  - The entry in the page table is private to this cpu. No race condition
+    //  possible here.
+    map_page_in(get_curr_addr_space(), phy_addr, vaddr, flags);
+
+    // No need for TLB Shootdown either. This mapping should NEVER be used by
+    // other cpus.
+    cpu_invalidate_tlb();
+    return vaddr;
 }
 
 // Get a pointer on the page directory of an address space.
@@ -134,6 +254,12 @@ static void create_recursive_entry(struct page_dir * const page_dir) {
 // @return: The address of the page directory of `addr_space`. Note that this
 // pointer will _always_ be valid no matter if paging has been enabled or not.
 // This means this function can be used in early boot.
+// NOTE: One needs to be EXTREMELY careful when using get_page_dir() and
+// get_page_table() in the same function/scope. In the case those functions are
+// used to access a page dir and a page table of an address space that is NOT
+// the current address space, a temporary mapping will be used. Both functions
+// will map the page dir/table to the same virtual address in the temporary page
+// table, effectively overwritting each other.
 static struct page_dir *get_page_dir(struct addr_space * const addr_space) {
     if (!cpu_paging_enabled()) {
         // Paging is not yet enabled, we can use the physical address of the
@@ -142,21 +268,15 @@ static struct page_dir *get_page_dir(struct addr_space * const addr_space) {
     } else if (get_curr_addr_space() == addr_space) {
         // Paging is enabled and the target address space is the address space
         // currently loaded on this cpu. Use the recursive entry.
-        uint32_t const vaddr = (1023 << 22) | (1023 << 12);
+        uint32_t const vaddr = (RECURSIVE_PDE_IDX << 22) |
+            (RECURSIVE_PDE_IDX << 12);
         return (struct page_dir *) vaddr;
     } else {
         // Paging is enabled, and we are targeting an address space that is
         // different from this cpu's address space. In this case map the page
         // directory of the target address space to the current address space
         // and return the virtual address where it has been mapped to.
-        void *frame = addr_space->page_dir_phy_addr;
-        void *addr;
-        addr =  paging_map_frames_above(KERNEL_PHY_OFFSET, &frame, 1, VM_WRITE);
-        if (addr == NO_REGION) {
-            // Correctly handling this error would be too complex here.
-            PANIC("Cannot map page directory\n");
-        }
-        return addr;
+        return create_temp_mapping(addr_space->page_dir_phy_addr);
     }
 }
 
@@ -167,6 +287,12 @@ static struct page_dir *get_page_dir(struct addr_space * const addr_space) {
 // @return: The address of the page table of `addr_space` at index `index`. Note
 // that this pointer will _always_ be valid no matter if paging has been enabled
 // or not.  This means this function can be used in early boot.
+// NOTE: One needs to be EXTREMELY careful when using get_page_dir() and
+// get_page_table() in the same function/scope. In the case those functions are
+// used to access a page dir and a page table of an address space that is NOT
+// the current address space, a temporary mapping will be used. Both functions
+// will map the page dir/table to the same virtual address in the temporary page
+// table, effectively overwritting each other.
 static struct page_table *get_page_table(struct page_dir * const page_dir,
                                          uint16_t const index) {
     if (!cpu_paging_enabled()) {
@@ -178,61 +304,15 @@ static struct page_table *get_page_table(struct page_dir * const page_dir,
         // The page directory address is the recursive address. That means the
         // address space used in the caller is the current address space of the
         // cpu, we can use the recursive entry for the page table as well.
-        uint32_t const vaddr = (1023 << 22) | (((uint32_t)index) << 12);
+        uint32_t const vaddr = (RECURSIVE_PDE_IDX << 22) |
+            (((uint32_t)index) << 12);
         return (struct page_table *) vaddr;
     } else {
         // This is a different page directory than the one loaded in cr3. We
         // cannot use the recursive entry to get the virtual address of the page
         // table, map it in the current address space instead.
         void *frame = (void*)(page_dir->entry[index].page_table_addr << 12);
-        void *addr;
-        addr = paging_map_frames_above(KERNEL_PHY_OFFSET, &frame, 1, VM_WRITE);
-        if (addr == NO_REGION) {
-            // Correctly handling this error would be too complex here.
-            PANIC("Cannot map page table\n");
-        }
-        return addr;
-    }
-}
-
-// Unmap the virtual address resolving to a page directory if necessary. This
-// function should be used in conjunction with get_page_dir() since the latter
-// may map a page directory to the current address space and it should therefore
-// be unmapped after use.
-// @param page_dir: The pointer to unmap if necessary.
-static void maybe_unmap_page_dir(struct page_dir * const page_dir) {
-    if (!cpu_paging_enabled()) {
-        // Nothing is mapped, nothing to do.
-        return;
-    } else if ((void*)page_dir == (void*)0xFFFFF000) {
-        // The paging operation was done on the current address space, hence the
-        // page directory was not mapped to access it. Nothing to do.
-        return;
-    } else {
-        // We were dealing with a different address space that the current one,
-        // the page directory was mapped.
-        paging_unmap((void*)page_dir, PAGE_SIZE);
-    }
-}
-
-// Unmap the virtual address resolving to a page table if necessary. This
-// function should be used in conjunction with get_page_table() since the latter
-// may map a page table to the current address space and it should therefore be
-// unmapped after use.
-// @param page_table: The pointer to unmap if necessary.
-static void maybe_unmap_page_table(struct page_table * const page_table) {
-    if (!cpu_paging_enabled()) {
-        // Nothing is mapped, nothing to do.
-        return;
-    } else if ((uint32_t)(void*)page_table >= 0xFFC00000) {
-        // The virtual address resolving to the page table is using the
-        // recursive entry therefore the paging operation was done on the
-        // current address space, and the table was not mapped. Nothing to do.
-        return;
-    } else {
-        // We were dealing with a different address space that the current one,
-        // the page table was mapped.
-        paging_unmap((void*)page_table, PAGE_SIZE);
+        return create_temp_mapping(frame);
     }
 }
 
@@ -253,7 +333,6 @@ static void remove_identity_mapping(void) {
         // Zero the entire entry, cleaner.
         memzero(page_dir->entry + i, sizeof(*page_dir->entry));
     }
-    maybe_unmap_page_dir(page_dir);
 }
 
 // Compute the Page Directory Entry index corresponding to a virtual address.
@@ -365,9 +444,6 @@ static void map_page_in(struct addr_space * const addr_space,
     }
 
     page_table->entry[pte_idx] = pte;
-
-    maybe_unmap_page_table(page_table);
-    maybe_unmap_page_dir(page_dir);
 }
 
 // As part as the paging initialization routine, create two mappings:
@@ -453,6 +529,11 @@ void init_paging(void const * const esp) {
     // directories and page tables once paging is enabled.
     create_recursive_entry(page_dir);
 
+    // Create a special page table that will be used by cpus to create temporary
+    // mappings (ex: modifying other page directory, read/write in physical
+    // memory).
+    create_temp_mapping_entry(page_dir);
+
     // Switch to the kernel's address space.
     switch_to_addr_space(get_kernel_addr_space());
 
@@ -495,7 +576,7 @@ void init_paging(void const * const esp) {
 // @param table: The page table to test.
 // @return: true if the page table is empty, false otherwise.
 static bool page_table_is_empty(struct page_table const * const table) {
-    for (uint16_t i = 0; i < 1024; ++i) {
+    for (uint16_t i = 0; i < MAX_PTE_IDX; ++i) {
         if (table->entry[i].present) {
             return false;
         }
@@ -520,7 +601,7 @@ static void unmap_page_in(struct addr_space * const addr_space,
     // process' address space.
     ASSERT(addr_space == get_kernel_addr_space() || (is_user_addr(vaddr)));
 
-    struct page_dir * const page_dir = get_page_dir(addr_space);
+    struct page_dir * page_dir = get_page_dir(addr_space);
 
     uint32_t const pde_idx = pde_index(vaddr);
     if (!page_dir->entry[pde_idx].present) {
@@ -551,14 +632,17 @@ static void unmap_page_in(struct addr_space * const addr_space,
     if (page_table_is_empty(page_table)) {
         // This was the last page in the page table. Free the frame used by the
         // page table and mark the corresponding PDE as not present.
+
+        // We need to recall get_page_dir() here. This is because if we are
+        // operating in another address space than the current, get_page_dir()
+        // had used a temp mapping to access the page dir, and that temp mapping
+        // has been overwritten by get_page_table().
+        page_dir = get_page_dir(addr_space);
         page_dir->entry[pde_idx].present = 0;
         void const * const frame_addr =
             (void*)(page_dir->entry[pde_idx].page_table_addr << 12);
         free_frame(frame_addr);
     }
-
-    maybe_unmap_page_table(page_table);
-    maybe_unmap_page_dir(page_dir);
 }
 
 // Compute the offset within a page of an address.
@@ -687,14 +771,10 @@ static bool page_is_mapped(struct addr_space * const addr_space,
     uint32_t const pde_idx = pde_index(vaddr);
     uint32_t const pte_idx = pte_index(vaddr);
     if (!page_dir->entry[pde_idx].present) {
-        maybe_unmap_page_dir(page_dir);
         return false;
     }
     struct page_table * const table = get_page_table(page_dir, pde_idx);
     bool const mapped = table->entry[pte_idx].present;
-
-    maybe_unmap_page_table(table);
-    maybe_unmap_page_dir(page_dir);
 
     return mapped;
 }
@@ -730,31 +810,28 @@ static uint32_t compute_hole_size(struct addr_space * const addr_space,
     uint32_t const start_pde_idx = pde_index(vaddr);
     uint32_t count = 0;
 
-    for (uint16_t i = start_pde_idx; i < 1023; ++i) {
+    for (uint16_t i = start_pde_idx; i < MAX_PDE_IDX - 1; ++i) {
         union pde_t const * const pde = &page_dir->entry[i];
         if (!pde->present) {
             if (i == start_pde_idx) {
-                count += 1024 - pte_index(vaddr);
+                count += MAX_PTE_IDX - pte_index(vaddr);
             } else {
-                count += 1024;
+                count += MAX_PTE_IDX;
             }
             continue;
         }
 
         struct page_table * const page_table = get_page_table(page_dir,i);
         uint16_t const start_pte_idx = i==start_pde_idx ? pte_index(vaddr) : 0;
-        for (uint16_t j = start_pte_idx; j < 1024; ++j) {
+        for (uint16_t j = start_pte_idx; j < MAX_PTE_IDX; ++j) {
             if (!page_table->entry[j].present) {
                 count ++;
             } else {
                 // Found the first used page. return.
-                maybe_unmap_page_table(page_table);
-                maybe_unmap_page_dir(page_dir);
                 return count;
             }
         }
     }
-    maybe_unmap_page_dir(page_dir);
     return count;
 }
 
@@ -813,7 +890,11 @@ void *paging_map_frames_above_in(struct addr_space * const addr_space,
 
     for (size_t i = 0; i < npages; ++i) {
         void const * const frame = frames[i];
-        do_paging_map_in(addr_space, frame, start + i * PAGE_SIZE, PAGE_SIZE, flags);
+        do_paging_map_in(addr_space,
+                         frame,
+                         start + i * PAGE_SIZE,
+                         PAGE_SIZE,
+                         flags);
     }
     unlock_addr_space(addr_space);
 
@@ -846,18 +927,22 @@ void paging_setup_new_page_dir(void * const page_dir_phy_addr) {
     struct page_dir const * const curr_pd = pd_addr;
     struct page_dir * const dest_pd = page_dir_phy_addr;
     uint16_t const start_idx = pde_index(KERNEL_PHY_OFFSET);
-    for (uint16_t i = start_idx; i < 1023; ++i) {
+    for (uint16_t i = start_idx; i < MAX_PDE_IDX - 1; ++i) {
         dest_pd->entry[i] = curr_pd->entry[i];
     }
+
+    // Setup the temporary mapping page table. Nothing to change here, all cpus
+    // are using the same page table.
+    dest_pd->entry[TEMP_MAP_PDE_IDX] = curr_pd->entry[TEMP_MAP_PDE_IDX];
 
     // The last PDE is the recursive entry. This one cannot be simply copied as
     // it needs to point to the frame of the page directory. To make it simple,
     // take the recursive entry of the kernel page dir and simply change the
     // page_table_addr field instead of setting all the fields manually.
-    union pde_t rec = curr_pd->entry[1023];
+    union pde_t rec = curr_pd->entry[RECURSIVE_PDE_IDX];
     ASSERT(rec.page_table_addr == (uint32_t)pd_addr >> 12);
     rec.page_table_addr = ((uint32_t)page_dir_phy_addr) >> 12;
-    dest_pd->entry[1023] = rec;
+    dest_pd->entry[RECURSIVE_PDE_IDX] = rec;
 
     do_paging_unmap(page_dir_phy_addr, PAGE_SIZE, false);
     cpu_invalidate_tlb();
@@ -871,11 +956,14 @@ void paging_setup_new_page_dir(void * const page_dir_phy_addr) {
 }
 
 void paging_free_addr_space(struct addr_space * const addr_space) {
-    struct page_dir * const page_dir = get_page_dir(addr_space);
-
     // Don't touch at kernel page tables.
     uint16_t const max_index = pde_index(KERNEL_PHY_OFFSET);
     for (uint16_t i = 0; i < max_index; ++i) {
+        // We need to recall get_page_dir() here. This is because if we are
+        // operating in another address space than the current, get_page_dir()
+        // had used a temp mapping to access the page dir, and that temp mapping
+        // has been overwritten by get_page_table().
+        struct page_dir * const page_dir = get_page_dir(addr_space);
         union pde_t pde = page_dir->entry[i];
         if (!pde.present) {
             continue;
@@ -884,7 +972,7 @@ void paging_free_addr_space(struct addr_space * const addr_space) {
         struct page_table * const page_table = get_page_table(page_dir, i);
 
         // Free any frame referenced by this page table.
-        for (uint16_t j = 0; j < 1024; ++j) {
+        for (uint16_t j = 0; j < MAX_PTE_IDX; ++j) {
             union pte_t pte = page_table->entry[j];
             if (!pte.present) {
                 continue;
@@ -893,13 +981,10 @@ void paging_free_addr_space(struct addr_space * const addr_space) {
             free_frame(frame);
         }
 
-        maybe_unmap_page_table(page_table);
-
         // Free the physical frame used to hold the page table.
         void * const frame = (void*)(pde.page_table_addr << 12);
         free_frame(frame);
     }
-    maybe_unmap_page_dir(page_dir);
 
     // Free the physical frame used for the page dir.
     free_frame(addr_space->page_dir_phy_addr);

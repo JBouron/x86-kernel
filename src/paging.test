@@ -520,7 +520,6 @@ static bool get_page_dir_test(void) {
     }
 
     paging_unmap(mapped, PAGE_SIZE);
-    maybe_unmap_page_dir(pd2);
     delete_addr_space(addr_space);
     return true;
 }
@@ -662,6 +661,72 @@ static bool paging_find_cont_non_mapped_pages_other_addr_space_test(void) {
     return true;
 }
 
+// Check that creating a new address space gives it the temp mapping page table.
+static bool temp_mapping_page_table_in_new_addr_space_test(void) {
+    struct addr_space * const addr_space = create_new_addr_space();
+
+    struct page_dir const * const curr_pd = get_page_dir(get_curr_addr_space());
+    struct page_dir const * const other_pd = get_page_dir(addr_space);
+    TEST_ASSERT(curr_pd != other_pd);
+
+    union pde_t const curr_pde = curr_pd->entry[TEMP_MAP_PDE_IDX];
+    union pde_t const other_pde = other_pd->entry[TEMP_MAP_PDE_IDX];
+
+    TEST_ASSERT(curr_pde.present && curr_pde.present == other_pde.present);
+    TEST_ASSERT(curr_pde.writable        == other_pde.writable);
+    TEST_ASSERT(curr_pde.user_accessible == other_pde.user_accessible);
+    TEST_ASSERT(curr_pde.write_through   == other_pde.write_through);
+    TEST_ASSERT(curr_pde.cache_disable   == other_pde.cache_disable);
+    TEST_ASSERT(curr_pde.accessed        == other_pde.accessed);
+    TEST_ASSERT(curr_pde.page_table_addr == other_pde.page_table_addr);
+    delete_addr_space(addr_space);
+    return true;
+}
+
+static bool paging_create_temp_mapping_test(void) {
+    uint32_t * const frame1 = alloc_frame();
+    uint32_t * const frame2 = alloc_frame();
+
+    TEST_ASSERT(frame1 != frame2);
+
+    // ID mapp both frames.
+    paging_map(frame1, frame1, PAGE_SIZE, VM_WRITE);
+    paging_map(frame2, frame2, PAGE_SIZE, VM_WRITE);
+
+    *frame1 = 0x0;
+    *frame2 = 0x0;
+
+    // Create a temp mapping on the first frame and check that the write to this
+    // mapping do reach frame1.
+    uint32_t * const temp_map1 = create_temp_mapping(frame1);
+
+    // temp_map1 is deterministic and is the entry of this cpu in the temp page
+    // table.
+    uint32_t const cpu = this_cpu_var(cpu_id);
+    void const * const exp = (void*)((TEMP_MAP_PDE_IDX << 22) | (cpu << 12));
+    TEST_ASSERT(exp == temp_map1);
+
+    *temp_map1 = 0xABCDEF00;
+    TEST_ASSERT(*frame1 == 0xABCDEF00);
+    // frame2 unchanged.
+    TEST_ASSERT(*frame2 == 0x0);
+
+    // Do the same thing with frame2.
+    uint32_t * const temp_map2 = create_temp_mapping(frame2);
+    // Both temp mapping are using the same address.
+    TEST_ASSERT(temp_map2 == temp_map1);
+
+    *temp_map2 = 0xDEADCAFE;
+    TEST_ASSERT(*frame2 == 0xDEADCAFE);
+    TEST_ASSERT(*frame1 == 0xABCDEF00);
+
+    paging_unmap(frame1, PAGE_SIZE);
+    paging_unmap(frame2, PAGE_SIZE);
+    free_frame(frame1);
+    free_frame(frame2);
+    return true;
+}
+
 void paging_test(void) {
     TEST_FWK_RUN(paging_create_recursive_entry_test);
     TEST_FWK_RUN(paging_get_curr_page_dir_vaddr_test);
@@ -684,4 +749,6 @@ void paging_test(void) {
     TEST_FWK_RUN(paging_map_other_addr_space_test);
     TEST_FWK_RUN(paging_unmap_other_addr_space_test);
     TEST_FWK_RUN(paging_find_cont_non_mapped_pages_other_addr_space_test);
+    TEST_FWK_RUN(temp_mapping_page_table_in_new_addr_space_test);
+    TEST_FWK_RUN(paging_create_temp_mapping_test);
 }

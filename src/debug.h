@@ -26,9 +26,9 @@
 
 // Temporary macro to indicate that an error condition should be propagated to
 // the caller of (this) function. For now this will PANIC if cond is true.
-#define TODO_PROPAGATE_ERROR(cond)          \
+#define TODO_PROPAGATE_ERROR(condition)     \
     do {                                    \
-        if ((cond)) {                       \
+        if ((condition)) {                  \
             PANIC(__stringify(condition));  \
         }                                   \
     } while(0)
