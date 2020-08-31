@@ -10,8 +10,8 @@
 #include <addr_space.h>
 
 // Some helper constants to interact with page tables/dirs.
-#define MAX_PDE_IDX         1024
-#define MAX_PTE_IDX         1024
+#define PDES_PER_PAGE       1024
+#define PTES_PER_PAGE       1024
 #define RECURSIVE_PDE_IDX   1023
 #define TEMP_MAP_PDE_IDX    1022
 
@@ -134,12 +134,12 @@ STATIC_ASSERT(sizeof(union pte_t) == 4, "");
 
 // A page directory structure.
 struct page_dir {
-    union pde_t entry[MAX_PDE_IDX];
+    union pde_t entry[PDES_PER_PAGE];
 };
 
 // A page table structure.
 struct page_table {
-    union pte_t entry[MAX_PTE_IDX];
+    union pte_t entry[PTES_PER_PAGE];
 };
 
 // Compare two PTEs.
@@ -222,7 +222,8 @@ static void map_page_in(struct addr_space * const addr_space,
 
 // Create a temporary mapping using the temp page table.
 // @param phy_addr: The physical address to map.
-// @return: The virtual address mapping to `phy_addr`.
+// @return: The virtual address mapping to `phy_addr`. This function is
+// guaranteed to succeed.
 // No lock on the address space is required.
 static void *create_temp_mapping(void const * const phy_addr) {
     uint32_t const cpu = cpu_apic_id();
@@ -253,7 +254,8 @@ static void *create_temp_mapping(void const * const phy_addr) {
 // @param addr_space: The address space to get the page directory pointer from.
 // @return: The address of the page directory of `addr_space`. Note that this
 // pointer will _always_ be valid no matter if paging has been enabled or not.
-// This means this function can be used in early boot.
+// This means this function can be used in early boot. This function is
+// guaranteed to succeed.
 // NOTE: One needs to be EXTREMELY careful when using get_page_dir() and
 // get_page_table() in the same function/scope. In the case those functions are
 // used to access a page dir and a page table of an address space that is NOT
@@ -286,7 +288,8 @@ static struct page_dir *get_page_dir(struct addr_space * const addr_space) {
 // @param index: The index of the page table to retreive.
 // @return: The address of the page table of `addr_space` at index `index`. Note
 // that this pointer will _always_ be valid no matter if paging has been enabled
-// or not.  This means this function can be used in early boot.
+// or not.  This means this function can be used in early boot. This function is
+// guaranteed to succeed.
 // NOTE: One needs to be EXTREMELY careful when using get_page_dir() and
 // get_page_table() in the same function/scope. In the case those functions are
 // used to access a page dir and a page table of an address space that is NOT
@@ -576,7 +579,7 @@ void init_paging(void const * const esp) {
 // @param table: The page table to test.
 // @return: true if the page table is empty, false otherwise.
 static bool page_table_is_empty(struct page_table const * const table) {
-    for (uint16_t i = 0; i < MAX_PTE_IDX; ++i) {
+    for (uint16_t i = 0; i < PTES_PER_PAGE; ++i) {
         if (table->entry[i].present) {
             return false;
         }
@@ -787,9 +790,9 @@ static bool page_is_mapped(struct addr_space * const addr_space,
 static void * find_next_non_mapped_page(struct addr_space * const addr_space,
                                         void * const start) {
     void * ptr = start;
-    // We can only search up to the address 0xFFC00000 which is the first
-    // address that uses the recursive entry.
-    void * const max_ptr = (void*)0xFFC00000;
+    // We can only search up to the address which is the first address of the
+    // temp mapping page table.
+    void * const max_ptr = (void*)(TEMP_MAP_PDE_IDX << 22);
     while (ptr < max_ptr) {
         if (!page_is_mapped(addr_space, ptr)) {
             return ptr;
@@ -810,20 +813,22 @@ static uint32_t compute_hole_size(struct addr_space * const addr_space,
     uint32_t const start_pde_idx = pde_index(vaddr);
     uint32_t count = 0;
 
-    for (uint16_t i = start_pde_idx; i < MAX_PDE_IDX - 1; ++i) {
+    // Recursive PDE entry and temp mapping PDE entry cannot be part of the
+    // hole.
+    for (uint16_t i = start_pde_idx; i < PDES_PER_PAGE - 2; ++i) {
         union pde_t const * const pde = &page_dir->entry[i];
         if (!pde->present) {
             if (i == start_pde_idx) {
-                count += MAX_PTE_IDX - pte_index(vaddr);
+                count += PTES_PER_PAGE - pte_index(vaddr);
             } else {
-                count += MAX_PTE_IDX;
+                count += PTES_PER_PAGE;
             }
             continue;
         }
 
         struct page_table * const page_table = get_page_table(page_dir,i);
         uint16_t const start_pte_idx = i==start_pde_idx ? pte_index(vaddr) : 0;
-        for (uint16_t j = start_pte_idx; j < MAX_PTE_IDX; ++j) {
+        for (uint16_t j = start_pte_idx; j < PTES_PER_PAGE; ++j) {
             if (!page_table->entry[j].present) {
                 count ++;
             } else {
@@ -927,7 +932,7 @@ void paging_setup_new_page_dir(void * const page_dir_phy_addr) {
     struct page_dir const * const curr_pd = pd_addr;
     struct page_dir * const dest_pd = page_dir_phy_addr;
     uint16_t const start_idx = pde_index(KERNEL_PHY_OFFSET);
-    for (uint16_t i = start_idx; i < MAX_PDE_IDX - 1; ++i) {
+    for (uint16_t i = start_idx; i < PDES_PER_PAGE - 1; ++i) {
         dest_pd->entry[i] = curr_pd->entry[i];
     }
 
@@ -972,7 +977,7 @@ void paging_free_addr_space(struct addr_space * const addr_space) {
         struct page_table * const page_table = get_page_table(page_dir, i);
 
         // Free any frame referenced by this page table.
-        for (uint16_t j = 0; j < MAX_PTE_IDX; ++j) {
+        for (uint16_t j = 0; j < PTES_PER_PAGE; ++j) {
             union pte_t pte = page_table->entry[j];
             if (!pte.present) {
                 continue;

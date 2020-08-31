@@ -344,6 +344,18 @@ static bool paging_find_next_non_mapped_page_test(void) {
     return true;
 }
 
+// Check that find_next_non_mapped_page() will not return a page belonging to
+// the temp map memory region.
+static bool paging_find_next_non_mapped_page_end_test(void) {
+    struct addr_space * const as = get_curr_addr_space();
+    // The last page before the temp map.
+    void * const addr = (void*)(TEMP_MAP_PDE_IDX << 22) - PAGE_SIZE;
+    TEST_ASSERT(find_next_non_mapped_page(as, addr) == addr);
+    TEST_ASSERT(compute_hole_size(as, addr) == 1);
+    TEST_ASSERT(find_next_non_mapped_page(as, addr + PAGE_SIZE) == NO_REGION);
+    return true;
+}
+
 static bool paging_compute_hole_size_test(void) {
     struct addr_space * const as = get_curr_addr_space();
     void * const frame = alloc_frame();
@@ -739,6 +751,7 @@ void paging_test(void) {
     TEST_FWK_RUN(paging_unmap_frees_frames_test);
     TEST_FWK_RUN(paging_page_is_mapped_test);
     TEST_FWK_RUN(paging_find_next_non_mapped_page_test);
+    TEST_FWK_RUN(paging_find_next_non_mapped_page_end_test);
     TEST_FWK_RUN(paging_compute_hole_size_test);
     TEST_FWK_RUN(paging_find_contiguous_non_mapped_pages_test);
     TEST_FWK_RUN(paging_idempotency_test);
