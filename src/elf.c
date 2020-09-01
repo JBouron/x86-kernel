@@ -6,6 +6,7 @@
 #include <paging.h>
 #include <math.h>
 #include <frame_alloc.h>
+#include <error.h>
 
 // Typedef all the types per the ELF specification.
 typedef void *elf32_addr_t;
@@ -244,7 +245,9 @@ static size_t get_required_num_frames(void const * const start,
 // @param proc: The process to load the ELF into.
 // @param elf_hdr: The ELF header of the file.
 // @param prog_hdr: The program header to be processed.
-static void process_program_header(struct file * const file,
+// @return: true if the program header has been successfully loaded to the
+// process' address space, false otherwise.
+static bool process_program_header(struct file * const file,
                                    struct proc * const proc,
                                    struct elf32_ehdr const * const elf_hdr,
                                    struct elf32_phdr const * const prog_hdr) {
@@ -266,10 +269,21 @@ static void process_program_header(struct file * const file,
     // Allocate physical frames for this segment.
     size_t const nframes = get_required_num_frames(segment_start, segment_end);
     void **frames = kmalloc(nframes * sizeof(*frames));
-    TODO_PROPAGATE_ERROR(!frames);
+    if (!frames) {
+        SET_ERROR("Cannot allocate dyn memory to load ELF program header", 0);
+        return false;
+    }
+
     for (uint32_t i = 0; i < nframes; ++i) {
         frames[i] = alloc_frame();
-        TODO_PROPAGATE_ERROR(frames[i] == NO_FRAME);
+        if (frames[i] == NO_FRAME) {
+            for (uint32_t j = 0; j < i; ++j) {
+                free_frame(frames[j]);
+            }
+            SET_ERROR("Cannot allocate physical frame to load ELF prog hdr", 0);
+            kfree(frames);
+            return false;
+        }
     }
 
     // ELF and paging do not share the same flags for access permissions. We
@@ -282,7 +296,10 @@ static void process_program_header(struct file * const file,
                                                   frames,
                                                   nframes,
                                                   map_flags);
-    TODO_PROPAGATE_ERROR(mapped == NO_REGION);
+    if (mapped == NO_REGION) {
+        SET_ERROR("Failed to map ELF prog header to proc address space", 0);
+        goto fail_first_map_above;
+    }
     // FIXME: We could map the frames one by one to make sure that they are
     // mapped at the right virt address. Using paging_map_frames_above_in() is
     // shorter be we could end up in a situation where the mapped address is not
@@ -297,7 +314,10 @@ static void process_program_header(struct file * const file,
                                                      frames,
                                                      nframes,
                                                      VM_NON_GLOBAL | VM_WRITE);
-    TODO_PROPAGATE_ERROR(write_map == NO_REGION);
+    if (write_map == NO_REGION) {
+        SET_ERROR("Failed to map ELF prog header to proc address space", 0);
+        goto fail_second_map_above;
+    }
 
     // Copy the initialized segment data from the file.
     off_t const offset = prog_hdr->offset;
@@ -318,6 +338,16 @@ static void process_program_header(struct file * const file,
     // Clean up the mapping used for copying.
     paging_unmap(write_map, nframes * PAGE_SIZE);
     kfree(frames);
+    return true;
+
+fail_second_map_above:
+    paging_unmap(mapped, nframes * PAGE_SIZE);
+fail_first_map_above:
+    for (uint32_t i = 0; i < nframes; ++i) {
+        free_frame(frames[i]);
+    }
+    kfree(frames);
+    return false;
 }
 
 // Read a program header from a ELF file.
@@ -335,7 +365,7 @@ static void read_program_header(struct file * const file,
     ASSERT(r == sizeof(*dst));
 }
 
-void load_elf_binary(struct file * const file, struct proc * const proc) {
+bool load_elf_binary(struct file * const file, struct proc * const proc) {
     ASSERT(file);
 
     // Read ELF header from the file.
@@ -351,7 +381,16 @@ void load_elf_binary(struct file * const file, struct proc * const proc) {
         struct elf32_phdr phdr;
 
         read_program_header(file, &header, i, &phdr);
-        process_program_header(file, proc, &header, &phdr);
+        if (!process_program_header(file, proc, &header, &phdr)) {
+            // Ideally, we should undo the mapping of the other headers until
+            // now. However this would require re-parsing the whole thing. There
+            // is not much to benefit from doing that, this process is likely to
+            // be thrown away if we can't load the whole ELF anyway, this will
+            // take care of the section that got loaded.
+            switch_to_addr_space(get_kernel_addr_space());
+            SET_ERROR("Could not map ELF prog header into process", 0);
+            return false;
+        }
     }
 
     switch_to_addr_space(get_kernel_addr_space());
@@ -360,6 +399,7 @@ void load_elf_binary(struct file * const file, struct proc * const proc) {
     proc->registers_save.eip = (reg_t)header.entry;
 
     proc->state_flags &= ~PROC_WAITING_EIP;
+    return true;
 }
 
 #include <elf.test>

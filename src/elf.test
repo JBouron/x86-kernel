@@ -1,4 +1,5 @@
 #include <test.h>
+#include <frame_alloc.h>
 
 uint8_t const ELF_FILE_DATA[] = {
   0x7F, 0x45, 0x4C, 0x46, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -298,6 +299,18 @@ static bool load_elf_binary_test(void) {
     return res;
 }
 
+static bool load_elf_binary_oom_test(void) {
+    struct proc * const proc = create_proc();
+    
+    frame_alloc_set_oom_simulation(true);
+    TEST_ASSERT(!load_elf_binary(&ELF_FILE, proc));
+    frame_alloc_set_oom_simulation(false);
+
+    delete_proc(proc);
+    CLEAR_ERROR();
+    return true;
+}
+
 void elf_test(void) {
     TEST_FWK_RUN(read_elf_header_test);
     TEST_FWK_RUN(check_elf_header_test);
@@ -305,4 +318,5 @@ void elf_test(void) {
     TEST_FWK_RUN(get_required_num_frames_test);
     TEST_FWK_RUN(read_program_header_test);
     TEST_FWK_RUN(load_elf_binary_test);
+    TEST_FWK_RUN(load_elf_binary_oom_test);
 }
