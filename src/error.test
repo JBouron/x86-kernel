@@ -1,0 +1,143 @@
+#include <test.h>
+#include <string.h>
+
+static bool get_irq_flag_and_disable_test(void) {
+    cpu_set_interrupt_flag(false);
+    bool const irq1 = get_irq_flag_and_disable();
+    TEST_ASSERT(!irq1);
+    TEST_ASSERT(!interrupts_enabled());
+
+    cpu_set_interrupt_flag(true);
+    bool const irq2 = get_irq_flag_and_disable();
+    TEST_ASSERT(irq2);
+    TEST_ASSERT(!interrupts_enabled());
+
+    // Enable interrupts for future tests.
+    cpu_set_interrupt_flag(true);
+    return true;
+}
+
+static bool get_static_error_desc_test(void) {
+    // Required by get_static_error_desc().
+    cpu_set_interrupt_flag(false);
+
+    init_error_mechanism();
+    for (uint8_t round = 0; round < 2; ++round) {
+        // Use all statically allocated error desc one by one.
+        for (uint32_t i = 0; i < NUM_STATIC_ERR_DESC; ++i) {
+            struct error_desc * const d = get_static_error_desc();
+            TEST_ASSERT(d);
+            TEST_ASSERT(!d->active);
+            TEST_ASSERT(d->is_static);
+            d->active = true;
+        }
+        // All static error desc should have been used by now.
+        TEST_ASSERT(!get_static_error_desc());
+
+        // The CLEAR_ERROR should reset the static error descs and make
+        // them available again.
+        CLEAR_ERROR();
+        for (uint32_t i = 0; i < NUM_STATIC_ERR_DESC; ++i) {
+            struct error_desc * const d = get_static_error_desc();
+            TEST_ASSERT(d);
+            TEST_ASSERT(!d->active);
+        }
+    }
+    cpu_set_interrupt_flag(true);
+    return true;
+}
+
+// Check that errors are appended in order in the linked list and the
+// information is correct.
+static bool set_error_test(void) {
+    init_error_mechanism();
+
+    uint32_t line_numbers[4];
+    char const * messages[4] = {
+        "error0",
+        "error1",
+        "error2",
+        "error3",
+    };
+
+    line_numbers[0] = __LINE__; SET_ERROR(messages[0], 0);
+    line_numbers[1] = __LINE__; SET_ERROR(messages[1], 1);
+    line_numbers[2] = __LINE__; SET_ERROR(messages[2], 2);
+    line_numbers[3] = __LINE__; SET_ERROR(messages[3], 3);
+
+    struct list_node * const error_ll_head = &this_cpu_var(error_list);
+    TEST_ASSERT(list_size(error_ll_head) == 4);
+
+    int32_t i = 0;
+    struct error_desc * error;
+    list_for_each_entry(error, error_ll_head, error_linked_list) {
+        TEST_ASSERT(!error->is_static);
+        TEST_ASSERT(error->active);
+        TEST_ASSERT(streq(error->file, __FILE__));
+        TEST_ASSERT(error->line == line_numbers[i]);
+        TEST_ASSERT(streq(error->func, __func__));
+        TEST_ASSERT(streq(error->message, messages[i]));
+        TEST_ASSERT(error->error_code == i);
+        i ++;
+    }
+
+    CLEAR_ERROR();
+    TEST_ASSERT(list_size(error_ll_head) == 0);
+
+    return true;
+}
+
+static bool set_error_under_kmalloc_test(void) {
+    cpu_set_interrupt_flag(false);
+
+    init_error_mechanism();
+
+    uint32_t line_numbers[4];
+    char const * messages[4] = {
+        "error0",
+        "error1",
+        "error2",
+        "error3",
+    };
+
+    line_numbers[0] = __LINE__; SET_ERROR(messages[0], 0);
+    line_numbers[1] = __LINE__; SET_ERROR(messages[1], 1);
+
+    // Fake being under a kmalloc() call.
+    this_cpu_var(kmalloc_nest_level) ++;
+
+    // The following SET_ERROR will use statically allocated error desc.
+    line_numbers[2] = __LINE__; SET_ERROR(messages[2], 2);
+    line_numbers[3] = __LINE__; SET_ERROR(messages[3], 3);
+
+    struct list_node * const error_ll_head = &this_cpu_var(error_list);
+    TEST_ASSERT(list_size(error_ll_head) == 4);
+
+    int32_t i = 0;
+    struct error_desc * error;
+    list_for_each_entry(error, error_ll_head, error_linked_list) {
+        TEST_ASSERT(error->is_static == (i >= 2));
+        TEST_ASSERT(error->active);
+        TEST_ASSERT(streq(error->file, __FILE__));
+        TEST_ASSERT(error->line == line_numbers[i]);
+        TEST_ASSERT(streq(error->func, __func__));
+        TEST_ASSERT(streq(error->message, messages[i]));
+        TEST_ASSERT(error->error_code == i);
+        i ++;
+    }
+
+    CLEAR_ERROR();
+    TEST_ASSERT(list_size(error_ll_head) == 0);
+
+    this_cpu_var(kmalloc_nest_level) --;
+    cpu_set_interrupt_flag(true);
+
+    return true;
+}
+
+void error_test(void) {
+    TEST_FWK_RUN(get_irq_flag_and_disable_test);
+    TEST_FWK_RUN(get_static_error_desc_test);
+    TEST_FWK_RUN(set_error_test);
+    TEST_FWK_RUN(set_error_under_kmalloc_test);
+}

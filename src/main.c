@@ -38,6 +38,7 @@
 #include <vfs.h>
 #include <elf.h>
 #include <rw_lock.h>
+#include <error.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -73,6 +74,7 @@ void test_kernel(void) {
     vfs_test();
     elf_test();
     rwlock_test();
+    error_test();
 
     print_test_summary();
 }

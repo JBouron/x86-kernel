@@ -7,6 +7,7 @@
 #include <kernel_map.h>
 #include <math.h>
 #include <lock.h>
+#include <error.h>
 
 // Dynamic memory allocator for the kernel.
 // The memory allocator has the same interfaces as malloc() and free(). The goal
@@ -120,6 +121,7 @@ static struct group * create_group(size_t const size) {
             for (size_t j = 0; j < i; ++j) {
                 free_frame(frames[j]);
             }
+            SET_ERROR("Not enough physical frames to allocate new group", 0);
             return NULL;
         }
     }
@@ -145,6 +147,7 @@ static struct group * create_group(size_t const size) {
         for (size_t i = 0; i < size; ++i) {
             free_frame(frames[i]);
         }
+        SET_ERROR("Cannot map group to virt addr space", 0);
         return NULL;
     }
 
@@ -512,6 +515,7 @@ static void * do_kmalloc(struct list_node * group_list, size_t const size) {
             // Not enough memory to alloacte the request. This need to happen
             // after the spinlock_lock() above since do_kmalloc() is assumed to
             // return while holding the lock.
+            SET_ERROR("Cannot find or create group for allocation", 0);
             return NULL;
         }
 
@@ -595,12 +599,20 @@ static bool KMALLOC_INITIALIZED = false;
 // @return: The virtual address of the allocated memory.
 void * kmalloc(size_t const size) {
     spinlock_lock(&KMALLOC_LOCK);
+
+    if (percpu_initialized()) {
+        this_cpu_var(kmalloc_nest_level) ++;
+    }
+
     if (!KMALLOC_INITIALIZED) {
         // Initialize the group list if it wasn't done already.
         list_init(&GROUP_LIST);
         KMALLOC_INITIALIZED = true;
     }
     void * const addr = do_kmalloc(&GROUP_LIST, size);
+    if (percpu_initialized()) {
+        this_cpu_var(kmalloc_nest_level) --;
+    }
     spinlock_unlock(&KMALLOC_LOCK);
     return addr;
 }

@@ -613,6 +613,7 @@ static bool kmalloc_physical_frame_oom_test(void) {
     size_t const size = 3 * PAGE_SIZE;
     TEST_ASSERT(kmalloc(size) == NULL);
     frame_alloc_set_oom_simulation(false);
+    CLEAR_ERROR();
     return true;
 }
 

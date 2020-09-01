@@ -1,5 +1,6 @@
 #include <types.h>
 #include <list.h>
+#include <percpu.h>
 
 // This file defines the error log/reporting mechanism. Each cpu has a private
 // linked list of struct error_desc. Each struct error_desc contains the
@@ -9,6 +10,8 @@
 // Error description. This struct contain the information of where an error
 // occured and why.
 struct error_desc {
+    // If true, this struct has been statically allocated.
+    bool is_static;
     // If true, this description is active. This is used in statically allocated
     // error_desc.
     bool active;
@@ -25,6 +28,13 @@ struct error_desc {
     // Node of the linked list of error describing the whole chain of errors.
     struct list_node error_linked_list;
 };
+
+// Indicate per cpu the nest level of kmalloc calls. This is needed to indicate
+// if a cpu can call kmalloc() when doing an allocation in SET_ERROR().
+// The reason that we use a nest level and not a bool "in kmalloc" here is to
+// avoid race conditions when kmalloc() temporarily releases the lock when
+// creating a new group.
+DECLARE_PER_CPU(uint32_t, kmalloc_nest_level) = 0;
 
 // Add an struct error_desc to the current cpu's error linked list.
 // @param file: The file where the error occured.
@@ -55,3 +65,6 @@ void _clear_error(void);
 // Clear the error list on the current cpu.
 #define CLEAR_ERROR() \
     _clear_error()
+
+// Execute tests related to error reporting.
+void error_test(void);
