@@ -506,12 +506,14 @@ static void * do_kmalloc(struct list_node * group_list, size_t const size) {
             HEADER_SIZE, PAGE_SIZE);
         group = create_group(num_pages);
 
+        spinlock_lock(&KMALLOC_LOCK);
+
         if (!group) {
-            // Not enough memory to alloacte the request.
+            // Not enough memory to alloacte the request. This need to happen
+            // after the spinlock_lock() above since do_kmalloc() is assumed to
+            // return while holding the lock.
             return NULL;
         }
-
-        spinlock_lock(&KMALLOC_LOCK);
 
         // While we released the group, some space might have been freed in the
         // existing group or another cpu created a new group. Check if we can

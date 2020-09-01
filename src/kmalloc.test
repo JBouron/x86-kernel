@@ -604,6 +604,18 @@ static bool do_kfree_test(void) {
     return true;
 }
 
+// Test the behaviour of kmalloc() when no physical frame is available for
+// allocation.
+static bool kmalloc_physical_frame_oom_test(void) {
+    frame_alloc_set_oom_simulation(true);
+    // Allocate a big chunk of memory so that we are sure that kmalloc will need
+    // a new group and hence allocate new frames.
+    size_t const size = 3 * PAGE_SIZE;
+    TEST_ASSERT(kmalloc(size) == NULL);
+    frame_alloc_set_oom_simulation(false);
+    return true;
+}
+
 void kmalloc_test() {
     TEST_FWK_RUN(kmalloc_create_group_test);
     TEST_FWK_RUN(kmalloc_alloc_all_group_at_once_test);
@@ -620,4 +632,5 @@ void kmalloc_test() {
     TEST_FWK_RUN(free_group_releases_frame_test);
     TEST_FWK_RUN(do_kmalloc_test_create_group);
     TEST_FWK_RUN(do_kfree_test);
+    TEST_FWK_RUN(kmalloc_physical_frame_oom_test);
 }
