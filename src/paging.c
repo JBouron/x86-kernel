@@ -8,6 +8,7 @@
 #include <ipm.h>
 #include <smp.h>
 #include <addr_space.h>
+#include <error.h>
 
 // Some helper constants to interact with page tables/dirs.
 #define PDES_PER_PAGE       1024
@@ -398,6 +399,7 @@ static bool map_page_in(struct addr_space * const addr_space,
         // set it up.
         struct page_table * const new_table = alloc_page_table();
         if (new_table == NO_FRAME) {
+            SET_ERROR("Cannot allocate new page table", 0);
             return false;
         }
         page_table_allocated = true;
@@ -715,7 +717,7 @@ static bool do_paging_map_in(struct addr_space * const addr_space,
         if (!map_page_in(addr_space, pchunk, vchunk, flags)) {
             // The mapping failed because we ran out of memory to allocate a new
             // page table. Undo all the mapped frames above and return failure.
-            LOG("OOM when mapping %p -> %p\n", vchunk, pchunk);
+            SET_ERROR("Failed to map one frame in request", 0);
             for (size_t j = 0; j < i; ++j) {
                 unmap_page_in(addr_space, start_virt + j * PAGE_SIZE, false);
             }
@@ -891,6 +893,7 @@ static void *do_paging_find_contiguous_non_mapped_pages_in(
     }
 
     // Could not find a hole big enough.
+    SET_ERROR("Could not find big enough region in virt memory space", 0);
     return NO_REGION;
 }
 
@@ -931,6 +934,7 @@ void *paging_map_frames_above_in(struct addr_space * const addr_space,
         if (!res) {
             // This is not exactly what happens but it is better for the caller
             // to deal with a single error return value than 2.
+            SET_ERROR("Could not map frames in virtual mem space hole", 0);
             return NO_REGION;
         }
     }

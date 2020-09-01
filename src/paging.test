@@ -763,6 +763,7 @@ static bool paging_map_with_oom_test(void) {
     TEST_ASSERT(!page_is_mapped(addr_space, v_addr));
 
     frame_alloc_set_oom_simulation(false);
+    CLEAR_ERROR();
     return true;
 }
 
@@ -807,6 +808,7 @@ static bool paging_map_with_oom_test2_runner(struct addr_space * const as) {
     frame_alloc_set_oom_simulation(false);
     do_paging_unmap_in(as, NULL, PAGE_SIZE, false);
     cpu_invalidate_tlb();
+    CLEAR_ERROR();
     return true;
 }
 
@@ -845,6 +847,7 @@ static bool paging_unmap_with_oom_runner(struct addr_space * const as) {
     TEST_ASSERT(!page_is_mapped(as, v_addr));
     TEST_ASSERT(alloc_after == alloc_before - 1);
     frame_alloc_set_oom_simulation(false);
+    CLEAR_ERROR();
     return true;
 }
 

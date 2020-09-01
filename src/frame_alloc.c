@@ -8,6 +8,7 @@
 #include <paging.h>
 #include <multiboot.h>
 #include <lock.h>
+#include <error.h>
 
 // There is a single frame allocator for the whole system. Hence we need a lock
 // to avoid race conditions.
@@ -227,6 +228,7 @@ void *alloc_frame(void) {
 
     if (OOM_SIMULATION) {
         spinlock_unlock(&FRAME_ALLOC_LOCK);
+        SET_ERROR("OOM Simulation active", 0);
         return NO_FRAME;
     }
 

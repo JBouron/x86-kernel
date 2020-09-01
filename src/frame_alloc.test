@@ -78,6 +78,7 @@ static bool frame_allocator_oom_simulation_test(void) {
     void * const addr = alloc_frame();
     TEST_ASSERT(addr != NO_FRAME);
     free_frame(addr);
+    CLEAR_ERROR();
     return true;
 }
 
