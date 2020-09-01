@@ -60,7 +60,7 @@ void __run_single_test(test_function const func, char const * const name) {
     bool const res = func();
 
     SUCCESS_COUNT += res ? 1 : 0;
-    char const * const str = res ? " OK " : "FAIL";
+    char const * const str = res?"\033[32m OK \033[39m":"\033[31mFAIL\033[39m";
     LOG("[%s] %s\n", str, name);
     detect_memory_leaks(name, allocated_frames_before, kmalloc_tot_before);
 }
