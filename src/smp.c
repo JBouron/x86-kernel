@@ -158,7 +158,9 @@ static void * create_data_frame(void (*target)(void)) {
     ASSERT(is_under_1mib(phy_frame));
 
     // Map the frame to virtual memory so we can copy all the data structures.
-    paging_map(phy_frame, phy_frame, PAGE_SIZE, VM_WRITE);
+    if (!paging_map(phy_frame, phy_frame, PAGE_SIZE, VM_WRITE)) {
+        PANIC("Cannot map data frame to virt memory\n");
+    }
 
     LOG("Data frame @ %p\n", phy_frame);
 
@@ -221,7 +223,11 @@ static void * create_data_frame(void (*target)(void)) {
         //  1. We want to initialize the stack (eg. the lock).
         //  2. When APs will enable paging, they will need their stack mapped to
         //  virtual memory.
-        paging_map(frame, frame, PAGE_SIZE, VM_WRITE);
+        if (!paging_map(frame, frame, PAGE_SIZE, VM_WRITE)) {
+            // We cannot map anymore frame, prob OOM, try to proceed but it is
+            // likely that we will fail soon.
+            break;
+        }
 
         // Initialize the stacks contained in this physical frame.
         for (uint8_t j = 0; j < stacks_per_frame; ++j) {
@@ -314,7 +320,9 @@ static void * create_trampoline(void (*target)(void)) {
     //  physical frame.
     //  _ Second, when the APs will enable paging on their side, they will be
     //  running on the physical code frame.
-    paging_map(code_frame, code_frame, PAGE_SIZE, VM_WRITE);
+    if (!paging_map(code_frame, code_frame, PAGE_SIZE, VM_WRITE)) {
+        PANIC("Cannot map AP code frame to virt memory\n");
+    }
 
     // Copy the startup code onto the physical frame. All the code necessary to
     // handle AP boot is between the ap_entry_point and ap_entry_point_end
@@ -339,7 +347,9 @@ static void * create_trampoline(void (*target)(void)) {
     // copying the code on it. The current paging interface forces us to unmap
     // and remap the page.
     paging_unmap(code_frame, PAGE_SIZE);
-    paging_map(code_frame, code_frame, PAGE_SIZE, 0);
+    if (!paging_map(code_frame, code_frame, PAGE_SIZE, 0)) {
+        PANIC("Cannot map AP code frame to virt memory\n");
+    }
 
     return code_frame;
 }
@@ -458,7 +468,9 @@ void *ap_alloc_higher_half_stack(void) {
         if (frame == NO_FRAME) {
             PANIC("Not enough mem to allocate cpu stack %u\n", cpu_apic_id());
         }
-        paging_map(frame, vaddr + i * PAGE_SIZE, PAGE_SIZE, VM_WRITE);
+        if (!paging_map(frame, vaddr + i * PAGE_SIZE, PAGE_SIZE, VM_WRITE)) {
+            PANIC("Cannot map cpu %u's stack to virt mem\n", cpu_apic_id());
+        }
     }
 
     // Save the allocated stack into the APS_STACKS array.
@@ -523,7 +535,7 @@ static void do_init_aps(void (*target)(void)) {
     // paging. Therefore this function must be ID mapped into virtual memory.
     extern void cpu_enable_paging_bits(void);
     void const * const func_addr = to_phys(cpu_enable_paging_bits);
-    paging_map(func_addr, func_addr, PAGE_SIZE, 0);
+    ASSERT(paging_map(func_addr, func_addr, PAGE_SIZE, 0));
 
     // The Intel manual provide the following algorithm to boot APs (manual
     // volume 3, chapter 8.4.4.1):

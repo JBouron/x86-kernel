@@ -235,8 +235,10 @@ static void map_table(struct sdt_header const * const table) {
     // The goal here is to id map the table, however to this end we need to know
     // its length first. Therefore with first map the header bytes, read the
     // length, and then map the rest.
-    paging_map(table, table, sizeof(*table), 0);
-    paging_map(table, table, table->length, 0);
+    if (!paging_map(table, table, sizeof(*table), 0) || 
+        !paging_map(table, table, table->length, 0)) {
+        PANIC("Cannot map table in ACPI parser\n");
+    }
 }
 
 static void unmap_table(struct sdt_header const * const table) {

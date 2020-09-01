@@ -266,7 +266,9 @@ void init_ioapic(void) {
     // use write through and disable cache for the page.
     uint32_t const map_flags = VM_WRITE | VM_WRITE_THROUGH | VM_CACHE_DISABLE;
     void * const io_apic_addr = (void*)IO_APIC;
-    paging_map(io_apic_addr, io_apic_addr, sizeof(*IO_APIC), map_flags);
+    if (!paging_map(io_apic_addr, io_apic_addr, sizeof(*IO_APIC), map_flags)) {
+        PANIC("Cannot map IOAPIC to virtual memory\n");
+    }
 
     LOG("IOAPICID   = %x\n", read_register(IOAPICID));
     LOG("IOAPICVER  = %x\n", read_register(IOAPICVER));

@@ -172,7 +172,9 @@ void init_lapic(void) {
     LAPIC = (struct lapic *)get_lapic_base_addr();
     // Identity maps the LAPIC registers.
     uint32_t const flags = VM_WRITE | VM_WRITE_THROUGH | VM_CACHE_DISABLE;
-    paging_map((void*)LAPIC, (void*)LAPIC, sizeof(*LAPIC), flags);
+    if (!paging_map((void*)LAPIC, (void*)LAPIC, sizeof(*LAPIC), flags)) {
+        PANIC("Cannot map LAPIC to virtual memory\n");
+    }
     enable_apic();
 }
 

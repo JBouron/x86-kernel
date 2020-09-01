@@ -729,18 +729,20 @@ static bool do_paging_map_in(struct addr_space * const addr_space,
 #define do_paging_map(paddr, vaddr, len, flags) \
     do_paging_map_in(get_curr_addr_space(), (paddr), (vaddr), (len), (flags))
 
-void paging_map_in(struct addr_space * const addr_space,
+bool paging_map_in(struct addr_space * const addr_space,
                    void const * const paddr,
                    void const * const vaddr,
                    size_t const len,
                    uint32_t const flags) {
     spinlock_lock(&addr_space->lock);
     bool const res = do_paging_map_in(addr_space, paddr, vaddr, len, flags);
-    TODO_PROPAGATE_ERROR(!res);
     spinlock_unlock(&addr_space->lock);
 
-    cpu_invalidate_tlb();
-    maybe_to_tlb_shootdown();
+    if (res) {
+        cpu_invalidate_tlb();
+        maybe_to_tlb_shootdown();
+    }
+    return res;
 }
 
 // Unmap a virtual memory region.
@@ -926,7 +928,11 @@ void *paging_map_frames_above_in(struct addr_space * const addr_space,
                                           start + i * PAGE_SIZE,
                                           PAGE_SIZE,
                                           flags);
-        TODO_PROPAGATE_ERROR(!res);
+        if (!res) {
+            // This is not exactly what happens but it is better for the caller
+            // to deal with a single error return value than 2.
+            return NO_REGION;
+        }
     }
     unlock_addr_space(addr_space);
 

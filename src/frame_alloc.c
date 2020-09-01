@@ -211,7 +211,10 @@ void fixup_frame_alloc_to_virt(void) {
         // This is actually unlikely since the bitmap will pretty much always
         // fit in the available memory under 1MiB. Nevertheless, in case it
         // doesn't, we need to be careful.
-        paging_map(frame_addr, virt_addr, NUM_FRAMES_FOR_BITMAP, VM_WRITE);
+        uint32_t const flags = VM_WRITE;
+        if (!paging_map(frame_addr, virt_addr, NUM_FRAMES_FOR_BITMAP, flags)) {
+            PANIC("Cannot map frame allocator's bitmap to virt memory\n");
+        }
     }
 
     // Use the virtual address of the bitmap for now on.

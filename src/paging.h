@@ -31,7 +31,8 @@ void init_paging(void const * const esp);
 // ideally be multiple of PAGE_SIZE (since that is the granularity), but this
 // field does not have to be.
 // @param flags: The attributes of the mapping. See VM_* macros in paging.h.
-void paging_map_in(struct addr_space * const addr_space,
+// @return: true if the mapping was successful, false otherwise.
+bool paging_map_in(struct addr_space * const addr_space,
                    void const * const paddr,
                    void const * const vaddr,
                    size_t const len,
@@ -119,7 +120,9 @@ void *paging_find_contiguous_non_mapped_pages_in(
 // @param flags: The flags to use when mapping the physical frames.
 // @return: The start virtual address of the memory region. If the function
 // cannot find a region in the address space big enough to contain the requested
-// number of pages it returns NO_REGION and nothing will be mapped.
+// number of pages it returns NO_REGION and nothing will be mapped. NO_REGION
+// will also be returned if this function fails to map the frames even though
+// the space in the virtual address space exists.
 void *paging_map_frames_above_in(struct addr_space * const addr_space,
                                  void * const start_addr,
                                  void ** frames,
