@@ -739,6 +739,126 @@ static bool paging_create_temp_mapping_test(void) {
     return true;
 }
 
+// Test attempting to create a new mapping while no physical frame is available
+// for a new page table.
+static bool paging_map_with_oom_test(void) {
+    struct addr_space * const addr_space = get_curr_addr_space();
+    void const * const p_addr = NULL;
+    void const * const v_addr = p_addr;
+
+    TEST_ASSERT(!page_is_mapped(addr_space, v_addr));
+
+    // Make sure that no page table already exists for physical address 0x0.
+    struct page_dir * const page_dir = get_page_dir(addr_space);
+    TEST_ASSERT(!page_dir->entry[0].present);
+
+    frame_alloc_set_oom_simulation(true);
+    
+    // Try to create the mapping v_addr -> p_addr. Since there is no page
+    // table already allocated to add the mapping, do_paging_map_in will need to
+    // allocate one. This will fail since there is no frame available.
+    bool const res = do_paging_map_in(addr_space, p_addr, v_addr, PAGE_SIZE, 0);
+    cpu_invalidate_tlb();
+    TEST_ASSERT(res == false);
+    TEST_ASSERT(!page_is_mapped(addr_space, v_addr));
+
+    frame_alloc_set_oom_simulation(false);
+    return true;
+}
+
+// This OOM test is a bit more complicated. In this test we want to make sure
+// that if a single page in a do_paging_map_in() call cannot be mapped, then all
+// previous pages that were mapped are unmapped.
+// @param as: The address space to run the test on. The cpu will not change its
+// current address space, only do the mappings on as.
+static bool paging_map_with_oom_test2_runner(struct addr_space * const as) {
+    LOG("Running on addr space %p\n", as);
+    // ID map frame 0. This will create a page table, and make sure that in
+    // future mappins this table will exist.
+    TEST_ASSERT(do_paging_map_in(as, NULL, NULL, PAGE_SIZE, 0));
+    cpu_invalidate_tlb();
+
+    struct page_dir * const page_dir = get_page_dir(as);
+    TEST_ASSERT(page_dir->entry[0].present);
+
+    frame_alloc_set_oom_simulation(true);
+
+    // Now try to map a two frames long memory region at the boundary of the
+    // page table created above, that is: The first frame is pointed by the last
+    // entry of the page table above and the second will need to be pointed by
+    // the first entry of a new page table that needs to be allocated. Since
+    // there is no physical frame available, allocating the second page table
+    // should fail and therefore mapping the second frame should fail.
+    void * const addr = (void*)((0 << 22) | (1023 << 12));
+    // Make sure that only mapping a single frame works, since the page table
+    // already exists.
+    TEST_ASSERT(do_paging_map_in(as, addr, addr, PAGE_SIZE, 0));
+    cpu_invalidate_tlb();
+    TEST_ASSERT(page_is_mapped(as, addr));
+    do_paging_unmap_in(as, addr, PAGE_SIZE, false);
+    cpu_invalidate_tlb();
+
+    // Now 2 pages should fail.
+    TEST_ASSERT(!do_paging_map_in(as, addr, addr, 2 * PAGE_SIZE, 0));
+    cpu_invalidate_tlb();
+    // The first frame should not be mapped.
+    TEST_ASSERT(!page_is_mapped(as, addr));
+
+    frame_alloc_set_oom_simulation(false);
+    do_paging_unmap_in(as, NULL, PAGE_SIZE, false);
+    cpu_invalidate_tlb();
+    return true;
+}
+
+static bool paging_map_with_oom_test2_curr_addr_space(void) {
+    return paging_map_with_oom_test2_runner(get_curr_addr_space());
+}
+
+static bool paging_map_with_oom_test2_other_addr_space(void) {
+    struct addr_space * const addr_space = create_new_addr_space();
+    TEST_ASSERT(paging_map_with_oom_test2_runner(addr_space));
+    delete_addr_space(addr_space);
+    return true;
+}
+
+// Make sure unmapping works as expected even in the case of OOM.
+static bool paging_unmap_with_oom_runner(struct addr_space * const as) {
+    void const * const p_addr = NULL;
+    void const * const v_addr = p_addr;
+
+    TEST_ASSERT(!page_is_mapped(as, v_addr));
+
+    // Make sure that no page table already exists for physical address 0x0.
+    struct page_dir * const page_dir = get_page_dir(as);
+    TEST_ASSERT(!page_dir->entry[0].present);
+
+    // ID map frame 0.
+    TEST_ASSERT(do_paging_map_in(as, p_addr, v_addr, PAGE_SIZE, 0));
+    cpu_invalidate_tlb();
+
+    // Unmap frame 0.
+    uint32_t const alloc_before = frames_allocated();
+    frame_alloc_set_oom_simulation(true);
+    do_paging_unmap_in(as, v_addr, PAGE_SIZE, false);
+    cpu_invalidate_tlb();
+    uint32_t const alloc_after = frames_allocated();
+    TEST_ASSERT(!page_is_mapped(as, v_addr));
+    TEST_ASSERT(alloc_after == alloc_before - 1);
+    frame_alloc_set_oom_simulation(false);
+    return true;
+}
+
+static bool paging_unmap_with_oom_curr_addr_space(void) {
+    return paging_unmap_with_oom_runner(get_curr_addr_space());
+}
+
+static bool paging_unmap_with_oom_other_addr_space(void) {
+    struct addr_space * const addr_space = create_new_addr_space();
+    TEST_ASSERT(paging_unmap_with_oom_runner(addr_space));
+    delete_addr_space(addr_space);
+    return true;
+}
+
 void paging_test(void) {
     TEST_FWK_RUN(paging_create_recursive_entry_test);
     TEST_FWK_RUN(paging_get_curr_page_dir_vaddr_test);
@@ -764,4 +884,9 @@ void paging_test(void) {
     TEST_FWK_RUN(paging_find_cont_non_mapped_pages_other_addr_space_test);
     TEST_FWK_RUN(temp_mapping_page_table_in_new_addr_space_test);
     TEST_FWK_RUN(paging_create_temp_mapping_test);
+    TEST_FWK_RUN(paging_map_with_oom_test);
+    TEST_FWK_RUN(paging_map_with_oom_test2_curr_addr_space);
+    TEST_FWK_RUN(paging_map_with_oom_test2_other_addr_space);
+    TEST_FWK_RUN(paging_unmap_with_oom_curr_addr_space);
+    TEST_FWK_RUN(paging_unmap_with_oom_other_addr_space);
 }

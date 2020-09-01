@@ -215,7 +215,7 @@ static void create_temp_mapping_entry(struct page_dir * const page_dir) {
     page_dir->entry[TEMP_MAP_PDE_IDX] = temp_map_entry;
 }
 
-static void map_page_in(struct addr_space * const addr_space,
+static bool map_page_in(struct addr_space * const addr_space,
                         void const * const paddr,
                         void const * const vaddr,
                         uint32_t const flags);
@@ -242,7 +242,11 @@ static void *create_temp_mapping(void const * const phy_addr) {
     //  will not be modified.
     //  - The entry in the page table is private to this cpu. No race condition
     //  possible here.
-    map_page_in(get_curr_addr_space(), phy_addr, vaddr, flags);
+    bool const res = map_page_in(get_curr_addr_space(), phy_addr, vaddr, flags);
+    // The map_page_in() call above cannot fail, this is because we will map to
+    // the temp map page table and hence no page table allocation is necessary
+    // and no error can occur in OOM scenarios.
+    ASSERT(res);
 
     // No need for TLB Shootdown either. This mapping should NEVER be used by
     // other cpus.
@@ -361,10 +365,12 @@ static inline uint16_t pte_index(void const * const vaddr) {
 // structure. This address must be 4KiB aligned.
 // @param flags: Flags indicating the attributes of the mapping. See macros VM_*
 // in paging.h.
+// @return: true if the mapping was successful, false otherwise. If this
+// function returns false, the paging structure is guaranteed to be unchanged.
 // Note: Even though this function works whether or not paging is enabled, once
 // paging is enabled, the page_dir parameter must be the virtual address of the
 // page directory currently loaded in CR3, otherwise the behavior is undefined.
-static void map_page_in(struct addr_space * const addr_space,
+static bool map_page_in(struct addr_space * const addr_space,
                         void const * const paddr,
                         void const * const vaddr,
                         uint32_t const flags) {
@@ -391,7 +397,9 @@ static void map_page_in(struct addr_space * const addr_space,
         // The table for this index is not present, we need to allocate it and
         // set it up.
         struct page_table * const new_table = alloc_page_table();
-        TODO_PROPAGATE_ERROR(new_table == NO_FRAME);
+        if (new_table == NO_FRAME) {
+            return false;
+        }
         page_table_allocated = true;
         union pde_t pde;
         // Try to be as inclusive as possible for the PDE. The PTEs will
@@ -447,6 +455,7 @@ static void map_page_in(struct addr_space * const addr_space,
     }
 
     page_table->entry[pte_idx] = pte;
+    return true;
 }
 
 // As part as the paging initialization routine, create two mappings:
@@ -482,9 +491,13 @@ static void create_identity_and_higher_half_mappings(struct page_dir * pd) {
         void const * const paddr = to_phys(ptr);
         void const * const vaddr = ptr;
         // Map the higher-half address to the physical address.
-        map_page_in(addr_space, paddr, vaddr, flags);
+        if (!map_page_in(addr_space, paddr, vaddr, flags)) {
+            PANIC("Cannot create higher half mapping\n");
+        }
         // Identity map the low addresses.
-        map_page_in(addr_space, paddr, paddr, flags);
+        if (!map_page_in(addr_space, paddr, paddr, flags)) {
+            PANIC("Cannot create identity mapping\n");
+        }
     }
 }
 
@@ -674,8 +687,11 @@ static void maybe_to_tlb_shootdown(void) {
 // Note: The addresses do not have to be 4KiB aligned, the mapping function will
 // take care of that. However they need to have the same page offset (lower 12
 // bits).
+// @return: true if the mapping was succesful, false otherwise. If this
+// function returns false then the paging structure/addr space is guaranteed to
+// be untouched.
 // Note: This function assumes that the virtual address space is locked.
-static void do_paging_map_in(struct addr_space * const addr_space,
+static bool do_paging_map_in(struct addr_space * const addr_space,
                              void const * const paddr,
                              void const * const vaddr,
                              size_t const len,
@@ -696,8 +712,17 @@ static void do_paging_map_in(struct addr_space * const addr_space,
     for (size_t i = 0; i < num_frames; ++i) {
         void const * const pchunk = start_phy + i * PAGE_SIZE;
         void const * const vchunk = start_virt + i * PAGE_SIZE;
-        map_page_in(addr_space, pchunk, vchunk, flags);
+        if (!map_page_in(addr_space, pchunk, vchunk, flags)) {
+            // The mapping failed because we ran out of memory to allocate a new
+            // page table. Undo all the mapped frames above and return failure.
+            LOG("OOM when mapping %p -> %p\n", vchunk, pchunk);
+            for (size_t j = 0; j < i; ++j) {
+                unmap_page_in(addr_space, start_virt + j * PAGE_SIZE, false);
+            }
+            return false;
+        }
     }
+    return true;
 }
 
 // Shortcut to call do_paging_map_in() with the current address space.
@@ -710,7 +735,8 @@ void paging_map_in(struct addr_space * const addr_space,
                    size_t const len,
                    uint32_t const flags) {
     spinlock_lock(&addr_space->lock);
-    do_paging_map_in(addr_space, paddr, vaddr, len, flags);
+    bool const res = do_paging_map_in(addr_space, paddr, vaddr, len, flags);
+    TODO_PROPAGATE_ERROR(!res);
     spinlock_unlock(&addr_space->lock);
 
     cpu_invalidate_tlb();
@@ -895,11 +921,12 @@ void *paging_map_frames_above_in(struct addr_space * const addr_space,
 
     for (size_t i = 0; i < npages; ++i) {
         void const * const frame = frames[i];
-        do_paging_map_in(addr_space,
-                         frame,
-                         start + i * PAGE_SIZE,
-                         PAGE_SIZE,
-                         flags);
+        bool const res = do_paging_map_in(addr_space,
+                                          frame,
+                                          start + i * PAGE_SIZE,
+                                          PAGE_SIZE,
+                                          flags);
+        TODO_PROPAGATE_ERROR(!res);
     }
     unlock_addr_space(addr_space);
 
