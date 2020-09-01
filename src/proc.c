@@ -8,6 +8,7 @@
 #include <segmentation.h>
 #include <sched.h>
 #include <vfs.h>
+#include <error.h>
 
 // The number of stack frames to be allocated by default for a new process.
 #define DEFAULT_NUM_STACK_FRAMES    4
@@ -26,13 +27,20 @@ static void *get_stack_bottom(void const * const stack_top,
 
 // Allocate a stack for a process in its own address space.
 // @param proc: The process to allocate the stack to.
-static void allocate_stack(struct proc * const proc) {
+// @return: true if the stack was successfully created, false otherwise.
+static bool allocate_stack(struct proc * const proc) {
     // Allocate physical frames that will be used for the process' stack.
     uint32_t const n_stack_frames = DEFAULT_NUM_STACK_FRAMES;
     void * frames[n_stack_frames];
     for (uint32_t i = 0; i < n_stack_frames; ++i) {
         frames[i] = alloc_frame();
-        TODO_PROPAGATE_ERROR(frames[i] == NO_FRAME);
+        if (frames[i] == NO_FRAME) {
+            for (uint32_t j = 0; j < i; ++j) {
+                free_frame(frames[j]);
+            }
+            SET_ERROR("Could not allocate frame for process stack", 0);
+            return false;
+        }
     }
 
     // Map the stack into the process' address space.
@@ -45,9 +53,17 @@ static void allocate_stack(struct proc * const proc) {
     // addresses. This is because those addresses are used by SMP and/or BIOS
     // and sometimes need to be identically mapped.
     void * const low = (void*)(proc->is_kernel_proc ? 0x100000 : 0x0);
+
     void * const stack_top =
         paging_map_frames_above_in(as, low, frames, n_stack_frames, map_flags);
-    TODO_PROPAGATE_ERROR(stack_top == NO_REGION);
+    if (stack_top == NO_REGION) {
+        SET_ERROR("Could not map process' stack to its addr space", 0);
+        for (uint32_t i = 0; i < n_stack_frames; ++i) {
+            free_frame(frames[i]);
+        }
+        return false;
+    }
+
     void * const stack_bottom = get_stack_bottom(stack_top, n_stack_frames);
 
     // Set the esp in the registers_save of the stack.
@@ -57,6 +73,7 @@ static void allocate_stack(struct proc * const proc) {
     proc->stack_top = stack_top;
     proc->stack_bottom = stack_bottom;
     proc->stack_pages = n_stack_frames;
+    return true;
 }
 
 // This lock is used by get_new_pid() to atomically get a new pid.
@@ -73,10 +90,18 @@ static pid_t get_new_pid(void) {
     return pid;
 }
 
+// Create a new process. This function will set default values for the process'
+// registers and allocate a stack.
+// @param ring: The privilege level of the process.
+// @return: On success return a pointer on the initialized struct proc,
+// otherwise NULL is returned.
 static struct proc *create_proc_in_ring(uint8_t const ring) {
     ASSERT(ring == 0 || ring == 3);
     struct proc * const proc = kmalloc(sizeof(*proc));
-    TODO_PROPAGATE_ERROR(!proc);
+    if (!proc) {
+        SET_ERROR("Could not allocate struct proc", 0);
+        return NULL;
+    }
     proc->is_kernel_proc = (ring == 0);
 
     // Kernel processes use the kernel address space.
@@ -87,7 +112,13 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
     // gets run all registers will be 0 (except esp and ebp).
     memzero(&proc->registers_save, sizeof(proc->registers_save));
 
-    allocate_stack(proc);
+    if (!allocate_stack(proc)) {
+        SET_ERROR("Could not allocate stack for process", 0);
+        if (ring) {
+            delete_addr_space(proc->addr_space);
+        }
+        return NULL;
+    }
 
     // For processes the eflags should only have the interrupt bit set.
     proc->registers_save.eflags = 1 << 9;
@@ -122,6 +153,10 @@ struct proc *create_proc(void) {
 
 struct proc *create_kproc(void (*func)(void*), void * const arg) {
     struct proc * const kproc = create_proc_in_ring(0);
+    if (!kproc) {
+        return NULL;
+    }
+
     // Put the argument on the stack of the kproc. Note: stack_bottom points to
     // the first _valid_ dword on the stack. We can directly access the stack
     // here as the address space of the kproc is the kernel address space.

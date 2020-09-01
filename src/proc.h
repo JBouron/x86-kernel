@@ -120,7 +120,7 @@ struct proc {
 
 // Create a new struct proc. The process' address space and stack are allocated.
 // The register_save_area is zeroed, ESP points to the freshly allocated stack.
-// @return: A pointer on the allocated struct proc.
+// @return: On success, a pointer on the allocated struct proc, NULL otherwise.
 struct proc *create_proc(void);
 
 // Kernel processes
@@ -136,6 +136,8 @@ struct proc *create_proc(void);
 // Create a kernel process asyncronously executing a kernel function.
 // @param func: The function to execute in the kernel thread.
 // @parma arg: The void* argument to pass to the function to be executed.
+// @return: On success, a pointer on the initialized struct proc, otherwise NULL
+// is returned.
 struct proc *create_kproc(void (*func)(void*), void * const arg);
 
 // Switch the execution of the current cpu to a process. This function does not

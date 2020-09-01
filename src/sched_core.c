@@ -42,6 +42,9 @@ void sched_init(void) {
     uint8_t const ncpus = acpi_get_number_cpus();
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
         struct proc * const idle = create_kproc(do_idle, NULL);
+        if (!idle) {
+            PANIC("Cannot create idle proc for cpu %u", cpu);
+        }
         cpu_var(idle_proc, cpu) = idle;
         cpu_var(curr_proc, cpu) = idle;
         LOG("[%u] Idle proc for %u = %p\n", this_cpu_var(cpu_id), cpu, idle);
