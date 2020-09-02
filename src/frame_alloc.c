@@ -237,7 +237,7 @@ void *alloc_frame(void) {
     uint32_t const frame_idx = bitmap_set_next_bit(bitmap);
     void * frame_addr;
     if (frame_idx == BM_NPOS) {
-        LOG("No physical frame left for allocation.\n");
+        SET_ERROR("No physical frame left for allocation", 0);
         frame_addr = NO_FRAME;
     } else {
         // A frame is available, its address is the bit position * PAGE_SIZE.
