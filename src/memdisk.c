@@ -5,6 +5,7 @@
 #include <memory.h>
 #include <disk.h>
 #include <kmalloc.h>
+#include <error.h>
 
 // For now use a sector size of 512 bytes. This is pretty much standard at this
 // point.
@@ -123,12 +124,21 @@ struct disk *create_memdisk(void * const addr,
     }
 
     struct disk * const disk = kmalloc(sizeof(*disk));
-    TODO_PROPAGATE_ERROR(!disk);
+    if (!disk) {
+        SET_ERROR("Cannot allocate struct disk for new memdisk", 0);
+        return NULL;
+    }
+
     disk->ops = &memdisk_ops;
 
     // Allocate a memdisk_data for this new disk containing its state.
     struct memdisk_data * const data = kmalloc(sizeof(*data));
-    TODO_PROPAGATE_ERROR(!data);
+    if (!data) {
+        SET_ERROR("Cannot allocate private data for new memdisk", 0);
+        kfree(disk);
+        return NULL;
+    }
+
     disk->driver_private = data;
 
     data->mapped_addr = addr;

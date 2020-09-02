@@ -13,7 +13,8 @@
 // @param size: The size of the memdisk in bytes. Must be a multiple of 512
 // bytes.
 // @param read_only: If true, the resulting memdisk will be read only.
-// @return: The struct disk* associated to the new memdisk.
+// @return: On success, the struct disk* associated to the new memdisk is
+// returned, otherwise NULL is returned.
 struct disk *create_memdisk(void * const addr,
                             size_t const size,
                             bool const read_only);

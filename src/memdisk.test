@@ -148,6 +148,8 @@ static bool memdisk_read_only_test(void) {
     return true;
 }
 
+// TODO: test create_memdisk() when no allocation through kmalloc() is possible.
+
 void memdisk_test(void) {
     TEST_FWK_RUN(memdisk_read_sector_test);
     TEST_FWK_RUN(memdisk_write_sector_test);

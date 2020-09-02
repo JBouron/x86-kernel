@@ -61,6 +61,12 @@ struct disk *get_initrd_disk(void) {
             return NULL;
         }
         INIT_RD_MEMDISK = create_memdisk(initrd_vaddr, size, true);
+        if (!INIT_RD_MEMDISK) {
+            // Instead of reporting an error here, let this one slip. The initrd
+            // is clearly there, unfortunately we cannot create a memdisk for it
+            // at this time.
+            LOG("Cannot create memdisk for initrd at this time\n");
+        }
     }
     disk = INIT_RD_MEMDISK;
 
