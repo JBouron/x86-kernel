@@ -1,7 +1,7 @@
 #include <tty.h>
 #include <string.h>
 #include <memory.h>
-#include <lock.h>
+#include <spinlock.h>
 
 DECLARE_SPINLOCK(TTY_LOCK);
 

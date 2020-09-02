@@ -5,7 +5,7 @@
 #include <cpu.h>
 #include <paging.h>
 #include <memory.h>
-#include <lock.h>
+#include <spinlock.h>
 
 // The register addresses of the IO APIC.
 #define IOAPICID    0

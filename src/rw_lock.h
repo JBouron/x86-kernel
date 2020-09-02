@@ -1,5 +1,5 @@
 #pragma once
-#include <lock.h>
+#include <spinlock.h>
 
 typedef struct {
     spinlock_t readers_lock; 

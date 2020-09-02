@@ -2,7 +2,7 @@
 #include <fs.h>
 #include <debug.h>
 #include <list.h>
-#include <lock.h>
+#include <spinlock.h>
 #include <kmalloc.h>
 #include <string.h>
 #include <memory.h>

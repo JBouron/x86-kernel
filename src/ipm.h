@@ -1,7 +1,7 @@
 #pragma once
 #include <types.h>
 #include <list.h>
-#include <lock.h>
+#include <spinlock.h>
 #include <percpu.h>
 #include <atomic.h>
 

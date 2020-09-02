@@ -8,7 +8,7 @@
 #include <acpi.h>
 #include <math.h>
 #include <kernel_map.h>
-#include <lock.h>
+#include <spinlock.h>
 #include <kmalloc.h>
 #include <addr_space.h>
 

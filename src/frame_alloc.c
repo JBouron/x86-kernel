@@ -7,7 +7,7 @@
 #include <kernel_map.h>
 #include <paging.h>
 #include <multiboot.h>
-#include <lock.h>
+#include <spinlock.h>
 #include <error.h>
 
 // There is a single frame allocator for the whole system. Hence we need a lock

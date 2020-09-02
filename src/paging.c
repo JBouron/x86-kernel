@@ -4,7 +4,7 @@
 #include <memory.h>
 #include <math.h>
 #include <kernel_map.h>
-#include <lock.h>
+#include <spinlock.h>
 #include <ipm.h>
 #include <smp.h>
 #include <addr_space.h>

@@ -1,4 +1,4 @@
-#include <lock.h>
+#include <spinlock.h>
 #include <cpu.h>
 #include <debug.h>
 #include <memory.h>

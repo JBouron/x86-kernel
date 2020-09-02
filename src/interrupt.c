@@ -3,7 +3,7 @@
 #include <memory.h>
 #include <segmentation.h>
 #include <lapic.h>
-#include <lock.h>
+#include <spinlock.h>
 #include <percpu.h>
 #include <ipm.h>
 #include <proc.h>

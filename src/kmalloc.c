@@ -6,7 +6,7 @@
 #include <list.h>
 #include <kernel_map.h>
 #include <math.h>
-#include <lock.h>
+#include <spinlock.h>
 #include <error.h>
 
 // Dynamic memory allocator for the kernel.

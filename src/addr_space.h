@@ -1,7 +1,7 @@
 #pragma once
 
 #include <types.h>
-#include <lock.h>
+#include <spinlock.h>
 
 // This struct represent the address space of a process or kernel.
 struct addr_space {
