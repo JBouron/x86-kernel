@@ -68,7 +68,16 @@ static bool switch_to_addr_space_test(void) {
     return true;
 }
 
+static bool create_new_addr_space_oom_test(void) {
+    frame_alloc_set_oom_simulation(true);
+    TEST_ASSERT(!create_new_addr_space());
+    frame_alloc_set_oom_simulation(false);
+    CLEAR_ERROR();
+    return true;
+}
+
 void addr_space_test(void) {
     TEST_FWK_RUN(create_new_addr_space_test);
+    TEST_FWK_RUN(create_new_addr_space_oom_test);
     TEST_FWK_RUN(switch_to_addr_space_test);
 }

@@ -55,7 +55,8 @@ void unlock_addr_space(struct addr_space * const addr_space);
 
 // Create a new address space. The address space initially contains the kernel
 // data (and mappings).
-// @return: The struct addr_space associated with this new address space.
+// @return: On success, the struct addr_space associated with this new address
+// space, otherwise NULL is returned.
 struct addr_space *create_new_addr_space(void);
 
 // Delete an address space and de-allocate the physical frames it uses for its

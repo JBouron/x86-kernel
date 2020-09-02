@@ -4,6 +4,7 @@
 #include <frame_alloc.h>
 #include <paging.h>
 #include <acpi.h>
+#include <error.h>
 
 // The kernel's address space needs to be statically allocated since it will be
 // used even before dynamic allocation is setup.
@@ -81,9 +82,17 @@ void unlock_addr_space(struct addr_space * const addr_space) {
 
 struct addr_space *create_new_addr_space(void) {
     struct addr_space * clone = kmalloc(sizeof(*clone));
-    TODO_PROPAGATE_ERROR(!clone);
+    if (!clone) {
+        SET_ERROR("Cannot allocated struct addr_space", 0);
+        return NULL;
+    }
+
     void * const page_dir = alloc_frame();
-    TODO_PROPAGATE_ERROR(page_dir == NO_FRAME);
+    if (page_dir == NO_FRAME) {
+        SET_ERROR("Cannot allocate page dir for new address space", 0);
+        kfree(clone);
+        return NULL;
+    }
 
     spinlock_init(&clone->lock);
     clone->page_dir_phy_addr = page_dir;
