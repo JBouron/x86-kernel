@@ -638,6 +638,9 @@ static bool vfs_concurrent_multiple_readers_single_writer_test(void) {
 
 }
 
+// TODO: Add test calling vfs_mount() when kmalloc() cannot allocate anymore
+// memory.
+
 void vfs_test(void) {
     init_vfs();
 

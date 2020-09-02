@@ -17,7 +17,8 @@ void init_vfs(void);
 // @param disk: The disk to be mounted.
 // @param target: The path on which the disk should be mounted. This path must
 // be an absolute path with a trailing '/' character.
-void vfs_mount(struct disk * const disk, pathname_t const target);
+// @return: On success true, false otherwise.
+bool vfs_mount(struct disk * const disk, pathname_t const target);
 
 // Unmount a disk from a path.
 // @param pathname: The path to be unmounted.

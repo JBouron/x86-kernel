@@ -6,6 +6,7 @@
 #include <kmalloc.h>
 #include <string.h>
 #include <memory.h>
+#include <error.h>
 
 extern struct fs const ustar_fs;
 
@@ -71,10 +72,14 @@ static bool mount_target_is_valid(pathname_t const pathname) {
     return len && (pathname[0] == '/') && (pathname[len - 1] == '/');
 }
 
-void vfs_mount(struct disk * const disk, pathname_t const target) {
+bool vfs_mount(struct disk * const disk, pathname_t const target) {
     ASSERT(mount_target_is_valid(target));
     struct mount * const mount = kmalloc(sizeof(*mount));
-    TODO_PROPAGATE_ERROR(!mount);
+    if (!mount) {
+        SET_ERROR("Cannot allocate memory to registers new mount", 0);
+        return false;
+    }
+
     mount->mount_point = target;
     mount->disk = disk;
     mount->fs = get_fs_for_disk(disk);
@@ -95,6 +100,7 @@ void vfs_mount(struct disk * const disk, pathname_t const target) {
 
     list_add_tail(&MOUNTS, &mount->mount_point_list);
     spinlock_unlock(&MOUNTS_LOCK);
+    return true;
 }
 
 void vfs_unmount(pathname_t const pathname) {
