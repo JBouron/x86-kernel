@@ -107,6 +107,11 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
     // Kernel processes use the kernel address space.
     proc->addr_space =
         (ring == 0) ? get_kernel_addr_space() : create_new_addr_space();
+    if (!proc->addr_space) {
+        SET_ERROR("Cannot create address space for new process", 0);
+        kfree(proc);
+        return NULL;
+    }
 
     // Zero out the register_save struct of the proc so that the first time it
     // gets run all registers will be 0 (except esp and ebp).
@@ -117,6 +122,7 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
         if (ring) {
             delete_addr_space(proc->addr_space);
         }
+        kfree(proc);
         return NULL;
     }
 

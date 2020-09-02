@@ -332,6 +332,15 @@ static bool register_saving_ring0_int_test(void) {
     return true;
 }
 
+static bool create_proc_oom_test(void) {
+    frame_alloc_set_oom_simulation(true);
+    TEST_ASSERT(!create_proc());
+    TEST_ASSERT(!create_kproc(NULL, NULL));
+    frame_alloc_set_oom_simulation(false);
+    CLEAR_ERROR();
+    return true;
+}
+
 void proc_test(void) {
     TEST_FWK_RUN(get_stack_bottom_test);
     TEST_FWK_RUN(create_proc_test);
@@ -340,4 +349,5 @@ void proc_test(void) {
     TEST_FWK_RUN(kernel_access_from_ring3_test);
     TEST_FWK_RUN(kernel_process_test);
     TEST_FWK_RUN(register_saving_ring0_int_test);
+    TEST_FWK_RUN(create_proc_oom_test);
 }
