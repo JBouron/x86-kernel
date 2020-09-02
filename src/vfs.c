@@ -199,13 +199,17 @@ static struct file *open_file(pathname_t const filename) {
 
     struct mount const * const mount = find_mount_for_file(filename);
     if (!mount) {
-        LOG("Cannot find mount point for file %s\n", filename);
+        SET_ERROR("Cannot find mount point for file", 0);
         return NULL;
     }
     struct disk * const disk = mount->disk;
 
     // The filename passed as argument is short lived. Make a copy.
     pathname_t const filename_cpy = memdup(filename, strlen(filename) + 1);
+    if (!filename_cpy) {
+        SET_ERROR("Cannot allocate memory for file name", 0);
+        return NULL;
+    }
     // Use the same string to represent the absolute and relative paths.
     pathname_t const rel_path = filename_cpy + strlen(mount->mount_point);
 
@@ -213,7 +217,8 @@ static struct file *open_file(pathname_t const filename) {
     // specific ones.
     struct file * const file = kmalloc(sizeof(*file));
     if (!file) {
-        LOG("Cannot allocate memory to open file %s\n", filename);
+        SET_ERROR("Cannot allocate struct file", 0);
+        kfree((void*)filename_cpy);
         return NULL;
     }
 
@@ -235,6 +240,7 @@ static struct file *open_file(pathname_t const filename) {
         // free necessary for both.
         kfree((char*)file->abs_path);
         kfree(file);
+        SET_ERROR("Cannot find file on filesystem", 0);
         return NULL;
     }
 }

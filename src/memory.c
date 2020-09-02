@@ -36,8 +36,9 @@ bool memeq(void const * const s1, void const * const s2, size_t const size) {
 
 void *memdup(void const * const buf, size_t const len) {
     void * const dup_buf = kmalloc(len);
-    TODO_PROPAGATE_ERROR(!dup_buf);
-    memcpy(dup_buf, buf, len);
+    if (dup_buf) {
+        memcpy(dup_buf, buf, len);
+    }
     return dup_buf;
 }
 

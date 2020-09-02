@@ -126,6 +126,7 @@ void do_exit(uint8_t const exit_code) {
 
 fd_t do_open(pathname_t const u_path) {
     pathname_t const path = memdup(u_path, strlen(u_path) + 1);
+    TODO_PROPAGATE_ERROR(!path);
     struct proc * const curr = this_cpu_var(curr_proc);
 
     // Open the file.

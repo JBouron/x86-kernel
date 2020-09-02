@@ -33,7 +33,8 @@ bool memeq(void const * const s1, void const * const s2, size_t const size);
 // @param buf: The buffer to be duplicated.
 // @param len: The length of the buffer in bytes.
 // @return: A freshly allocated buffer in the kernel's heap containing the same
-// data as buf.
+// data as buf. If the kernel buffer cannot be allocated this function returns
+// NULL.
 // Note: This function uses the kernel's dynamic memory allocator.
 void *memdup(void const * const buf, size_t const len);
 
