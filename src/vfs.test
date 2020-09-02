@@ -122,6 +122,7 @@ static bool vfs_open_non_existing_test(void) {
 
     vfs_unmount(mount_point);
     delete_memdisk(disk);
+    CLEAR_ERROR();
     return true;
 }
 
