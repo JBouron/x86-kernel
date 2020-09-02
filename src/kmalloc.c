@@ -594,22 +594,33 @@ struct list_node GROUP_LIST;
 // function. Instead, the first call to kmalloc will initialize the state.
 static bool KMALLOC_INITIALIZED = false;
 
+// Indicate if the kmalloc OOM simulation is currently active.
+static bool KMALLOC_OOM_SIMULATION = false;
+
 // This is the public interface for the dynamic memory allocation.
 // @param size: The requested amount of memory.
 // @return: The virtual address of the allocated memory.
 void * kmalloc(size_t const size) {
-    spinlock_lock(&KMALLOC_LOCK);
-
     if (percpu_initialized()) {
         this_cpu_var(kmalloc_nest_level) ++;
     }
+
+    spinlock_lock(&KMALLOC_LOCK);
 
     if (!KMALLOC_INITIALIZED) {
         // Initialize the group list if it wasn't done already.
         list_init(&GROUP_LIST);
         KMALLOC_INITIALIZED = true;
     }
-    void * const addr = do_kmalloc(&GROUP_LIST, size);
+
+    void *addr;
+    if (KMALLOC_OOM_SIMULATION) {
+        SET_ERROR("kmalloc's OOM Simulation active", 0);
+        addr = NULL;
+    } else  {
+        addr = do_kmalloc(&GROUP_LIST, size);
+    }
+
     if (percpu_initialized()) {
         this_cpu_var(kmalloc_nest_level) --;
     }
@@ -668,6 +679,10 @@ void * kmalloc_debug_wrapper(char const * const func_name,
     size_t const excess = sizeof(uint32_t) + sizeof(struct kmalloc_debug_info);
 
     void * const addr = kmalloc(size + excess);
+    if (!addr) {
+        return NULL;
+    }
+
     *(uint32_t*)(addr) = size;
 
     // The address to return to the requestor.
@@ -748,6 +763,10 @@ void kmalloc_list_allocations(void) {
         }
     }
     spinlock_unlock(&KMALLOC_LOCK);
+}
+
+void kmalloc_set_oom_simulation(bool const enabled) {
+    KMALLOC_OOM_SIMULATION = enabled;
 }
 
 #include <kmalloc.test>

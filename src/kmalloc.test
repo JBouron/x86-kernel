@@ -617,6 +617,16 @@ static bool kmalloc_physical_frame_oom_test(void) {
     return true;
 }
 
+static bool kmalloc_oom_simulation_test(void) {
+    kmalloc_set_oom_simulation(true);
+    TEST_ASSERT(!kmalloc(1));
+    TEST_ASSERT(!kmalloc(4));
+    TEST_ASSERT(!kmalloc(8));
+    TEST_ASSERT(!kmalloc(16));
+    kmalloc_set_oom_simulation(false);
+    return true;
+}
+
 void kmalloc_test() {
     TEST_FWK_RUN(kmalloc_create_group_test);
     TEST_FWK_RUN(kmalloc_alloc_all_group_at_once_test);
@@ -634,4 +644,5 @@ void kmalloc_test() {
     TEST_FWK_RUN(do_kmalloc_test_create_group);
     TEST_FWK_RUN(do_kfree_test);
     TEST_FWK_RUN(kmalloc_physical_frame_oom_test);
+    TEST_FWK_RUN(kmalloc_oom_simulation_test);
 }

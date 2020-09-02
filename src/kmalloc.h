@@ -79,5 +79,10 @@ size_t kmalloc_total_allocated(void);
 // present, log them as well.
 void kmalloc_list_allocations(void);
 
+// Simulate an Out-Of-Memory scenario. This is used for testing purposes only.
+// @param enabled: If true, the OOM simulation is enabled and any subsequent
+// call to kmalloc() will return NULL. false stops the OOM simulation.
+void kmalloc_set_oom_simulation(bool const enabled);
+
 // Execute memory allocation tests.
 void kmalloc_test(void);
