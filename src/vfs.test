@@ -35,7 +35,7 @@ static bool mount_target_is_valid_test(void) {
 static bool vfs_mount_test(void) {
     struct disk * const disk = create_test_disk();
     pathname_t const mount_point = "/some/mount/point/";
-    vfs_mount(disk, mount_point);
+    TEST_ASSERT(vfs_mount(disk, mount_point));
 
     // Check that the MOUNTS linked list contains the correct information.
     TEST_ASSERT(list_size(&MOUNTS) == 1);
@@ -153,6 +153,24 @@ static bool vfs_open_close_file_test(void) {
     vfs_unmount(mount_point);
     delete_memdisk(disk);
     return true;
+}
+
+static bool vfs_open_file_oom_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+    vfs_mount(disk, mount_point);
+    pathname_t const filename = "/some/mount/point/root/file0";
+
+    kmalloc_set_oom_simulation(true);
+    spinlock_lock(&OPENED_FILES_LOCK);
+    struct file * const file = open_file(filename);
+    spinlock_unlock(&OPENED_FILES_LOCK);
+    kmalloc_set_oom_simulation(false);
+
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    CLEAR_ERROR();
+    return !file;
 }
 
 static bool vfs_lookup_file_test(void) {
@@ -639,8 +657,19 @@ static bool vfs_concurrent_multiple_readers_single_writer_test(void) {
 
 }
 
-// TODO: Add test calling vfs_mount() when kmalloc() cannot allocate anymore
-// memory.
+static bool vfs_mount_oom_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+
+    kmalloc_set_oom_simulation(true);
+    TEST_ASSERT(!vfs_mount(disk, mount_point));
+    kmalloc_set_oom_simulation(false);
+
+    TEST_ASSERT(list_size(&MOUNTS) == 0);
+    delete_memdisk(disk);
+    CLEAR_ERROR();
+    return true;
+}
 
 void vfs_test(void) {
     init_vfs();
@@ -648,10 +677,12 @@ void vfs_test(void) {
     TEST_FWK_RUN(get_fs_for_disk_test);
     TEST_FWK_RUN(mount_target_is_valid_test);
     TEST_FWK_RUN(vfs_mount_test);
+    TEST_FWK_RUN(vfs_mount_oom_test);
     TEST_FWK_RUN(is_under_mount_test);
     TEST_FWK_RUN(find_mount_for_file_test);
     TEST_FWK_RUN(vfs_open_non_existing_test);
     TEST_FWK_RUN(vfs_open_close_file_test);
+    TEST_FWK_RUN(vfs_open_file_oom_test);
     TEST_FWK_RUN(vfs_lookup_file_test);
     TEST_FWK_RUN(vfs_read_test);
     TEST_FWK_RUN(vfs_write_test);
