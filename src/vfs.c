@@ -84,7 +84,9 @@ bool vfs_mount(struct disk * const disk, pathname_t const target) {
     mount->disk = disk;
     mount->fs = get_fs_for_disk(disk);
     if (!mount->fs) {
-        PANIC("Unsupported filesystem for disk %p.\n", disk);
+        SET_ERROR("No filesystem implementation found", 0);
+        kfree(mount);
+        return false;
     }
     list_init(&mount->mount_point_list);
 
@@ -94,7 +96,10 @@ bool vfs_mount(struct disk * const disk, pathname_t const target) {
     struct mount const * it = NULL;
     list_for_each_entry(it, &MOUNTS, mount_point_list) {
         if (streq(it->mount_point, target)) {
-            PANIC("%s is already mounted.\n", target);
+            spinlock_unlock(&MOUNTS_LOCK);
+            SET_ERROR("Mount point already mounted", 0);
+            kfree(mount);
+            return false;
         }
     }
 
@@ -103,7 +108,7 @@ bool vfs_mount(struct disk * const disk, pathname_t const target) {
     return true;
 }
 
-void vfs_unmount(pathname_t const pathname) {
+bool vfs_unmount(pathname_t const pathname) {
     spinlock_lock(&MOUNTS_LOCK);
 
     struct mount * mount = NULL;
@@ -113,15 +118,20 @@ void vfs_unmount(pathname_t const pathname) {
         }
     }
 
-    if (!mount) {
+    if (!list_size(&MOUNTS) || !mount) {
         // This path was never mounted.
-        PANIC("Tried to unmount a path that is not a mount point.\n");
+        // Note: The list_size() check is necessary due to the fact that mount
+        // has an undefined value if the list if empty.
+        spinlock_unlock(&MOUNTS_LOCK);
+        SET_ERROR("Tried to unmount a path that is not a mount point", 0);
+        return false;
     }
 
     list_del(&mount->mount_point_list);
     spinlock_unlock(&MOUNTS_LOCK);
 
     kfree(mount);
+    return true;
 }
 
 // Check if a pathname is under a given mount.

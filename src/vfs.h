@@ -22,7 +22,8 @@ bool vfs_mount(struct disk * const disk, pathname_t const target);
 
 // Unmount a disk from a path.
 // @param pathname: The path to be unmounted.
-void vfs_unmount(pathname_t const pathname);
+// @return: On success true, false otherwise.
+bool vfs_unmount(pathname_t const pathname);
 
 // Open a file from VFS.
 // @param filename: The absolute path of the file to be opened.

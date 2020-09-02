@@ -671,6 +671,39 @@ static bool vfs_mount_oom_test(void) {
     return true;
 }
 
+static bool vfs_mount_unknown_filesystem_test(void) {
+    uint8_t * const memdisk_data = kmalloc(512);
+    struct disk * const memdisk = create_memdisk(memdisk_data, 512, false);
+    pathname_t const mount_point = "/some/mount/point/";
+
+    TEST_ASSERT(!vfs_mount(memdisk, mount_point));
+    delete_memdisk(memdisk);
+    kfree(memdisk_data);
+    CLEAR_ERROR();
+    return true;
+}
+
+static bool vfs_mount_on_mounted_point_test(void) {
+    struct disk * const disk = create_test_disk();
+    pathname_t const mount_point = "/some/mount/point/";
+
+    TEST_ASSERT(vfs_mount(disk, mount_point));
+    TEST_ASSERT(!vfs_mount(disk, mount_point));
+
+    TEST_ASSERT(list_size(&MOUNTS) == 1);
+
+    vfs_unmount(mount_point);
+    delete_memdisk(disk);
+    CLEAR_ERROR();
+    return true;
+}
+
+static bool vfs_unmount_non_mounted_path_test(void) {
+    TEST_ASSERT(!vfs_unmount("/some/mount/point/"));
+    CLEAR_ERROR();
+    return true;
+}
+
 void vfs_test(void) {
     init_vfs();
 
@@ -689,6 +722,9 @@ void vfs_test(void) {
     TEST_FWK_RUN(vfs_concurrent_write_test);
     TEST_FWK_RUN(vfs_concurrent_read_and_write_test);
     TEST_FWK_RUN(vfs_concurrent_multiple_readers_single_writer_test);
+    TEST_FWK_RUN(vfs_mount_unknown_filesystem_test);
+    TEST_FWK_RUN(vfs_mount_on_mounted_point_test);
+    TEST_FWK_RUN(vfs_unmount_non_mounted_path_test);
 
     // Call init_vfs() a second time to remove any state changed by the tests.
     init_vfs();
