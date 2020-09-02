@@ -228,7 +228,7 @@ void *alloc_frame(void) {
 
     if (OOM_SIMULATION) {
         spinlock_unlock(&FRAME_ALLOC_LOCK);
-        SET_ERROR("OOM Simulation active", 0);
+        SET_ERROR("OOM Simulation active", ENOMEM);
         return NO_FRAME;
     }
 
@@ -237,7 +237,7 @@ void *alloc_frame(void) {
     uint32_t const frame_idx = bitmap_set_next_bit(bitmap);
     void * frame_addr;
     if (frame_idx == BM_NPOS) {
-        SET_ERROR("No physical frame left for allocation", 0);
+        SET_ERROR("No physical frame left for allocation", ENOMEM);
         frame_addr = NO_FRAME;
     } else {
         // A frame is available, its address is the bit position * PAGE_SIZE.

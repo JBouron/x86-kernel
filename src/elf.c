@@ -270,7 +270,7 @@ static bool process_program_header(struct file * const file,
     size_t const nframes = get_required_num_frames(segment_start, segment_end);
     void **frames = kmalloc(nframes * sizeof(*frames));
     if (!frames) {
-        SET_ERROR("Cannot allocate dyn memory to load ELF program header", 0);
+        SET_ERROR("Cannot alloc dyn memory to load ELF program header", ENONE);
         return false;
     }
 
@@ -280,7 +280,7 @@ static bool process_program_header(struct file * const file,
             for (uint32_t j = 0; j < i; ++j) {
                 free_frame(frames[j]);
             }
-            SET_ERROR("Cannot allocate physical frame to load ELF prog hdr", 0);
+            SET_ERROR("Cannot alloc physical frame to load ELF prog hdr", ENONE);
             kfree(frames);
             return false;
         }
@@ -297,7 +297,7 @@ static bool process_program_header(struct file * const file,
                                                   nframes,
                                                   map_flags);
     if (mapped == NO_REGION) {
-        SET_ERROR("Failed to map ELF prog header to proc address space", 0);
+        SET_ERROR("Failed to map ELF prog header to proc address space", ENONE);
         goto fail_first_map_above;
     }
     // FIXME: We could map the frames one by one to make sure that they are
@@ -315,7 +315,7 @@ static bool process_program_header(struct file * const file,
                                                      nframes,
                                                      VM_NON_GLOBAL | VM_WRITE);
     if (write_map == NO_REGION) {
-        SET_ERROR("Failed to map ELF prog header to proc address space", 0);
+        SET_ERROR("Failed to map ELF prog header to proc address space", ENONE);
         goto fail_second_map_above;
     }
 
@@ -388,7 +388,7 @@ bool load_elf_binary(struct file * const file, struct proc * const proc) {
             // be thrown away if we can't load the whole ELF anyway, this will
             // take care of the section that got loaded.
             switch_to_addr_space(get_kernel_addr_space());
-            SET_ERROR("Could not map ELF prog header into process", 0);
+            SET_ERROR("Could not map ELF prog header into process", ENONE);
             return false;
         }
     }

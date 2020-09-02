@@ -121,7 +121,7 @@ static struct group * create_group(size_t const size) {
             for (size_t j = 0; j < i; ++j) {
                 free_frame(frames[j]);
             }
-            SET_ERROR("Not enough physical frames to allocate new group", 0);
+            SET_ERROR("Not enough physical frames to allocate group", ENONE);
             return NULL;
         }
     }
@@ -147,7 +147,7 @@ static struct group * create_group(size_t const size) {
         for (size_t i = 0; i < size; ++i) {
             free_frame(frames[i]);
         }
-        SET_ERROR("Cannot map group to virt addr space", 0);
+        SET_ERROR("Cannot map group to virt addr space", ENONE);
         return NULL;
     }
 
@@ -515,7 +515,7 @@ static void * do_kmalloc(struct list_node * group_list, size_t const size) {
             // Not enough memory to alloacte the request. This need to happen
             // after the spinlock_lock() above since do_kmalloc() is assumed to
             // return while holding the lock.
-            SET_ERROR("Cannot find or create group for allocation", 0);
+            SET_ERROR("Cannot find or create group for allocation", ENONE);
             return NULL;
         }
 
@@ -615,7 +615,7 @@ void * kmalloc(size_t const size) {
 
     void *addr;
     if (KMALLOC_OOM_SIMULATION) {
-        SET_ERROR("kmalloc's OOM Simulation active", 0);
+        SET_ERROR("kmalloc's OOM Simulation active", ENOMEM);
         addr = NULL;
     } else  {
         addr = do_kmalloc(&GROUP_LIST, size);

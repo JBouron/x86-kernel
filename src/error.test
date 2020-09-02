@@ -135,9 +135,49 @@ static bool set_error_under_kmalloc_test(void) {
     return true;
 }
 
+// Check that using ENONE as error code is mirroring the previous error code.
+static bool set_error_enone_test(void) {
+    init_error_mechanism();
+
+    uint32_t line_numbers[4];
+    char const * messages[4] = {
+        "error0",
+        "error1",
+        "error2",
+        "error3",
+    };
+
+    line_numbers[0] = __LINE__; SET_ERROR(messages[0], 1337);
+    line_numbers[1] = __LINE__; SET_ERROR(messages[1], ENONE);
+    line_numbers[2] = __LINE__; SET_ERROR(messages[2], ENONE);
+    line_numbers[3] = __LINE__; SET_ERROR(messages[3], 123);
+
+    struct list_node * const error_ll_head = &this_cpu_var(error_list);
+    TEST_ASSERT(list_size(error_ll_head) == 4);
+
+    int32_t i = 0;
+    struct error_desc * error;
+    list_for_each_entry(error, error_ll_head, error_linked_list) {
+        TEST_ASSERT(!error->is_static);
+        TEST_ASSERT(error->active);
+        TEST_ASSERT(streq(error->file, __FILE__));
+        TEST_ASSERT(error->line == line_numbers[i]);
+        TEST_ASSERT(streq(error->func, __func__));
+        TEST_ASSERT(streq(error->message, messages[i]));
+        TEST_ASSERT(error->error_code == ((i < 3) ? 1337 : 123));
+        i ++;
+    }
+
+    CLEAR_ERROR();
+    TEST_ASSERT(list_size(error_ll_head) == 0);
+
+    return true;
+}
+
 void error_test(void) {
     TEST_FWK_RUN(get_irq_flag_and_disable_test);
     TEST_FWK_RUN(get_static_error_desc_test);
     TEST_FWK_RUN(set_error_test);
     TEST_FWK_RUN(set_error_under_kmalloc_test);
+    TEST_FWK_RUN(set_error_enone_test);
 }

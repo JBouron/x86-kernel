@@ -83,13 +83,13 @@ void unlock_addr_space(struct addr_space * const addr_space) {
 struct addr_space *create_new_addr_space(void) {
     struct addr_space * clone = kmalloc(sizeof(*clone));
     if (!clone) {
-        SET_ERROR("Cannot allocated struct addr_space", 0);
+        SET_ERROR("Cannot allocated struct addr_space", ENONE);
         return NULL;
     }
 
     void * const page_dir = alloc_frame();
     if (page_dir == NO_FRAME) {
-        SET_ERROR("Cannot allocate page dir for new address space", 0);
+        SET_ERROR("Cannot allocate page dir for new address space", ENONE);
         kfree(clone);
         return NULL;
     }

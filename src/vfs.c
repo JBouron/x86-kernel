@@ -76,7 +76,7 @@ bool vfs_mount(struct disk * const disk, pathname_t const target) {
     ASSERT(mount_target_is_valid(target));
     struct mount * const mount = kmalloc(sizeof(*mount));
     if (!mount) {
-        SET_ERROR("Cannot allocate memory to registers new mount", 0);
+        SET_ERROR("Cannot allocate memory to registers new mount", ENONE);
         return false;
     }
 
@@ -84,7 +84,7 @@ bool vfs_mount(struct disk * const disk, pathname_t const target) {
     mount->disk = disk;
     mount->fs = get_fs_for_disk(disk);
     if (!mount->fs) {
-        SET_ERROR("No filesystem implementation found", 0);
+        SET_ERROR("No filesystem implementation found", ENOFSIMPL);
         kfree(mount);
         return false;
     }
@@ -97,7 +97,7 @@ bool vfs_mount(struct disk * const disk, pathname_t const target) {
     list_for_each_entry(it, &MOUNTS, mount_point_list) {
         if (streq(it->mount_point, target)) {
             spinlock_unlock(&MOUNTS_LOCK);
-            SET_ERROR("Mount point already mounted", 0);
+            SET_ERROR("Mount point already mounted", EMOUNTED);
             kfree(mount);
             return false;
         }
@@ -123,7 +123,7 @@ bool vfs_unmount(pathname_t const pathname) {
         // Note: The list_size() check is necessary due to the fact that mount
         // has an undefined value if the list if empty.
         spinlock_unlock(&MOUNTS_LOCK);
-        SET_ERROR("Tried to unmount a path that is not a mount point", 0);
+        SET_ERROR("Tried to unmount non mount point", ENOTMOUNTPOINT);
         return false;
     }
 
@@ -209,7 +209,7 @@ static struct file *open_file(pathname_t const filename) {
 
     struct mount const * const mount = find_mount_for_file(filename);
     if (!mount) {
-        SET_ERROR("Cannot find mount point for file", 0);
+        SET_ERROR("Cannot find mount point for file", ENOTFOUND);
         return NULL;
     }
     struct disk * const disk = mount->disk;
@@ -217,7 +217,7 @@ static struct file *open_file(pathname_t const filename) {
     // The filename passed as argument is short lived. Make a copy.
     pathname_t const filename_cpy = memdup(filename, strlen(filename) + 1);
     if (!filename_cpy) {
-        SET_ERROR("Cannot allocate memory for file name", 0);
+        SET_ERROR("Cannot allocate memory for file name", ENONE);
         return NULL;
     }
     // Use the same string to represent the absolute and relative paths.
@@ -227,7 +227,7 @@ static struct file *open_file(pathname_t const filename) {
     // specific ones.
     struct file * const file = kmalloc(sizeof(*file));
     if (!file) {
-        SET_ERROR("Cannot allocate struct file", 0);
+        SET_ERROR("Cannot allocate struct file", ENONE);
         kfree((void*)filename_cpy);
         return NULL;
     }
@@ -250,7 +250,7 @@ static struct file *open_file(pathname_t const filename) {
         // free necessary for both.
         kfree((char*)file->abs_path);
         kfree(file);
-        SET_ERROR("Cannot find file on filesystem", 0);
+        SET_ERROR("Cannot find file on filesystem", ENOTFOUND);
         return NULL;
     }
 }

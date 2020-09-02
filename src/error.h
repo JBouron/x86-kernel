@@ -1,6 +1,8 @@
+#pragma once
 #include <types.h>
 #include <list.h>
 #include <percpu.h>
+#include <error_codes.h>
 
 // This file defines the error log/reporting mechanism. Each cpu has a private
 // linked list of struct error_desc. Each struct error_desc contains the
@@ -24,7 +26,7 @@ struct error_desc {
     // Message describing the error.
     char const * message;
     // Error code corresponding to the error (if applicable).
-    int32_t error_code;
+    error_code_t error_code;
     // Node of the linked list of error describing the whole chain of errors.
     struct list_node error_linked_list;
 };
@@ -48,7 +50,7 @@ void _set_error(char const * const file,
                 uint32_t const line,
                 char const * const func,
                 char const * message,
-                int32_t const code);
+                error_code_t const code);
 
 // Shortcut to _set_error() where the file, line and func argument are
 // automatically derived.

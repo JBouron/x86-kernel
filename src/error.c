@@ -59,7 +59,7 @@ void _set_error(char const * const file,
                 uint32_t const line,
                 char const * const func,
                 char const * message,
-                int32_t const error_code) {
+                error_code_t const error_code) {
     // Interrupt must be disabled so that we don't end up in a race condition
     // trying to insert two struct error_desc at the same location on the linked
     // list.
@@ -94,15 +94,30 @@ void _set_error(char const * const file,
             goto reset_irq_and_ret;
         }
     }
+    
+    struct list_node * const error_list = &this_cpu_var(error_list);
+
+    error_code_t true_error_code = error_code;
+    if (error_code == ENONE) {
+        // Replace special error code ENONE with the previous error code.
+        if (!list_size(error_list)) {
+            PANIC("ENONE used in first error.");
+        }
+
+        struct error_desc const * const prev =
+            list_last_entry(error_list, struct error_desc, error_linked_list);
+        true_error_code = prev->error_code;
+    }
+
     desc->active = true;
     desc->file = file;
     desc->line = line;
     desc->func = func;
     desc->message = message;
-    desc->error_code = error_code;
+    desc->error_code = true_error_code;
     list_init(&desc->error_linked_list);
 
-    list_add_tail(&this_cpu_var(error_list), &desc->error_linked_list);
+    list_add_tail(error_list, &desc->error_linked_list);
 
 reset_irq_and_ret:
     cpu_set_interrupt_flag(irq);

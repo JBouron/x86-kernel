@@ -38,7 +38,7 @@ static bool allocate_stack(struct proc * const proc) {
             for (uint32_t j = 0; j < i; ++j) {
                 free_frame(frames[j]);
             }
-            SET_ERROR("Could not allocate frame for process stack", 0);
+            SET_ERROR("Could not allocate frame for process stack", ENONE);
             return false;
         }
     }
@@ -57,7 +57,7 @@ static bool allocate_stack(struct proc * const proc) {
     void * const stack_top =
         paging_map_frames_above_in(as, low, frames, n_stack_frames, map_flags);
     if (stack_top == NO_REGION) {
-        SET_ERROR("Could not map process' stack to its addr space", 0);
+        SET_ERROR("Could not map process' stack to its addr space", ENONE);
         for (uint32_t i = 0; i < n_stack_frames; ++i) {
             free_frame(frames[i]);
         }
@@ -99,7 +99,7 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
     ASSERT(ring == 0 || ring == 3);
     struct proc * const proc = kmalloc(sizeof(*proc));
     if (!proc) {
-        SET_ERROR("Could not allocate struct proc", 0);
+        SET_ERROR("Could not allocate struct proc", ENONE);
         return NULL;
     }
     proc->is_kernel_proc = (ring == 0);
@@ -108,7 +108,7 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
     proc->addr_space =
         (ring == 0) ? get_kernel_addr_space() : create_new_addr_space();
     if (!proc->addr_space) {
-        SET_ERROR("Cannot create address space for new process", 0);
+        SET_ERROR("Cannot create address space for new process", ENONE);
         kfree(proc);
         return NULL;
     }
@@ -118,7 +118,7 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
     memzero(&proc->registers_save, sizeof(proc->registers_save));
 
     if (!allocate_stack(proc)) {
-        SET_ERROR("Could not allocate stack for process", 0);
+        SET_ERROR("Could not allocate stack for process", ENONE);
         if (ring) {
             delete_addr_space(proc->addr_space);
         }

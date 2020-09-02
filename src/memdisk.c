@@ -125,7 +125,7 @@ struct disk *create_memdisk(void * const addr,
 
     struct disk * const disk = kmalloc(sizeof(*disk));
     if (!disk) {
-        SET_ERROR("Cannot allocate struct disk for new memdisk", 0);
+        SET_ERROR("Cannot allocate struct disk for new memdisk", ENONE);
         return NULL;
     }
 
@@ -134,7 +134,7 @@ struct disk *create_memdisk(void * const addr,
     // Allocate a memdisk_data for this new disk containing its state.
     struct memdisk_data * const data = kmalloc(sizeof(*data));
     if (!data) {
-        SET_ERROR("Cannot allocate private data for new memdisk", 0);
+        SET_ERROR("Cannot allocate private data for new memdisk", ENONE);
         kfree(disk);
         return NULL;
     }
