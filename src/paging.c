@@ -727,10 +727,6 @@ static bool do_paging_map_in(struct addr_space * const addr_space,
     return true;
 }
 
-// Shortcut to call do_paging_map_in() with the current address space.
-#define do_paging_map(paddr, vaddr, len, flags) \
-    do_paging_map_in(get_curr_addr_space(), (paddr), (vaddr), (len), (flags))
-
 bool paging_map_in(struct addr_space * const addr_space,
                    void const * const paddr,
                    void const * const vaddr,
@@ -765,10 +761,6 @@ static void do_paging_unmap_in(struct addr_space * const addr_space,
         unmap_page_in(addr_space, start_virt + i * PAGE_SIZE, free_phy_frame);
     }
 }
-
-// Shortcut to call do_paging_unmap_in with the current address space.
-#define do_paging_unmap(vaddr, len, free_phy_frame) \
-    do_paging_unmap_in(get_curr_addr_space(), (vaddr), (len), (free_phy_frame))
 
 void paging_unmap_in(struct addr_space * const addr_space,
                      void const * const vaddr,
@@ -948,26 +940,16 @@ void *paging_map_frames_above_in(struct addr_space * const addr_space,
 }
 
 void paging_setup_new_page_dir(void * const page_dir_phy_addr) {
-    struct addr_space * const curr_addr_space = get_curr_addr_space();
-    lock_addr_space(curr_addr_space);
-
-    void * const pd_addr = curr_addr_space->page_dir_phy_addr;
-
-    // Because we are using do_paging_map, we need to invalidate the TLB after
-    // each call. Failure to do so can lead to nasty bugs in which the cpu uses
-    // a stale TLB entries and corrupts memory.
-    // The TLB shootdown needs to be done outside the critical section however.
-    do_paging_map(pd_addr, pd_addr, PAGE_SIZE, 0);
-    cpu_invalidate_tlb();
-
-    do_paging_map(page_dir_phy_addr, page_dir_phy_addr, PAGE_SIZE, VM_WRITE);
-    cpu_invalidate_tlb();
-
-    memzero(page_dir_phy_addr, PAGE_SIZE);
-
     // Copy each entry in the new page directory.
-    struct page_dir const * const curr_pd = pd_addr;
-    struct page_dir * const dest_pd = page_dir_phy_addr;
+    struct page_dir const * const curr_pd = get_page_dir(get_curr_addr_space());
+    struct page_dir * const dest_pd = create_temp_mapping(page_dir_phy_addr);
+
+    // Getting a pointer on the page dir of the current address space should not
+    // use a temp mapping but the recursive entry instead.
+    ASSERT(curr_pd != dest_pd);
+
+    memzero(dest_pd, PAGE_SIZE);
+
     uint16_t const start_idx = pde_index(KERNEL_PHY_OFFSET);
     for (uint16_t i = start_idx; i < PDES_PER_PAGE - 1; ++i) {
         dest_pd->entry[i] = curr_pd->entry[i];
@@ -982,19 +964,14 @@ void paging_setup_new_page_dir(void * const page_dir_phy_addr) {
     // take the recursive entry of the kernel page dir and simply change the
     // page_table_addr field instead of setting all the fields manually.
     union pde_t rec = curr_pd->entry[RECURSIVE_PDE_IDX];
-    ASSERT(rec.page_table_addr == (uint32_t)pd_addr >> 12);
+
+    // Sanity check on the current address space's recursive entry;
+    void * const curr_pd_addr = get_curr_addr_space()->page_dir_phy_addr;
+    ASSERT(rec.page_table_addr == (uint32_t)curr_pd_addr >> 12);
+
+    // Keep everything the same except the address where the entry points to.
     rec.page_table_addr = ((uint32_t)page_dir_phy_addr) >> 12;
     dest_pd->entry[RECURSIVE_PDE_IDX] = rec;
-
-    do_paging_unmap(page_dir_phy_addr, PAGE_SIZE, false);
-    cpu_invalidate_tlb();
-
-    do_paging_unmap(pd_addr, PAGE_SIZE, false);
-    cpu_invalidate_tlb();
-
-    unlock_addr_space(curr_addr_space);
-
-    maybe_to_tlb_shootdown();
 }
 
 void paging_free_addr_space(struct addr_space * const addr_space) {
