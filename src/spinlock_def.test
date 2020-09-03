@@ -1,0 +1,87 @@
+#include <test.h>
+#include <lock_test_helpers.h>
+#include <smp.h>
+
+static bool spinlock_test_runner(void) {
+    spinlock_t lock;
+    spinlock_init(&lock);
+
+    struct step * const steps[] = {
+        // Step 1: Target 0 acquires lock.
+        create_step(&lock, 2, 1, 
+                    SPINLOCK_LOCK, NONE, 
+                    true, true),
+        
+        // Step 2: Target 1 tries to acquire lock.
+        create_step(&lock, 2, 1, 
+                    NONE, SPINLOCK_LOCK, 
+                    true, false),
+
+        // Step 3: Target 0 releases lock.
+        create_step(&lock, 2, 1, 
+                    SPINLOCK_UNLOCK, NONE,
+                    true, true),
+
+        // Step 4: Target 1 acquires lock.
+        create_step(&lock, 2, 1, 
+                    NONE, SPINLOCK_LOCK, 
+                    true, true),
+
+        // Step 5: Target 0 tries to acquire lock.
+        create_step(&lock, 2, 1, 
+                    SPINLOCK_LOCK, NONE,
+                    false, true),
+
+        // Step 6: Target 1 releases lock.
+        create_step(&lock, 2, 1, 
+                    NONE, SPINLOCK_UNLOCK,
+                    true, true),
+    };
+    uint32_t const num_steps = sizeof(steps) / sizeof(*steps);
+    
+    for (uint32_t i = 0; i < num_steps; ++i) {
+        TEST_ASSERT(run_and_check_step(steps[i]));
+        delete_step(steps[i]);
+    }
+    return true;
+}
+
+static bool spinlock_simple_test(void) {
+    uint32_t const n_runs = 8;    
+    for (uint32_t i = 0; i < n_runs; ++i) {
+        TEST_ASSERT(spinlock_test_runner());
+
+        // We need to reset the APs, this is because each step action is a
+        // nested interrupt and therefore the stack is being used up.
+        init_aps();
+    }
+    return true;
+}
+
+// Stress test where three cpus are trying to acquire the same lock at the same
+// time.
+static bool spinlock_stress_test(void) {
+    uint32_t const n_runs = 8;
+    for (uint32_t i = 0; i < n_runs; ++i) {
+        spinlock_t lock;
+        spinlock_init(&lock);
+
+        struct step * const step =
+            create_step(&lock, 3, 3, 
+                        SPINLOCK_LOCK, SPINLOCK_LOCK, SPINLOCK_LOCK,
+                        true, false, false,
+                        false, true, false,
+                        false, false, true);
+        TEST_ASSERT(run_and_check_step(step));
+        delete_step(step);
+        // We need to reset the APs, this is because each step action is a
+        // nested interrupt and therefore the stack is being used up.
+        init_aps();
+    }
+    return true;
+}
+
+void spinlock_test(void) {
+    TEST_FWK_RUN(spinlock_simple_test);
+    TEST_FWK_RUN(spinlock_stress_test);
+}

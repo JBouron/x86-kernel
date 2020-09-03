@@ -41,3 +41,6 @@ void spinlock_unlock(spinlock_t * const lock);
 
 // Check if a given spinlock is held by the current cpu.
 bool spinlock_is_held(spinlock_t const * const lock);
+
+// Run spinlock tests.
+void spinlock_test(void);

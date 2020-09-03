@@ -39,6 +39,7 @@
 #include <elf.h>
 #include <rw_lock.h>
 #include <error.h>
+#include <spinlock.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -75,6 +76,7 @@ void test_kernel(void) {
     elf_test();
     rwlock_test();
     error_test();
+    spinlock_test();
 
     print_test_summary();
 }

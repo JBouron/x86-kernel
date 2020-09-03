@@ -68,3 +68,5 @@ void spinlock_unlock(spinlock_t * const lock) {
 bool spinlock_is_held(spinlock_t const * const lock) {
     return lock->lock == 1 && lock->owner == get_curr_cpu_id();
 }
+
+#include <spinlock_def.test>
