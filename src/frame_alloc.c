@@ -223,7 +223,13 @@ void fixup_frame_alloc_to_virt(void) {
     spinlock_unlock(&FRAME_ALLOC_LOCK);
 }
 
-void *alloc_frame(void) {
+// The maximum index for memory under 1MiB.
+#define LOW_MEM_MAX_IDX   (((1 << 20) / PAGE_SIZE) - 1)
+
+// Perform the actual frame allocation.
+// @param low_mem: If true, this function will try to allocate a frame under the
+// 1MiB limit. Otherwise it will try anywhere in physical memory.
+static void *do_allocation(bool const low_mem) {
     struct bitmap * const bitmap = get_bitmap_addr();
 
     if (OOM_SIMULATION) {
@@ -232,10 +238,26 @@ void *alloc_frame(void) {
         return NO_FRAME;
     }
 
-    // Try to find the next free frame (that is the next free bit in the
-    // bitmap). If no frame is available, panic, there is nothing to do.
-    uint32_t const frame_idx = bitmap_set_next_bit(bitmap, 0);
     void * frame_addr;
+
+    uint32_t const start_idx = low_mem ? 0 : LOW_MEM_MAX_IDX; 
+    uint32_t frame_idx = bitmap_set_next_bit(bitmap, start_idx);
+
+    if (frame_idx == BM_NPOS) {
+        if (!low_mem) {
+            // For non-low mem request we have another chance by looking at the
+            // low memory frames.
+            frame_idx = bitmap_set_next_bit(bitmap, 0);
+        }
+    } else if (low_mem) {
+        // Make sure that the frame is under 1MiB.
+        if (frame_idx > LOW_MEM_MAX_IDX) {
+            // No available frames under 1MiB. Revert.
+            bitmap_unset(bitmap, frame_idx);
+            frame_idx = BM_NPOS;
+        }
+    }
+
     if (frame_idx == BM_NPOS) {
         SET_ERROR("No physical frame left for allocation", ENOMEM);
         frame_addr = NO_FRAME;
@@ -245,6 +267,14 @@ void *alloc_frame(void) {
     }
     spinlock_unlock(&FRAME_ALLOC_LOCK);
     return frame_addr;
+}
+
+void *alloc_frame(void) {
+    return do_allocation(false);
+}
+
+void *alloc_frame_low_mem(void) {
+    return do_allocation(true);
 }
 
 void free_frame(void const * const ptr) {

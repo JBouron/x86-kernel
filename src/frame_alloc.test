@@ -1,4 +1,5 @@
 #include <test.h>
+#include <kernel_map.h>
 
 // Test allocation a few frames, freeing some and reallocating new ones. We
 // should see the same addresses.
@@ -82,8 +83,39 @@ static bool frame_allocator_oom_simulation_test(void) {
     return true;
 }
 
+// Test if a given physical address is under the 1MiB address.
+// @param addr: The physical address to test.
+// @return: true if addr points under 1MiB, false otherwise.
+static bool is_under_1mib(void const * const addr) {
+    return (uint32_t)addr < (1 << 20);
+}
+
+static bool frame_alloc_low_mem_test(void) {
+    void * frames[LOW_MEM_MAX_IDX + 1] = {NO_FRAME};
+    void * new_frame = NO_FRAME;
+    uint32_t num_frames = 0;
+    do {
+        new_frame = alloc_frame_low_mem();
+        TEST_ASSERT(is_under_1mib(new_frame) || new_frame == NO_FRAME);
+        frames[num_frames] = new_frame;
+        num_frames ++;
+    } while (new_frame != NO_FRAME);
+    TEST_ASSERT(num_frames);
+
+    LOG("Allocated %u frames under 1MiB\n", num_frames);
+    LOG("Last allocated frame @ %p\n", frames[num_frames - 2]);
+    for (uint32_t i = 0; i < num_frames - 1; ++i) {
+        free_frame(frames[i]);
+    }
+    // Since we allocate all the low frames until we can't, we expect to run
+    // into an error.
+    CLEAR_ERROR();
+    return true;
+}
+
 void frame_alloc_test(void) {
     TEST_FWK_RUN(frame_allocator_alloc_and_free_frame_test);
     TEST_FWK_RUN(frame_allocator_frames_allocated_test);
     TEST_FWK_RUN(frame_allocator_oom_simulation_test);
+    TEST_FWK_RUN(frame_alloc_low_mem_test);
 }

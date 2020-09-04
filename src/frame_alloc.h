@@ -19,6 +19,12 @@ void init_frame_alloc(void);
 // frame is available for allocation, this function returns NO_FRAME.
 void *alloc_frame(void);
 
+// Allocate a new physical frame in RAM under the 1MiB limit.
+// @return: The physical address of the allocated physical frame. If no physical
+// frame under 1MiB is available for allocation, this function returns
+// NO_FRAME.
+void *alloc_frame_low_mem(void);
+
 // Free up a physical frame.
 // @param ptr: The poitner to the frame to be freed up. Note this pointer must
 // be 4KiB aligned.
