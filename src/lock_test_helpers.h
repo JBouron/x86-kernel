@@ -1,5 +1,7 @@
 #include <kmalloc.h>
 #include <ipm.h>
+#include <spinlock.h>
+#include <rw_lock.h>
 
 // Helper to run a "locking scenario", which is a step by step scenario used to
 // simulate real usage.
@@ -16,6 +18,14 @@ enum action {
     SPINLOCK_LOCK,
     // Release the lock (spinlock).
     SPINLOCK_UNLOCK,
+    // Acquire the read lock on a RW lock.
+    RWLOCK_READ_LOCK,
+    // Release the read lock on a RW lock.
+    RWLOCK_READ_UNLOCK,
+    // Acquire the write lock on a RW lock.
+    RWLOCK_WRITE_LOCK,
+    // Release the write lock on a RW lock.
+    RWLOCK_WRITE_UNLOCK,
 };
 
 // An action in a step. This is executed by a single cpu.
@@ -157,11 +167,27 @@ static void run_step_action_remote(void * const arg) {
             break;
         case SPINLOCK_LOCK:
             spinlock_lock((spinlock_t*)step_action->lock);
-            LOG("[%u] Acquired lock\n", cpu);
+            LOG("[%u] Acquired spinlock\n", cpu);
             break;
         case SPINLOCK_UNLOCK:
             spinlock_unlock((spinlock_t*)step_action->lock);
-            LOG("[%u] Released lock\n", cpu);
+            LOG("[%u] Released spinlock\n", cpu);
+            break;
+        case RWLOCK_READ_LOCK:
+            rwlock_read_lock((rwlock_t*)step_action->lock);
+            LOG("[%u] Acquired read lock on rwlock\n", cpu);
+            break;
+        case RWLOCK_READ_UNLOCK:
+            rwlock_read_unlock((rwlock_t*)step_action->lock);
+            LOG("[%u] Released read lock on rwlock\n", cpu);
+            break;
+        case RWLOCK_WRITE_LOCK:
+            rwlock_write_lock((rwlock_t*)step_action->lock);
+            LOG("[%u] Acquired write lock on rwlock\n", cpu);
+            break;
+        case RWLOCK_WRITE_UNLOCK:
+            rwlock_write_unlock((rwlock_t*)step_action->lock);
+            LOG("[%u] Released write lock on rwlock\n", cpu);
             break;
         default:
             PANIC("Unknown action");
