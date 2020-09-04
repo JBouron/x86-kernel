@@ -234,7 +234,7 @@ void *alloc_frame(void) {
 
     // Try to find the next free frame (that is the next free bit in the
     // bitmap). If no frame is available, panic, there is nothing to do.
-    uint32_t const frame_idx = bitmap_set_next_bit(bitmap);
+    uint32_t const frame_idx = bitmap_set_next_bit(bitmap, 0);
     void * frame_addr;
     if (frame_idx == BM_NPOS) {
         SET_ERROR("No physical frame left for allocation", ENOMEM);

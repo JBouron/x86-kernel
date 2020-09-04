@@ -85,7 +85,8 @@ end2:
     pop     %ebp
     ret
 
-//uint32_t bitmap_set_next_bit(struct bitmap * const bitmap);
+// uint32_t bitmap_set_next_bit(struct bitmap * const bitmap,
+//                              uint32_t const start);
 ASM_FUNC_DEF(bitmap_set_next_bit):
     push    %ebp
     mov     %esp, %ebp
@@ -93,52 +94,100 @@ ASM_FUNC_DEF(bitmap_set_next_bit):
     # Load pointer on bitmap into EAX.
     mov     0x8(%ebp), %eax
 
+    # ECX = start index.
+    mov     0xC(%ebp), %ecx
+
+    # Make sure the requested start index is not out of bounds.
+    cmp     (%eax), %ecx
+    jb      .L_start_index_ok
+    # Index out of bounds, return -1.
+    pop     %ebp
+    mov     $-1, %eax
+    ret
+
+.L_start_index_ok:
     # Check if the bitmap is full using the `free` field.
     cmp     $0x0, 0x4(%eax)
-    jnz      non_full
+    jnz     .L_non_full
     # The bitmap is full, return -1
     mov     $-1, %eax
     pop     %ebp
     ret
 
-non_full:
-    # Some free bits are available try to find them. To this end we use the BSF
-    # instruction which looks for the least significant bit set in a 32bits
-    # word. The idea is thus to find the first word with a free bit (that is
-    # that is not 0) and execute BFS on it. EAX will point to such a word.
+.L_non_full:
+    # EAX = pointer to data.
     mov     0x8(%eax), %eax
-    # EDX counts the number of full words encountered before finding one with a
-    # free bit.
-    mov     $0x0, %edx
-loop:
-    cmp     $0x0, (%eax)
-    jne     found
-    # This word is 0, no free bit available. Get to the next one.
-    add     $0x4, %eax
-    add     $0x1, %edx
-    jmp     loop
 
-found:
-    # EAX now points to a word with a free bit. Get the index of the next free
-    # bit in ECX. Find the first bit in it.
-    bsf     (%eax), %ecx
+    # EDI = index of the current DWORD.
+    push    %edi
+    xor     %edi, %edi
 
-    # ECX is _local_ to the word, not the full bitmap. Hence add EDX * 32 to it.
-    shl     $5, %edx
-    add     %edx, %ecx
-
-    # Set the bit. That it write 0.
+    # Compute the index of DWORD to start from.
     push    %ecx
-    push    0x8(%ebp) 
-    call    bitmap_set
-    add     $0x4, %esp
+    # ECX = index of DWORD = (ECX / 32)
+    shr     $5, %ecx
+    mov     %ecx, %edi
+    # EAX = pointer to first word to search from.
+    lea     (%eax, %ecx, 4), %eax
+    # Note: The BSF will start from bit 0 of the word. Since the start index is
+    # not necessarily a multiple of 32, we need to make sure that BSF does not
+    # return an index that would be before the start index.
     pop     %ecx
+    # ECX = start index in current word.
+    and     $0b11111, %ecx
 
-    # Return the index.
-    mov     %ecx, %eax
+    push    %ebx
+    push    %esi
+.L_find_bit:
+    # Load word pointed by EAX
+    mov     (%eax), %ebx
+    test    %ebx, %ebx
+    jz      .L_skip_zero
+
+    # BSF does not take a start index to find the first bit. We need to trick it
+    # by setting all bits having an index < ECX to 0.
+    test    %ecx, %ecx
+    jz      .L_skip_trick
+    mov     $-1, %esi 
+    shl     %cl, %esi
+    and     %esi, %ebx
+    test    %ebx, %ebx
+    jz      .L_skip_zero
+.L_skip_trick:
+    # The current DWORD is not zero (even after doing the trick for the first).
+    # Find the first bit in EBX.
+    # EBX = index of the first bit set in EBX.
+    bsf     %ebx, %ebx
+
+    # Transform the index from DWORD to bitmap wide index.
+    shl     $0x5, %edi
+    add     %edi, %ebx
+
+    # Un-set the bit.
+    push    %ebx
+    push    0x8(%ebp)
+    call    bitmap_set
+    add     $0x8, %esp
+    jmp     .L_done
+    
+.L_skip_zero:
+    # For now on ECX must be 0.
+    inc     %edi
+    xor     %ecx, %ecx
+    add     $0x4, %eax
+    jmp     .L_find_bit
+
+.L_done:
+    # At this point EBX contains the index of the first set bit. The DWORD has
+    # been updated accordingly.
+    # Clean up and return.
+    mov     %ebx, %eax
+    pop     %esi
+    pop     %ebx
+    pop     %edi
     pop     %ebp
     ret
-    
+
 //bool bitmap_get_bit(struct bitmap const * const bitmap, uint32_t const idx);
 ASM_FUNC_DEF(bitmap_get_bit):
     push    %ebp

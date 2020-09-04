@@ -183,7 +183,7 @@ static bool bitmap_set_next_bit_test(void) {
 
     // Bit 5 is the next free bit.
     TEST_ASSERT(!bitmap_get_bit(&bitmap, 5));
-    TEST_ASSERT(bitmap_set_next_bit(&bitmap) == 5);
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 0) == 5);
     TEST_ASSERT(bitmap_get_bit(&bitmap, 5));
 
     // Fill up the entire first word.
@@ -193,7 +193,7 @@ static bool bitmap_set_next_bit_test(void) {
 
     // Bit 35 is the next free bit.
     TEST_ASSERT(!bitmap_get_bit(&bitmap, 35));
-    TEST_ASSERT(bitmap_set_next_bit(&bitmap) == 35);
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 0) == 35);
     TEST_ASSERT(bitmap_get_bit(&bitmap, 35));
 
     // Fill up until last bit.
@@ -203,12 +203,49 @@ static bool bitmap_set_next_bit_test(void) {
 
     // Bit 99 is the next free bit.
     TEST_ASSERT(!bitmap_get_bit(&bitmap, 99));
-    TEST_ASSERT(bitmap_set_next_bit(&bitmap) == 99);
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 0) == 99);
     TEST_ASSERT(bitmap_get_bit(&bitmap, 99));
 
     // A this point the bitmap should be full.
     TEST_ASSERT(bitmap.free == 0);
-    TEST_ASSERT(bitmap_set_next_bit(&bitmap) == ~((uint32_t)0));
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 0) == ~((uint32_t)0));
+    return true;
+}
+
+static bool bitmap_set_next_bit_non_zero_start_index_test(void) {
+    DECLARE_BITMAP(bitmap, 100);
+    bitmap_reset(&bitmap);
+
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 3) == 3);
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 3) == 4);
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 3) == 5);
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 0));
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 1));
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 2));
+    TEST_ASSERT(bitmap_get_bit(&bitmap, 3));
+    TEST_ASSERT(bitmap_get_bit(&bitmap, 4));
+    TEST_ASSERT(bitmap_get_bit(&bitmap, 5));
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 6));
+
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 32) == 32);
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 35) == 35);
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 29));
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 30));
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 31));
+    TEST_ASSERT(bitmap_get_bit(&bitmap, 32));
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 33));
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 34));
+    TEST_ASSERT(bitmap_get_bit(&bitmap, 35));
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 36));
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 37));
+    TEST_ASSERT(!bitmap_get_bit(&bitmap, 38));
+
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 98) == 98);
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 99) == 99);
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 100) == BM_NPOS);
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 101) == BM_NPOS);
+    TEST_ASSERT(bitmap_set_next_bit(&bitmap, 102) == BM_NPOS);
+
     return true;
 }
 
@@ -275,6 +312,7 @@ void bitmap_test(void) {
     TEST_FWK_RUN(bitmap_full_set_unset_test);
     TEST_FWK_RUN(bitmap_get_bit_test);
     TEST_FWK_RUN(bitmap_set_next_bit_test);
+    TEST_FWK_RUN(bitmap_set_next_bit_non_zero_start_index_test);
     TEST_FWK_RUN(bitmap_is_full_test);
     TEST_FWK_RUN(bitmap_set_all_test);
     TEST_FWK_RUN(bitmap_edge_size_case);

@@ -65,9 +65,13 @@ void bitmap_unset(struct bitmap * const bitmap, uint32_t const index);
 #define BM_NPOS (~((uint32_t)0))
 // Set the next available bit in a bitmap and return its index.
 // @param bitmap: The target bitmap.
+// @param start: The index to start the search from.
 // @return: If a bit was available, returns its index in the bitmap, otherwise,
-// returns BM_NPOS.
-uint32_t bitmap_set_next_bit(struct bitmap * const bitmap);
+// returns BM_NPOS. If the start index is out of the bounds of the bitmap,
+// return BM_NPOS. The returned index is guaranteed to be >= start index or
+// BM_NPOS.
+uint32_t bitmap_set_next_bit(struct bitmap * const bitmap,
+                             uint32_t const start);
 
 // Check if a bitmap is full.
 // @param bitmap: The target bitmap.
