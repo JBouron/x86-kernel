@@ -47,12 +47,6 @@ STATIC_ASSERT(offsetof(struct ap_boot_data_frame, stack_size) == 0x26, "");
 STATIC_ASSERT(offsetof(struct ap_boot_data_frame, num_stacks) == 0x28, "");
 STATIC_ASSERT(offsetof(struct ap_boot_data_frame, stack_segments) == 0x2C,"");
 
-// FIXME: This is an abomination, fix this ASAP.
-// This function preallocates a physical frame that will contain the AP boot
-// code. This is needed because by the time init_aps() is called there may not
-// be frames available under 65KiB which is required for the code frame.
-void smp_preallocate_code_frame(void);
-
 // Wake up the Application Processors on the system and wait for them to be
 // fully initialized.
 void init_aps(void);

@@ -107,20 +107,9 @@ static bool is_under_1mib(void const * const addr) {
 // @return: The physical address of the allocated frame, NO_FRAME if no frame is
 // free under 1MiB.
 static void * alloc_low_mem_stack_frame(void) {
-    void * const frame = alloc_frame();
-    if (frame == NO_FRAME) {
-        return NO_FRAME;
-    } else if (is_under_1mib(frame)) {
-        // This frame is under the 1MiB limit, we can use it.
-        LOG("Stack frame @ %p\n", frame);
-        return frame;
-    } else {
-        // No more physical frames available under 1MiB. Free the allocated
-        // frame and return a failure.
-        LOG("Couldn't find frame under 1MiB\n");
-        free_frame(frame);
-        return NO_FRAME;
-    }
+    void * const frame = alloc_frame_low_mem();
+    LOG("Stack frame @ %p\n", frame);
+    return frame;
 }
 
 // Get the real-mode segment for a given address. Note: Addresses in real-mode
@@ -146,7 +135,7 @@ static uint32_t AP_WAKEUP_ROUTINE_MAX_STACKS = 256;
 // boot.
 // @return: The physical address of the data frame.
 static void * create_data_frame(void (*target)(void)) {
-    void * const phy_frame = alloc_frame();
+    void * const phy_frame = alloc_frame_low_mem();
 
     if (phy_frame == NO_FRAME) {
         PANIC("Cannot create data frame to wake up APs.\n");
@@ -286,24 +275,12 @@ static void *get_data_frame_addr_from_frame(void * const code_frame) {
     return (void*)(*last << 4);
 }
 
-// The physical address of the frame that will contain the AP boot code. This
-// frame will not be released. This is because we might need to reset APs long
-// after initialization (in tests for instance).
-static void *APS_CODE_FRAME = NULL;
-
-void smp_preallocate_code_frame(void) {
-    APS_CODE_FRAME = alloc_frame();
-    if (APS_CODE_FRAME == NO_FRAME) {
-        PANIC("Cannot allocate code frame to wake up APs.\n");
-    }
-}
-
 // Create the trampoline, that is the boot code, data frames and stacks
 // necessarty to boot and initialize the APs all the way to the higher-half
 // kernel.
 // @return: The physical address of the entry point for the APs.
 static void * create_trampoline(void (*target)(void)) {
-    void * code_frame = APS_CODE_FRAME;
+    void * const code_frame = alloc_frame_low_mem();
 
     LOG("Trampoline code frame at %p\n", code_frame);
 
@@ -383,6 +360,9 @@ static void cleanup_ap_wakeup_routine_allocs(void * const code_frame) {
     // De-allocate the data frame.
     paging_unmap(data_frame, PAGE_SIZE);
     free_frame(data_frame);
+
+    // De-allocate the code frame.
+    free_frame(code_frame);
 }
 
 // Upon waking, APs are changing the state of the kernel through stack
