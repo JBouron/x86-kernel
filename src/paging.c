@@ -16,6 +16,13 @@
 #define RECURSIVE_PDE_IDX   1023
 #define TEMP_MAP_PDE_IDX    1022
 
+// The index of the first PDE used by the kernel.
+#define KERNEL_MIN_PDE_IDX  ((uint32_t)KERNEL_PHY_OFFSET >> 22)
+// The index of the last PDE used by the kernel (not accounting for special PDEs
+// such as temp mapping and recursive mapping). This value can be modified to
+// limit the memory overhead of storing page tables for the kernel.
+#define KERNEL_MAX_PDE_IDX  (RECURSIVE_PDE_IDX - 1)
+
 // Virtual address space organization
 // ==================================
 //   A virtual address space is divided in user and kernel addresses. The
@@ -214,6 +221,36 @@ static void create_temp_mapping_entry(struct page_dir * const page_dir) {
     temp_map_entry.present = 1;
 
     page_dir->entry[TEMP_MAP_PDE_IDX] = temp_map_entry;
+}
+
+// Pre-allocate page tables for all PDEs used by kernel addresses.
+// @param page_dir: Pointer on the page directory to fill.
+static void preallocate_kernel_page_table(struct page_dir * const page_dir) {
+    for (uint32_t i = KERNEL_MIN_PDE_IDX; i < KERNEL_MAX_PDE_IDX; ++i) {
+        if (page_dir->entry[i].present) {
+            // The page table is already allocated for this PDE, skip.
+        } else {
+            void const * const page_table = alloc_frame();
+            if (page_table == NO_FRAME) {
+                PANIC("Cannot pre-allocate kernel page tables");
+            }
+
+            union pde_t pde;
+            // Try to be as inclusive as possible for the PDE. The PTEs will
+            // enforced the actual attributes.
+            pde.writable = 1;
+            pde.write_through = 0;
+            pde.cache_disable = 0;
+            // Reset accessed bit.
+            pde.accessed = 0;
+            pde.user_accessible = false;
+            pde.page_table_addr = ((uint32_t)page_table) >> 12;
+            pde.present = 1;
+
+            // The same page table can be used for both mappings.
+            page_dir->entry[i] = pde;
+        }
+    }
 }
 
 static bool map_page_in(struct addr_space * const addr_space,
@@ -551,6 +588,13 @@ void init_paging(void const * const esp) {
     // mappings (ex: modifying other page directory, read/write in physical
     // memory).
     create_temp_mapping_entry(page_dir);
+
+    // Pre-allocate all the page tables used for kernel space. We are doing that
+    // in order to avoid allocating page tables for the kernel in the future
+    // when mapping to kernel memory. This is because doing so would required
+    // some sort of sync between ALL page directories to make sure that they all
+    // have the same PDEs.
+    preallocate_kernel_page_table(page_dir);
 
     // Switch to the kernel's address space.
     switch_to_addr_space(get_kernel_addr_space());
