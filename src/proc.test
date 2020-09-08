@@ -16,14 +16,35 @@ static bool create_proc_test(void) {
     // Check that registers are initialized correctly.
     TEST_ASSERT(proc->registers_save.edi == 0);
     TEST_ASSERT(proc->registers_save.esi == 0);
-    TEST_ASSERT(proc->registers_save.ebp == (reg_t)proc->stack_bottom);
+    TEST_ASSERT(proc->registers_save.ebp == (reg_t)proc->user_stack.bottom);
     TEST_ASSERT(proc->registers_save.ebx == 0);
     TEST_ASSERT(proc->registers_save.edx == 0);
     TEST_ASSERT(proc->registers_save.ecx == 0);
     TEST_ASSERT(proc->registers_save.eax == 0);
     TEST_ASSERT(proc->registers_save.eip == 0);
     TEST_ASSERT(proc->registers_save.eflags == 1 << 9);
-    TEST_ASSERT(proc->registers_save.esp == (reg_t)(proc->stack_bottom));
+    TEST_ASSERT(proc->registers_save.esp == (reg_t)(proc->user_stack.bottom));
+
+    delete_proc(proc);
+    return true;
+}
+
+static bool create_kproc_test(void) {
+    struct proc * const proc = create_kproc((void*)0xDEADBEEF, (void*)0xABCDEF);
+
+    // Check that registers are initialized correctly.
+    TEST_ASSERT(proc->registers_save.edi == 0);
+    TEST_ASSERT(proc->registers_save.esi == 0);
+    TEST_ASSERT(proc->registers_save.ebp == (reg_t)proc->kernel_stack.bottom);
+    TEST_ASSERT(proc->registers_save.ebx == 0);
+    TEST_ASSERT(proc->registers_save.edx == 0);
+    TEST_ASSERT(proc->registers_save.ecx == 0);
+    TEST_ASSERT(proc->registers_save.eax == 0);
+    TEST_ASSERT(proc->registers_save.eip == 0xDEADBEEF);
+    TEST_ASSERT(proc->registers_save.eflags == 1 << 9);
+    uint32_t const * const esp = (void*)proc->kernel_stack.bottom - 4;
+    TEST_ASSERT(proc->registers_save.esp == (reg_t)(esp));
+    TEST_ASSERT(*(esp + 1) == 0xABCDEF);
 
     delete_proc(proc);
     return true;
@@ -344,6 +365,7 @@ static bool create_proc_oom_test(void) {
 void proc_test(void) {
     TEST_FWK_RUN(get_stack_bottom_test);
     TEST_FWK_RUN(create_proc_test);
+    TEST_FWK_RUN(create_kproc_test);
     TEST_FWK_RUN(privileged_instr_in_ring3_test);
     TEST_FWK_RUN(register_saving_ring3_int_test);
     TEST_FWK_RUN(kernel_access_from_ring3_test);

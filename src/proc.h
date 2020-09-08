@@ -49,6 +49,18 @@ struct file_table_entry {
 // The maximum number of opened file per process.
 #define MAX_FDS 32
 
+// Describe a process' stack.
+struct stack {
+    // The top of the stack, that is the lowest address pointing to a byte in
+    // the stack.
+    void * top;
+    // The bottom of the stack, that is the highest address pointing to a byte
+    // in the stack.
+    void * bottom;
+    // The size of the stack in number of pages.
+    uint32_t num_pages;
+};
+
 // A process running on the system.
 struct proc {
     // The private address space of this process.
@@ -57,12 +69,12 @@ struct proc {
     // registers are saved here.
     struct register_save_area registers_save;
 
-    // Pointers on the top and bottom of the stack. Those addresses are virtual
-    // addresses from the proc's address space.
-    void * stack_top;
-    void * stack_bottom;
-    // The stack size in number of pages.
-    uint32_t stack_pages;
+    // The stack used by the process while operating in user mode. Note that
+    // kernel proceses do not use a user stack.
+    struct stack user_stack;
+    // The stack used by the process while operating in kernel mode. For kernel
+    // stack, this is the only stack.
+    struct stack kernel_stack;
 
     // This bit indicates if the process is a kernel process.
     bool is_kernel_proc;
@@ -101,7 +113,7 @@ struct proc {
                                struct syscall_args const * args,
                                reg_t res);
 
-} __attribute__((packed));
+};
 
 // Below are the flags used in the struct proc' state_flags field.
 #define PROC_RUNNABLE       0x0 // Process can be enqueued in sched and run.

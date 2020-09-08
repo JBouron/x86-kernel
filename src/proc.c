@@ -25,10 +25,25 @@ static void *get_stack_bottom(void const * const stack_top,
     return ptr + num_pages * PAGE_SIZE - 4;
 }
 
+// De-allocate a stack.
+// @param stack: The struct stack describing the stack to be de-allocated.
+static void dealloc_stack(struct stack const * const stack) {
+    void * const top = stack->top;
+    ASSERT(stack->bottom > stack->top);
+    // De-allocating a stack must be done from the kernel address space.
+    ASSERT(get_curr_addr_space() == get_kernel_addr_space());
+    paging_unmap_and_free_frames(top, stack->num_pages * PAGE_SIZE);
+}
+
 // Allocate a stack for a process in its own address space.
 // @param proc: The process to allocate the stack to.
+// @param kernel_stack: If true, the kernel stack of the process will be
+// allocated, otherwise it is the user stack.
 // @return: true if the stack was successfully created, false otherwise.
-static bool allocate_stack(struct proc * const proc) {
+static bool allocate_stack(struct proc * const proc, bool const kernel_stack) {
+    // Kernel processes do not have a user stack, only a kernel stack.
+    ASSERT(!proc->is_kernel_proc || kernel_stack);
+
     // Allocate physical frames that will be used for the process' stack.
     uint32_t const n_stack_frames = DEFAULT_NUM_STACK_FRAMES;
     void * frames[n_stack_frames];
@@ -44,16 +59,19 @@ static bool allocate_stack(struct proc * const proc) {
     }
 
     // Map the stack into the process' address space.
-    struct addr_space * const as = proc->addr_space;
     uint32_t map_flags = VM_WRITE | VM_NON_GLOBAL;
-    if (!proc->is_kernel_proc) {
+    if (!kernel_stack) {
         map_flags |= VM_USER;
     }
     // When mapping stacks for kernel processes, we avoid mapping under the 1MiB
     // addresses. This is because those addresses are used by SMP and/or BIOS
     // and sometimes need to be identically mapped.
-    void * const low = (void*)(proc->is_kernel_proc ? 0x100000 : 0x0);
+    void * const low = (void*)(kernel_stack ? KERNEL_PHY_OFFSET : 0x0);
 
+    // When mapping kernel stacks in kernel address space, we need to operate on
+    // the kernel address space.
+    struct addr_space * const as =
+        kernel_stack ? get_kernel_addr_space() : proc->addr_space;
     void * const stack_top =
         paging_map_frames_above_in(as, low, frames, n_stack_frames, map_flags);
     if (stack_top == NO_REGION) {
@@ -66,13 +84,23 @@ static bool allocate_stack(struct proc * const proc) {
 
     void * const stack_bottom = get_stack_bottom(stack_top, n_stack_frames);
 
-    // Set the esp in the registers_save of the stack.
-    proc->registers_save.esp = (reg_t)stack_bottom;
-    proc->registers_save.ebp = proc->registers_save.esp;
+    if (proc->is_kernel_proc || !kernel_stack) {
+        // For kernel processes, the initial values of ESP and EBP are the
+        // bottom of the kernel stack. For user processes this is the bottom of
+        // the user stack.
+        proc->registers_save.esp = (reg_t)stack_bottom;
+        proc->registers_save.ebp = proc->registers_save.esp;
+    }
 
-    proc->stack_top = stack_top;
-    proc->stack_bottom = stack_bottom;
-    proc->stack_pages = n_stack_frames;
+    if (kernel_stack) {
+        proc->kernel_stack.top = stack_top;
+        proc->kernel_stack.bottom = stack_bottom;
+        proc->kernel_stack.num_pages = n_stack_frames;
+    } else {
+        proc->user_stack.top = stack_top;
+        proc->user_stack.bottom = stack_bottom;
+        proc->user_stack.num_pages = n_stack_frames;
+    }
     return true;
 }
 
@@ -117,8 +145,20 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
     // gets run all registers will be 0 (except esp and ebp).
     memzero(&proc->registers_save, sizeof(proc->registers_save));
 
-    if (!allocate_stack(proc)) {
-        SET_ERROR("Could not allocate stack for process", ENONE);
+    if (!proc->is_kernel_proc) {
+        // Allocate user stack for user processes.
+        if (!allocate_stack(proc, false)) {
+            SET_ERROR("Could not allocate user stack for process", ENONE);
+            delete_addr_space(proc->addr_space);
+            kfree(proc);
+            return NULL;
+        }
+    }
+    if (!allocate_stack(proc, true)) {
+        SET_ERROR("Could not allocate kernel stack for process", ENONE);
+        // De-allocate the user stack.
+        paging_unmap_and_free_frames(proc->user_stack.top,
+                                     proc->user_stack.num_pages * PAGE_SIZE);
         if (ring) {
             delete_addr_space(proc->addr_space);
         }
@@ -167,7 +207,7 @@ struct proc *create_kproc(void (*func)(void*), void * const arg) {
     // the first _valid_ dword on the stack. We can directly access the stack
     // here as the address space of the kproc is the kernel address space.
     ASSERT(get_curr_addr_space() == get_kernel_addr_space());
-    ASSERT((void*)kproc->registers_save.esp == kproc->stack_bottom);
+    ASSERT((void*)kproc->registers_save.esp == kproc->kernel_stack.bottom);
     *(void **)kproc->registers_save.esp = arg;
     // Since a kernel process is analoguous to a function call, we need to push
     // a return onto the stack. Put a dummy address.
@@ -271,15 +311,10 @@ void delete_proc(struct proc * const proc) {
     // Close any file that remained opened until now.
     close_all_opened_files(proc);
 
-    if (proc->is_kernel_proc) {
-        // Kernel processes use the kernel address space as their address space,
-        // therefore it should not be deleted.
-        // However, their stack should be de-allocated.
-        void * const stack = proc->stack_top;
-        ASSERT(proc->stack_bottom > proc->stack_top);
-        ASSERT(get_curr_addr_space() == get_kernel_addr_space());
-        paging_unmap_and_free_frames(stack, proc->stack_pages * PAGE_SIZE);
-    } else {
+    dealloc_stack(&proc->kernel_stack);
+    if (!proc->is_kernel_proc) {
+        // Delete the address space for user processes, this will also
+        // de-allocate the user stack.
         delete_addr_space(proc->addr_space);
     }
     kfree(proc);
