@@ -47,5 +47,9 @@ union segment_selector_t user_data_seg_sel(void);
 // entering the kernel through an interrupt.
 void set_segment_registers_for_kernel(void);
 
+// Change the stack pointer for the cpu's TSS.
+// @param new_esp0: The new esp0 to use.
+void change_tss_esp0(void const * const new_esp0);
+
 // Run tests related to segmentation.
 void segmentation_test(void);

@@ -408,4 +408,9 @@ void set_segment_registers_for_kernel(void) {
     setup_segment_selectors(true);
 }
 
+void change_tss_esp0(void const * const new_esp0) {
+    struct tss * const tss = &this_cpu_var(tss);
+    tss->esp0 = (void*)new_esp0;
+}
+
 #include <segmentation.test>
