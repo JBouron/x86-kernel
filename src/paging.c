@@ -394,6 +394,13 @@ static inline uint16_t pte_index(void const * const vaddr) {
     return (((uint32_t)vaddr) >> 12) & 0x3FF;
 }
 
+// Check if a virtual address is pointing to the temporary mapping page table.
+// @param vaddr: The virtual address to test.
+// @return: true if vaddr is a temp mapping address, false otherwise.
+static inline bool is_temp_mapping(void const * const vaddr) {
+    return pde_index(vaddr) == TEMP_MAP_PDE_IDX;
+}
+
 // Map a physical frame to a virtual page.
 // @param addr_space: The address space in which the mapping should be
 // performed.
@@ -420,7 +427,11 @@ static bool map_page_in(struct addr_space * const addr_space,
     // protect against race condition. Hence we enforce the rule: Modifying a
     // kernel mapping can only be done in the kernel address space, not from a
     // process' address space.
-    ASSERT(addr_space == get_kernel_addr_space() || (is_user_addr(vaddr)));
+    // The only exception to this rule is mapping to the temporary mapping page
+    // table since this is private per-cpu.
+    ASSERT(addr_space == get_kernel_addr_space() ||
+           is_user_addr(vaddr) ||
+           is_temp_mapping(vaddr));
 
     struct page_dir * const page_dir = get_page_dir(addr_space);
 
