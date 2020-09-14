@@ -163,9 +163,18 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
         // Update stats about the current process.
         sched_update_curr();
 
-        // Check if we need another round of scheduling.
-        schedule();
-        this_cpu_var(curr_proc)->interrupt_nest_level--;
+        struct proc * const curr = this_cpu_var(curr_proc);
+        bool const nested_interrupt = curr->interrupt_nest_level > 1;
+
+        // Check if we need another round of scheduling. For now only do this if
+        // we are not in a nested interrupt. That way a process cannot be
+        // migrated to another cpu in the middle of a kernel operation and
+        // percpu variable are always correct. FIXME: Add a system to disable
+        // preemption when handling percpu vars.
+        if (!nested_interrupt) {
+            schedule();
+        }
+        curr->interrupt_nest_level--;
     }
     
     return false;
