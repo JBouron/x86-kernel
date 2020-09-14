@@ -508,6 +508,7 @@ static bool paging_tlb_shootdown_test(void) {
 }
 
 static bool get_page_dir_test(void) {
+    cpu_set_interrupt_flag(false);
     // Case 1: Call get_page_dir on the current address space, this should
     // return the recursive address.
     struct page_dir const * const pd1 = get_page_dir(get_curr_addr_space());
@@ -739,6 +740,35 @@ static bool paging_create_temp_mapping_test(void) {
     return true;
 }
 
+static void remote_paging_create_temp_mapping_test(void * success_flag) {
+    cpu_set_interrupt_flag(false);
+    bool const res1 = paging_create_temp_mapping_test();
+    bool const res2 = true;
+    cpu_set_interrupt_flag(true);
+    *(bool*)success_flag = res1 && res2;
+}
+
+// This test runs the paging_create_temp_mapping_test() on remote cpu. This is a
+// regression test for the bug in create_temp_mapping() where the computed
+// address used to disable an old temp mapping was wrong.
+static bool paging_create_temp_mapping_remote_cpus_test(void) {
+    cpu_set_interrupt_flag(true);
+    for (uint8_t cpu = 0; cpu < acpi_get_number_cpus(); ++cpu) {
+        if (cpu == this_cpu_var(cpu_id)) {
+            continue;
+        }
+
+        bool success = false;
+        exec_remote_call(cpu,
+                         remote_paging_create_temp_mapping_test,
+                         &success,
+                         true);
+        TEST_ASSERT(success);
+    }
+    cpu_set_interrupt_flag(false);
+    return true;
+}
+
 // Test attempting to create a new mapping while no physical frame is available
 // for a new page table.
 static bool paging_map_with_oom_test(void) {
@@ -887,6 +917,7 @@ void paging_test(void) {
     TEST_FWK_RUN(paging_find_cont_non_mapped_pages_other_addr_space_test);
     TEST_FWK_RUN(temp_mapping_page_table_in_new_addr_space_test);
     TEST_FWK_RUN(paging_create_temp_mapping_test);
+    TEST_FWK_RUN(paging_create_temp_mapping_remote_cpus_test);
     TEST_FWK_RUN(paging_map_with_oom_test);
     TEST_FWK_RUN(paging_map_with_oom_test2_curr_addr_space);
     TEST_FWK_RUN(paging_map_with_oom_test2_other_addr_space);

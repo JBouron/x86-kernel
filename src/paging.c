@@ -267,8 +267,9 @@ static void *create_temp_mapping(void const * const phy_addr) {
     uint32_t const cpu = cpu_apic_id();
 
     // Manually disable the old mapping (if existing).
-    union pte_t * const entry = (void*)((RECURSIVE_PDE_IDX << 22) |
+    union pte_t * const entry = (union pte_t*)((RECURSIVE_PDE_IDX << 22) |
         (TEMP_MAP_PDE_IDX << 12)) + cpu;
+    ASSERT(!(((uint32_t)entry) & 0x3));
     entry->present = 0;
 
     void * const vaddr = (void*)((TEMP_MAP_PDE_IDX << 22) | (cpu << 12));
