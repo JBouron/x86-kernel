@@ -248,6 +248,8 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
         return NULL;
     }
 
+    proc->interrupt_nest_level = 0;
+
     // For processes the eflags should only have the interrupt bit set.
     proc->registers_save.eflags = 1 << 9;
 

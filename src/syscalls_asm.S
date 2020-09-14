@@ -3,10 +3,13 @@
 //reg_t do_syscall_dispatch(void const * const func,
 //                          struct syscall_args const * const args);
 ASM_FUNC_DEF(do_syscall_dispatch):
+    push    %ebp
+    mov     %esp, %ebp
+
     // EAX = function ptr.
-    mov     0x4(%esp), %eax
+    mov     0x8(%esp), %eax
     // ECX = pointer on the struct syscall_args.
-    mov     0x8(%esp), %ecx
+    mov     0xC(%esp), %ecx
     // Push the arguments for the syscall onto the stack.
     pushl   0x18(%ecx)
     pushl   0x14(%ecx)
@@ -19,4 +22,5 @@ ASM_FUNC_DEF(do_syscall_dispatch):
     call    *%eax
 
     add     $0x18, %esp
+    pop     %ebp
     ret

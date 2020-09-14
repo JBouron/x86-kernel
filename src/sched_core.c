@@ -85,14 +85,6 @@ static void enable_sched_tick(void) {
 void sched_start(void) {
     cpu_set_interrupt_flag(false);
 
-    // We need to reset the interrupt_nest_level here. The reason is that we
-    // might already be inside an interrupt handler (in case the scheduler is
-    // started using a remote call) and therefore interrupt_nest_level >= 1. If
-    // we don't reset it, the first interrupt received by one of the processes
-    // will wrongly think it is in a nested interrupt and will skip the
-    // scheduler.
-    this_cpu_var(interrupt_nest_level) = 0;
-
     this_cpu_var(sched_running) = true;
 
     enable_sched_tick();

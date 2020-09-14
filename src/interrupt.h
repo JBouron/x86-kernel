@@ -3,10 +3,6 @@
 #include <syscalls.h>
 #include <percpu.h>
 
-// The number of nested interrupts on the cpu. This variable _MUST_ be updated
-// with interrupt disabled to avoid race conditions.
-DECLARE_PER_CPU(uint32_t, interrupt_nest_level);
-
 // Initialize the interrupts for the kernel.
 void interrupt_init(void);
 

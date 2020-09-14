@@ -95,19 +95,18 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
     // gate.
     ASSERT(!interrupts_enabled());
 
-    // Update the nest level. This can only be done while interrupts are
-    // disabled to avoid race conditions.
-    this_cpu_var(interrupt_nest_level) ++;
-    bool const is_nested = this_cpu_var(interrupt_nest_level) > 1;
-    if (sched_running_on_cpu() && !is_nested) {
-        // The current process on this cpu just got interrupted, save its
-        // registers into its struct proc.
-        // This is not required per se, since the register values are onto the
-        // kernel stack of the current process, however it does make testing and
-        // debug easier.
+    if (sched_running_on_cpu()) {
         struct proc * const curr = this_cpu_var(curr_proc);
         ASSERT(curr);
-        save_registers(curr, frame->registers);
+        if (!curr->interrupt_nest_level) {
+            // The current process on this cpu just got interrupted, save its
+            // registers into its struct proc.
+            // This is not required per se, since the register values are onto the
+            // kernel stack of the current process, however it does make testing and
+            // debug easier.
+            save_registers(curr, frame->registers);
+        }
+        curr->interrupt_nest_level++;
     }
 
     // Now that the nesting level has been taken care of we can safely enable
@@ -160,17 +159,16 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
     //  the registers of the first interrupt (in the scheduler) saved instead.
     cpu_set_interrupt_flag(false);
 
-    this_cpu_var(interrupt_nest_level) --;
-
-    if (sched_running_on_cpu() && !is_nested) {
+    if (sched_running_on_cpu()) {
         // Update stats about the current process.
         sched_update_curr();
 
         // Check if we need another round of scheduling.
         schedule();
+        this_cpu_var(curr_proc)->interrupt_nest_level--;
     }
     
-    return is_nested;
+    return false;
 }
 
 // Disable the legacy Programable Interrupt Controller. This is important as it

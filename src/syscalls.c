@@ -121,7 +121,7 @@ void do_exit(uint8_t const exit_code) {
     // This assumption is important since this process is dead: we want to run
     // the scheduler after handling this interrupt/syscall. This require the
     // nest_level to be 1.
-    ASSERT(this_cpu_var(interrupt_nest_level) == 1);
+    ASSERT(curr->interrupt_nest_level == 1);
 }
 
 fd_t do_open(pathname_t const u_path) {
