@@ -30,7 +30,7 @@ static inline void copy_code_to_proc(struct proc * const proc,
                                                   1,
                                                   flags);
     // Set the EIP to point to the copied code.
-    proc->registers_save.eip = (reg_t)eip;
+    proc->saved_registers->eip = (reg_t)eip;
 }
 
 // Helper function to execute a process. This function is meant to be used by a

@@ -292,7 +292,7 @@ static bool load_elf_binary_test(void) {
     res &= memeq((void*)0x0804915C, zero, 0x88 - 4);
     kfree(zero);
 
-    res &= proc->registers_save.eip == (reg_t)0x8048074;
+    res &= proc->saved_registers->eip == (reg_t)0x8048074;
 
     switch_to_addr_space(get_kernel_addr_space());
     delete_proc(proc);

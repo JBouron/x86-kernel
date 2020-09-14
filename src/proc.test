@@ -14,16 +14,16 @@ static bool create_proc_test(void) {
     struct proc * const proc = create_proc();
 
     // Check that registers are initialized correctly.
-    TEST_ASSERT(proc->registers_save.edi == 0);
-    TEST_ASSERT(proc->registers_save.esi == 0);
-    TEST_ASSERT(proc->registers_save.ebp == (reg_t)proc->user_stack.bottom);
-    TEST_ASSERT(proc->registers_save.ebx == 0);
-    TEST_ASSERT(proc->registers_save.edx == 0);
-    TEST_ASSERT(proc->registers_save.ecx == 0);
-    TEST_ASSERT(proc->registers_save.eax == 0);
-    TEST_ASSERT(proc->registers_save.eip == 0);
-    TEST_ASSERT(proc->registers_save.eflags == 1 << 9);
-    TEST_ASSERT(proc->registers_save.esp == (reg_t)(proc->user_stack.bottom));
+    TEST_ASSERT(proc->saved_registers->edi == 0);
+    TEST_ASSERT(proc->saved_registers->esi == 0);
+    TEST_ASSERT(proc->saved_registers->ebp == (reg_t)proc->user_stack.bottom);
+    TEST_ASSERT(proc->saved_registers->ebx == 0);
+    TEST_ASSERT(proc->saved_registers->edx == 0);
+    TEST_ASSERT(proc->saved_registers->ecx == 0);
+    TEST_ASSERT(proc->saved_registers->eax == 0);
+    TEST_ASSERT(proc->saved_registers->eip == 0);
+    TEST_ASSERT(proc->saved_registers->eflags == 1 << 9);
+    TEST_ASSERT(proc->saved_registers->esp == (reg_t)(proc->user_stack.bottom));
 
     delete_proc(proc);
     return true;
@@ -33,15 +33,15 @@ static bool create_kproc_test(void) {
     struct proc * const proc = create_kproc((void*)0xDEADBEEF, (void*)0xABCDEF);
 
     // Check that registers are initialized correctly.
-    TEST_ASSERT(proc->registers_save.edi == 0);
-    TEST_ASSERT(proc->registers_save.esi == 0);
-    TEST_ASSERT(proc->registers_save.ebp == (reg_t)proc->kernel_stack.bottom);
-    TEST_ASSERT(proc->registers_save.ebx == 0);
-    TEST_ASSERT(proc->registers_save.edx == 0);
-    TEST_ASSERT(proc->registers_save.ecx == 0);
-    TEST_ASSERT(proc->registers_save.eax == 0);
-    TEST_ASSERT(proc->registers_save.eip == 0);
-    TEST_ASSERT(proc->registers_save.eflags == 1 << 9);
+    TEST_ASSERT(proc->saved_registers->edi == 0);
+    TEST_ASSERT(proc->saved_registers->esi == 0);
+    TEST_ASSERT(proc->saved_registers->ebp == proc->kernel_registers.ebp);
+    TEST_ASSERT(proc->saved_registers->ebx == 0);
+    TEST_ASSERT(proc->saved_registers->edx == 0);
+    TEST_ASSERT(proc->saved_registers->ecx == 0);
+    TEST_ASSERT(proc->saved_registers->eax == 0);
+    TEST_ASSERT(proc->saved_registers->eip == 0);
+    TEST_ASSERT(proc->saved_registers->eflags == 1 << 9);
 
     delete_proc(proc);
     return true;
@@ -78,7 +78,7 @@ static bool privileged_instr_in_ring3_test(void) {
 
     copy_code_to_proc(proc, code, len);
     // The very first instruction should be the one raising the #GP.
-    privileged_instr_in_ring3_expected_eip = proc->registers_save.eip;
+    privileged_instr_in_ring3_expected_eip = proc->saved_registers->eip;
 
     // Vector for a General Protection Fault.
     uint8_t const v = 13;
@@ -200,7 +200,7 @@ static bool kernel_access_from_ring3_test(void) {
 
     copy_code_to_proc(proc, code, len);
 
-    kernel_access_from_ring3_expected_eip = proc->registers_save.eip;
+    kernel_access_from_ring3_expected_eip = proc->saved_registers->eip;
 
     interrupt_register_global_callback(14, kernel_access_from_ring3_pg_handler);
 

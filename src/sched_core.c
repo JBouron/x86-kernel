@@ -114,14 +114,6 @@ void sched_dequeue_proc(struct proc * const proc) {
     SCHEDULER->dequeue_proc(proc->cpu, proc);
 }
 
-// Save the register values in a process.
-// @param proc: The process for which the register values should be save.
-// @param regs: The current values of the registers for `proc`.
-void save_registers(struct proc * const proc,
-                    struct register_save_area const * const regs) {
-    memcpy(&proc->registers_save, regs, sizeof(*regs));
-}
-
 void sched_update_curr(void) {
     ASSERT(SCHEDULER);
 

@@ -57,11 +57,11 @@ static bool run_scenario(struct test_scenario const * const scenario) {
         switch_to_addr_space(proc->addr_space);
 
         // Push the argument onto the stack.
-        proc->registers_save.esp -= 4;
-        *((void const**)proc->registers_save.esp) = scenario->arg;
+        proc->saved_registers->esp -= 4;
+        *((void const**)proc->saved_registers->esp) = scenario->arg;
         // Push a dummy return address.
-        proc->registers_save.esp -= 4;
-        *((uint32_t*)proc->registers_save.esp) = 0xDEADDEAD;
+        proc->saved_registers->esp -= 4;
+        *((uint32_t*)proc->saved_registers->esp) = 0xDEADDEAD;
 
         switch_to_addr_space(get_kernel_addr_space());
     }

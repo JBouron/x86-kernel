@@ -29,6 +29,7 @@ ASM_FUNC_DEF(initial_ret_to_proc):
     // EBX = pointer to struct register_save_area.
     mov     %eax, %ebx
     add     REGISTERS_SAVE_OFFSET, %ebx
+    mov     (%ebx), %ebx
 
     // Check if this is a kernel process.
     // DL == proc->is_kernel_proc.

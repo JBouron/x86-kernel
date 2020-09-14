@@ -83,7 +83,12 @@ extern uint32_t get_interrupt_handler(uint8_t const vector);
 // @param regs: The current values of the registers for `proc`.
 static void save_registers(struct proc * const proc,
                            struct register_save_area const * const regs) {
-    memcpy(&proc->registers_save, regs, sizeof(*regs));
+    ASSERT((void*)proc->kernel_stack.bottom >= (void*)regs + sizeof(*regs));
+    ASSERT((void*)proc->kernel_stack.top <= (void*)regs);
+    // Discard the const qualifier here. We could instead change the signature
+    // of the struct interrupt_frame to not have the const qualifier for the
+    // saved registers but this would open up possibility of modifying them.
+    proc->saved_registers = (struct register_save_area *)regs;
 }
 
 // The generic interrupt handler. Eventually all the interrupts call the generic

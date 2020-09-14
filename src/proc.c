@@ -83,15 +83,6 @@ static bool allocate_stack(struct proc * const proc, bool const kernel_stack) {
     }
 
     void * const stack_bottom = get_stack_bottom(stack_top, n_stack_frames);
-
-    if (proc->is_kernel_proc || !kernel_stack) {
-        // For kernel processes, the initial values of ESP and EBP are the
-        // bottom of the kernel stack. For user processes this is the bottom of
-        // the user stack.
-        proc->registers_save.esp = (reg_t)stack_bottom;
-        proc->registers_save.ebp = proc->registers_save.esp;
-    }
-
     if (kernel_stack) {
         proc->kernel_stack.top = stack_top;
         proc->kernel_stack.bottom = stack_bottom;
@@ -173,8 +164,8 @@ static void init_kernel_stack(struct proc * const proc,
     // process, here it needs to point to `proc`. The `next` pointer does not
     // matter since it won't be used (only the second half of _schedule will be
     // executed).
-    ASSERT(proc->kernel_stack.bottom);
-    uint32_t * esp0 = proc->kernel_stack.bottom;
+    ASSERT(proc->kernel_registers.esp);
+    uint32_t * esp0 = (uint32_t*)proc->kernel_registers.esp;
 
     // Push the arg for the function onto the stack.
     *esp0 = (uint32_t)arg;
@@ -223,10 +214,6 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
         return NULL;
     }
 
-    // Zero out the register_save struct of the proc so that the first time it
-    // gets run all registers will be 0 (except esp and ebp).
-    memzero(&proc->registers_save, sizeof(proc->registers_save));
-
     if (!proc->is_kernel_proc) {
         // Allocate user stack for user processes.
         if (!allocate_stack(proc, false)) {
@@ -248,24 +235,51 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
         return NULL;
     }
 
+    // Allocate a space on the kernel stack to store the saved registers. This
+    // will only be used until the first time the process gets executed. After
+    // that, the interrupt handler will save the registers and update the
+    // pointer to them.
+    void * const esp0 = proc->kernel_stack.bottom;
+    proc->saved_registers = esp0 - sizeof(*proc->saved_registers);
+    // Zero out the register_save struct of the proc so that the first time it
+    // gets run all registers will be 0.
+    memzero(proc->saved_registers, sizeof(*proc->saved_registers));
+
+    // For user space and kernel space, only %ESP and %EBP will be initialized
+    // to something != 0.
+    void * const new_esp0 = esp0 - sizeof(*proc->saved_registers) - 4;
+    // Initialize kernel %ESP and %EBP for all procs.
+    proc->kernel_registers.esp = (reg_t)new_esp0;
+    proc->kernel_registers.ebp = (reg_t)new_esp0;
+    if (proc->is_kernel_proc) {
+        // Kernel processes use their kernel stack as their "application" stack.
+        // Therefore the saved %ESP and %EBP are the same as the kernel ones.
+        proc->saved_registers->esp = proc->kernel_registers.esp;
+        proc->saved_registers->ebp = proc->kernel_registers.ebp;
+    } else {
+        // For user processes this is the bottom of the user stack.
+        proc->saved_registers->esp = (reg_t)proc->user_stack.bottom;
+        proc->saved_registers->ebp = proc->saved_registers->esp;
+    }
+
     proc->interrupt_nest_level = 0;
 
     // For processes the eflags should only have the interrupt bit set.
-    proc->registers_save.eflags = 1 << 9;
+    proc->saved_registers->eflags = 1 << 9;
 
     // Setup code, data and stack segments to use user space segments.
     union segment_selector_t cs =
         (ring == 0) ? kernel_code_selector() : user_code_seg_sel();
     union segment_selector_t ds =
         (ring == 0) ? kernel_data_selector() : user_data_seg_sel();
-    proc->registers_save.cs = cs.value;
-    proc->registers_save.ds = ds.value;
-    proc->registers_save.es = ds.value;
-    proc->registers_save.fs = ds.value;
+    proc->saved_registers->cs = cs.value;
+    proc->saved_registers->ds = ds.value;
+    proc->saved_registers->es = ds.value;
+    proc->saved_registers->fs = ds.value;
     // If the task is to be run in ring 0 give it access to percpu vars through
     // GS.
-    proc->registers_save.gs = (ring == 0) ? cpu_read_gs().value : ds.value;
-    proc->registers_save.ss = ds.value;
+    proc->saved_registers->gs = (ring == 0) ? cpu_read_gs().value : ds.value;
+    proc->saved_registers->ss = ds.value;
 
     list_init(&proc->rq);
 
@@ -307,9 +321,9 @@ struct proc *create_kproc(void (*func)(void*), void * const arg) {
 
 // The following constants are used by initial_ret_to_proc() to access various
 // fields of the struct register_save_area.
-// This value is used by proc_asm.S to know the offset of registers_save within
+// This value is used by proc_asm.S to know the offset of saved_registers within
 // the struct proc.
-uint32_t const REGISTERS_SAVE_OFFSET = offsetof(struct proc, registers_save);
+uint32_t const REGISTERS_SAVE_OFFSET = offsetof(struct proc, saved_registers);
 uint32_t const KERNEL_REG_SAVE_OFFSET = offsetof(struct proc, kernel_registers);
 uint32_t const IS_KPROC_OFFSET = offsetof(struct proc, is_kernel_proc);
 uint32_t const KERNEL_STACK_BOTTOM_OFFSET =
@@ -331,7 +345,7 @@ uint32_t const GS_OFF = offsetof(struct register_save_area, gs);
 // segments (+ percpu segment) for kernel processes.
 // @param proc: The process to check the segment registers for.
 static void check_segments(struct proc const * const proc) {
-    struct register_save_area const * const reg = &proc->registers_save;
+    struct register_save_area const * const reg = proc->saved_registers;
     if (proc->is_kernel_proc) {
         uint16_t const kcode = kernel_code_selector().value;
         uint16_t const kdata = kernel_data_selector().value;
@@ -371,13 +385,14 @@ void switch_to_proc(struct proc * const proc) {
         // process correspond to the percpu area of the cpu it is running on. 
         // Note: We assume that the current GS on the cpu is the percpu area of
         // this cpu. This is ok since we are in the kernel.
-        proc->registers_save.gs = cpu_read_gs().value;
+        proc->saved_registers->gs = cpu_read_gs().value;
     }
 
     // Check that the segments are sound.
     check_segments(proc);
 
     struct proc * const prev = this_cpu_var(curr_proc);
+    proc->cpu = this_cpu_var(cpu_id);
 
     // Switch to the next process' address space and update this cpu's curr_proc
     // variable.

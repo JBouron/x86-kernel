@@ -66,14 +66,14 @@ struct proc {
     // The private address space of this process.
     struct addr_space * addr_space;
     // When the process is not currently running on a cpu, its general purpose
-    // registers are saved here. Note that this is a COPY of the registers and
-    // modifying them here will not have any effect once the process is
-    // scheduled. The actual values are stored onto the kernel stack.
-    struct register_save_area registers_save;
+    // registers are saved onto its kernel stack. This pointer points to where
+    // they are stored.
+    // For regular user processes, these are the user space registers. For
+    // kernel processes these are "application" registers.
+    struct register_save_area *saved_registers;
 
     // The saved values of the registers used in kernel mode, right before the
-    // last context switch for this process. Unlike registers_save, those are
-    // the actual values not copies.
+    // last context switch for this process.
     struct register_save_area kernel_registers;
 
     // Indicate the nesting level of the interrupt for this process.
