@@ -39,8 +39,14 @@ static inline void copy_code_to_proc(struct proc * const proc,
 // that since it will be stuck executing the process forever.
 // @param proc: Pointer on a struct proc to execute.
 static inline void exec_proc(void * proc) {
+    // We need to reset the curr_proc to NULL, otherwise, _schedule() will
+    // wrongly think the current stack is the kernel stack of a process (which
+    // does not exist anymore).
+    this_cpu_var(curr_proc) = NULL;
+
     switch_to_proc(proc);
 
-    // switch_to_proc() does not return.
+    // Since proc is the only proc capable of running on the current cpu, the
+    // switch_to_proc() above will not return.
     __UNREACHABLE__;
 }

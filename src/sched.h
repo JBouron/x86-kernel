@@ -80,13 +80,12 @@ void sched_dequeue_proc(struct proc * const proc);
 // Update the current process of the cpu.
 void sched_update_curr(void);
 
-// Pick the next proc to run and run it on the current cpu.
-// This function does __NOT__ return.
-// @param regs: The current values of the registers for the current process. If
-// this param is NULL then this is ignored.
-void sched_run_next_proc(struct register_save_area const * const regs);
+// Trigger (if needed) another round of scheduling. This function will pick the
+// next proc to run and run it. Eventually, the control will be given back to
+// the current proc and it will return from the call.
+void schedule(void);
 
-// Force a reschedule on the current cpu.
+// Signal to the scheduler that the current process should be rescheduled ASAP.
 void sched_resched(void);
 
 // Check whether or not a cpu is idle.

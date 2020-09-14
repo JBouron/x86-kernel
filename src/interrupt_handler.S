@@ -61,7 +61,7 @@ _interrupt_handler_common:
     // save area.
     // EAX = privilege level of current code segment.
     mov     %cs, %eax
-    and     $0x3, %eax 
+    and     $0x3, %eax
     // EBX = privilege level of interrupted context's code segment.
     mov     56(%esp), %ebx
     and     $0x3, %ebx
@@ -128,48 +128,28 @@ do_fixup_priv_change_end:
     pushl   0x10(%eax)
     // Now push the address of the struct on the stack for the argument of the
     // generic interrupt handler.
-    push    %esp 
+    push    %esp
     // Call the generic_interrupt_handler.
     call generic_interrupt_handler
 
     // The interrupt has been dealt with. We can now restore the registers and
     // return from the interrupt.
+
     // Get rid of the struct interrupt_frame and the pointer in the stack.
     add     $0x18, %esp
-
-    // Note: EAX = return val of generic_interrupt_handler = interrupt nested ?
-    // If the current interrupt was a nested interrupt then we can skip the
-    // scheduler. The rationale is that the saved registers belong to the
-    // interrupted kernel context, not the current process.
-    test    %eax, %eax
-    jnz      skip_sched
-
-    // Scheduler not running on the current cpu, skip.
-    call    sched_running_on_cpu
-    test    %eax, %eax
-    jz      skip_sched
-
-    call    sched_update_curr
-
-    // Run the next process. Does not return.
-    // The pointer to the saved registers is still on the stack.
-    call    sched_run_next_proc
-
-skip_sched:
     // Get rid of pointer on struct register_save_area.
     add     $0x4, %esp
 
     // Compare the CS of the interrupted context to know if it was the kernel
-    // that was interrupted.
-    // If yes then we resume the context. If no then check if we should
-    // reschedule and branch the execution to the process.
+    // that was interrupted. If user space was interrupted, we need to restore
+    // the correct segments before returning.
     // EAX = privilege level of current code segment.
     mov     %cs, %ax
     // EBX = privilege level of interrupted context's code segment.
     mov     56(%esp), %bx
 
     cmp     %ax, %bx
-    je      resume_kernel_context
+    je      skip_segment_reg_restore
 
     // Restore the segment registers. The code and stack segment register will
     // be restored by the iret since there has been a privilege change.
@@ -182,9 +162,8 @@ skip_sched:
     mov     40(%esp), %ax
     mov     %ax, %gs
 
-resume_kernel_context:
-    // If the interrupted context was the kernel then resume it.
-    // Restore the registers.
+skip_segment_reg_restore:
+    // Restore the GP registers.
     popa
     // Get rid of the saved registers values, they are useless since there is no
     // context switch.
@@ -240,7 +219,7 @@ interrupt_handler_no_err_code(128)
     mov     $interrupt_handler_ ## vector, %eax   ;\
     ret                                                             ;\
 not_eq_ ## vector :
-    
+
 ASM_FUNC_DEF(get_interrupt_handler):
     mov     0x4(%esp), %eax
     cond_ret_handler(0)

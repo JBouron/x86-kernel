@@ -78,6 +78,14 @@ DECLARE_PER_CPU(int_callback_t, local_callbacks[IDT_SIZE]);
 // Get the address/offset of the interrupt handler for a given vector.
 extern uint32_t get_interrupt_handler(uint8_t const vector);
 
+// Save the register values of a process.
+// @param proc: The process for which the register values should be saved.
+// @param regs: The current values of the registers for `proc`.
+static void save_registers(struct proc * const proc,
+                           struct register_save_area const * const regs) {
+    memcpy(&proc->registers_save, regs, sizeof(*regs));
+}
+
 // The generic interrupt handler. Eventually all the interrupts call the generic
 // handler.
 // @param frame: Information about the interrupt.
@@ -91,6 +99,16 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
     // disabled to avoid race conditions.
     this_cpu_var(interrupt_nest_level) ++;
     bool const is_nested = this_cpu_var(interrupt_nest_level) > 1;
+    if (sched_running_on_cpu() && !is_nested) {
+        // The current process on this cpu just got interrupted, save its
+        // registers into its struct proc.
+        // This is not required per se, since the register values are onto the
+        // kernel stack of the current process, however it does make testing and
+        // debug easier.
+        struct proc * const curr = this_cpu_var(curr_proc);
+        ASSERT(curr);
+        save_registers(curr, frame->registers);
+    }
 
     // Now that the nesting level has been taken care of we can safely enable
     // interrupts again.
@@ -143,6 +161,14 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
     cpu_set_interrupt_flag(false);
 
     this_cpu_var(interrupt_nest_level) --;
+
+    if (sched_running_on_cpu() && !is_nested) {
+        // Update stats about the current process.
+        sched_update_curr();
+
+        // Check if we need another round of scheduling.
+        schedule();
+    }
     
     return is_nested;
 }

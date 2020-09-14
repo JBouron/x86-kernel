@@ -178,6 +178,8 @@ static void sched_stop_remote(void * unused) {
 static bool run_test(void) {
     sched_init();
 
+    cpu_set_interrupt_flag(true);
+
     test_data_1.proc = create_kproc(process_code, "Proc1");
     test_data_1.syscall_count = 0;
     test_data_2.proc = create_kproc(process_code, "Proc2");

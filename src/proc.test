@@ -40,11 +40,8 @@ static bool create_kproc_test(void) {
     TEST_ASSERT(proc->registers_save.edx == 0);
     TEST_ASSERT(proc->registers_save.ecx == 0);
     TEST_ASSERT(proc->registers_save.eax == 0);
-    TEST_ASSERT(proc->registers_save.eip == 0xDEADBEEF);
+    TEST_ASSERT(proc->registers_save.eip == 0);
     TEST_ASSERT(proc->registers_save.eflags == 1 << 9);
-    uint32_t const * const esp = (void*)proc->kernel_stack.bottom - 4;
-    TEST_ASSERT(proc->registers_save.esp == (reg_t)(esp));
-    TEST_ASSERT(*(esp + 1) == 0xABCDEF);
 
     delete_proc(proc);
     return true;

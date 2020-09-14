@@ -32,8 +32,7 @@ DECLARE_PER_CPU(struct proc *, idle_proc);
 // The actual idle_proc.
 static void do_idle(void * unused) {
     while (true) {
-        ASSERT(interrupts_enabled());
-        cpu_halt();
+        cpu_set_interrupt_flag_and_halt();
     }
 }
 
@@ -46,7 +45,12 @@ void sched_init(void) {
             PANIC("Cannot create idle proc for cpu %u", cpu);
         }
         cpu_var(idle_proc, cpu) = idle;
-        cpu_var(curr_proc, cpu) = idle;
+
+        // Set the curr proc for each cpu to NULL and not their corresponding
+        // idle proc. This is because upon the first context switch, if
+        // curr_proc is idle, then _schedule() will wrongly think that it is
+        // using idle's kernel stack.
+        cpu_var(curr_proc, cpu) = NULL;
         LOG("[%u] Idle proc for %u = %p\n", this_cpu_var(cpu_id), cpu, idle);
     }
 
@@ -65,22 +69,17 @@ bool sched_running_on_cpu(void) {
 static void sched_tick(struct interrupt_frame const * const frame) {
     ASSERT(SCHEDULER);
     uint8_t const this_cpu = this_cpu_var(cpu_id);
-    if (!cpu_is_idle(this_cpu)) {
-        LOG("[%u] Sched tick.\n", this_cpu);
-    }
     SCHEDULER->tick(this_cpu);
 }
 
 // Arm the LAPIC timer to send a tick in SCHED_TICK_PERIOD ms.
 static void enable_sched_tick(void) {
-    //if (this_cpu_var(cpu_id)) {
-    //    return;
-    //}
     ASSERT(!interrupts_enabled());
 
     // Start the scheduler timer to fire every SCHED_TICK_PERIOD ms.
     // This will enable interrupts.
-    lapic_start_timer(SCHED_TICK_PERIOD, false, SCHED_TICK_VECTOR, sched_tick);
+    lapic_start_timer(SCHED_TICK_PERIOD, true, SCHED_TICK_VECTOR, sched_tick);
+    ASSERT(!interrupts_enabled());
 }
 
 void sched_start(void) {
@@ -96,10 +95,12 @@ void sched_start(void) {
 
     this_cpu_var(sched_running) = true;
 
+    enable_sched_tick();
     // Start running the first process we can.
-    sched_run_next_proc(NULL);
+    schedule();
 
-    // sched_run_next_proc() does not return.
+    // Initial schedule() does not return. This is because at the very least the
+    // idle proc will be run.
     __UNREACHABLE__;
 }
 
@@ -146,11 +147,11 @@ void sched_update_curr(void) {
     }
 }
 
-void sched_run_next_proc(struct register_save_area const * const regs) {
+void schedule(void) {
     ASSERT(SCHEDULER);
 
-    // sched_run_next_proc() is called after an interrupt has been serviced,
-    // hence interrupts are assumed to be disabled. See comment at the end of
+    // schedule() is called after an interrupt has been serviced, hence
+    // interrupts are assumed to be disabled. See comment at the end of
     // generic_interrupt_handler().
     ASSERT(!interrupts_enabled());
 
@@ -159,24 +160,27 @@ void sched_run_next_proc(struct register_save_area const * const regs) {
     struct proc * next = NULL;
 
     // We need a reschedule in the following situations:
-    //  - If an explicite resched was requested, do it now.
+    //  - If this is the first time schedule() is called (curr == NULL).
+    //  - If an explicit resched was requested, do it now.
     //  - If this cpu was idle, check for a new proc anyway. This avoids bugs in
     //    which a cpu has processes waiting in its runqueue but never wakes up.
     //  - If the current process exited (is dead).
-    bool const need_resched = cpu_is_idle(this_cpu) ||
+    bool const need_resched = !curr ||
+                              cpu_is_idle(this_cpu) ||
                               cpu_var(resched_flag, this_cpu) ||
                               proc_is_dead(curr);
 
     if (need_resched) {
         struct proc * const prev = curr;
         struct proc * const idle = this_cpu_var(idle_proc);
-        bool const curr_dead = proc_is_dead(curr);
 
-        if (prev != idle && !curr_dead) {
-            // Notify the scheduler of the context switch. This must be done
-            // before picking the next proc, in case there is a single proc on
-            // the system.
-            SCHEDULER->put_prev_proc(this_cpu, prev);
+        if (curr) {
+            if (prev != idle && !proc_is_dead(curr)) {
+                // Notify the scheduler of the context switch. This must be done
+                // before picking the next proc, in case there is a single proc on
+                // the system.
+                SCHEDULER->put_prev_proc(this_cpu, prev);
+            }
         }
 
         // Pick a new process to run. Default to idle_proc.
@@ -185,39 +189,15 @@ void sched_run_next_proc(struct register_save_area const * const regs) {
             next = idle;
         }
         ASSERT(proc_is_runnable(next));
-        
-        if (regs && !curr_dead) {
-            // FIXME: There is an inefficiency here. If prev == next (there is a
-            // resched but only one proc is runnable) then we could skip saving
-            // the registers and re-read them again in switch_to_proc().
-            save_registers(prev, regs);
-        }
 
         this_cpu_var(resched_flag) = false;
-    } else {
-        // No resched requested, resume execution of the current process.
-        next = this_cpu_var(curr_proc);
-        ASSERT(proc_is_runnable(next));
 
-        // FIXME: Despite resuming the current process, we still need to save
-        // the registers into the struct proc. This is because we are using
-        // switch_to_proc to return to user space. A better solution would be to
-        // return to the interrupt handler instead since it has all the
-        // registers on its stack. This would require some changes to the
-        // handler however.
-        if (regs) {
-            save_registers(next, regs);
+        if (next != curr) {
+            // Interrupts are still disabled and will only be enabled by the
+            // context switch.
+            switch_to_proc(next);
         }
     }
-
-    ASSERT(proc_is_runnable(next));
-
-    // Re-enable the scheduler tick. Interrupts are still disabled and will only
-    // be enabled by the context switch.
-    enable_sched_tick();
-    switch_to_proc(next);
-
-    __UNREACHABLE__;
 }
 
 void sched_resched(void) {

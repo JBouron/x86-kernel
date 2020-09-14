@@ -1,7 +1,7 @@
 #include <macro.h>
 
-//void do_far_return_to_proc(struct proc * const proc);
-ASM_FUNC_DEF(do_far_return_to_proc):
+//void initial_ret_to_proc(struct proc * const proc);
+ASM_FUNC_DEF(initial_ret_to_proc):
     // To return to the execution of a process, we simply need do to an iret.
     // However, depending on the process, we are doing thing differently.
     // If the process is a ring 3 process, we need to create an iret frame on
