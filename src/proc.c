@@ -341,21 +341,22 @@ uint32_t const FS_OFF = offsetof(struct register_save_area, fs);
 uint32_t const GS_OFF = offsetof(struct register_save_area, gs);
 
 // Check that the saved segments registers for a process about to run on the
-// current cpu are ok. This means: user segments for user processes and kernel
-// segments (+ percpu segment) for kernel processes.
+// current cpu are ok. This means: user segments for user processes.
 // @param proc: The process to check the segment registers for.
 static void check_segments(struct proc const * const proc) {
-    struct register_save_area const * const reg = proc->saved_registers;
     if (proc->is_kernel_proc) {
-        uint16_t const kcode = kernel_code_selector().value;
-        uint16_t const kdata = kernel_data_selector().value;
-        ASSERT(reg->cs == kcode);
-        ASSERT(reg->es == kdata);
-        ASSERT(reg->ds == kdata);
-        ASSERT(reg->fs == kdata);
-        ASSERT(reg->gs == cpu_read_gs().value);
-        ASSERT(reg->ss == kdata);
+        // It is not necessary to make this check for kernel processes since the
+        // segment registers will not be changed when going from the kernel to
+        // the kernel process. Hence, at all time when running, kernel processes
+        // will use kernel segments.
     } else {
+        struct register_save_area const * const reg = proc->saved_registers;
+        // If this is a user process and we are switching to it, then this
+        // process must have been swapped out while in the kernel for any
+        // (nested) interrupt, hence its interrupt_nest_level must be > 0 and
+        // the saved_registers pointer must be valid.
+        ASSERT(proc->interrupt_nest_level);
+        ASSERT(reg);
         uint16_t const ucode = user_code_seg_sel().value;
         uint16_t const udata = user_data_seg_sel().value;
         ASSERT(reg->cs == ucode);
@@ -379,18 +380,6 @@ extern __attribute__((stdcall))
     void _schedule(struct proc * const prev, struct proc * const next);
 
 void switch_to_proc(struct proc * const proc) {
-    if (proc->is_kernel_proc) {
-        // Kernel proc can use percpu variable. Since some of them might not be
-        // tied to specific cpus we need to make sure that the GS segment of the
-        // process correspond to the percpu area of the cpu it is running on. 
-        // Note: We assume that the current GS on the cpu is the percpu area of
-        // this cpu. This is ok since we are in the kernel.
-        proc->saved_registers->gs = cpu_read_gs().value;
-    }
-
-    // Check that the segments are sound.
-    check_segments(proc);
-
     struct proc * const prev = this_cpu_var(curr_proc);
     proc->cpu = this_cpu_var(cpu_id);
 
@@ -398,6 +387,11 @@ void switch_to_proc(struct proc * const proc) {
     // variable.
     this_cpu_var(curr_proc) = proc;
     switch_to_addr_space(proc->addr_space);
+
+    // Check that the segments are sound, this needs to be done *after*
+    // switching to the proc's address space since the registers are saved into
+    // its kernel stack.
+    check_segments(proc);
 
     // Perform the actual context switch.
     _schedule(prev, proc);
