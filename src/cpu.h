@@ -232,5 +232,10 @@ bool interrupts_enabled(void);
 // TSS segment.
 void cpu_ltr(union segment_selector_t const segment_sel);
 
+// Return the CPU's APIC id. Not to be mistaken with the `cpuid` function which
+// executes the CPUID instruction.
+// @return: The APIC id of the cpu starting at 0.
+uint8_t cpu_id(void);
+
 // Execute tests on CPU related functions.
 void cpu_test(void);

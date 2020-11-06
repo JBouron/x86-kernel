@@ -450,7 +450,7 @@ static bool test_tlb_shootdown_remote_got_page_fault = false;
 static void _paging_test_tlb_shootdown_page_fault_handler(
     struct interrupt_frame const * const frame) {
     ASSERT(frame);
-    LOG("[%u] Page fault\n", this_cpu_var(cpu_id));
+    LOG("[%u] Page fault\n", cpu_id());
 
     // We need to remap the page here, otherwise we will triple page-fault.
     paging_map(test_tlb_shootdown_paddr,
@@ -485,7 +485,7 @@ static bool paging_tlb_shootdown_test(void) {
     interrupt_register_global_callback(14,
         _paging_test_tlb_shootdown_page_fault_handler);
 
-    uint8_t const cpu = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+    uint8_t const cpu = (cpu_id() + 1) % acpi_get_number_cpus();
     uint32_t const val = 0xBEEFBABE;
     exec_remote_call(cpu, _paging_test_tlb_shootdown_writer, (void*)val, true);
 
@@ -715,7 +715,7 @@ static bool paging_create_temp_mapping_test(void) {
 
     // temp_map1 is deterministic and is the entry of this cpu in the temp page
     // table.
-    uint32_t const cpu = this_cpu_var(cpu_id);
+    uint32_t const cpu = cpu_id();
     void const * const exp = (void*)((TEMP_MAP_PDE_IDX << 22) | (cpu << 12));
     TEST_ASSERT(exp == temp_map1);
 
@@ -754,7 +754,7 @@ static void remote_paging_create_temp_mapping_test(void * success_flag) {
 static bool paging_create_temp_mapping_remote_cpus_test(void) {
     cpu_set_interrupt_flag(true);
     for (uint8_t cpu = 0; cpu < acpi_get_number_cpus(); ++cpu) {
-        if (cpu == this_cpu_var(cpu_id)) {
+        if (cpu == cpu_id()) {
             continue;
         }
 

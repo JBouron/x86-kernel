@@ -8,7 +8,7 @@ static void simple_test_callback(struct ipm_message const * const msg) {
 }
 
 static bool ipm_simple_test(void) {
-    simple_test_sender_id = this_cpu_var(cpu_id);
+    simple_test_sender_id = cpu_id();
     TEST_TAG_CALLBACK = simple_test_callback;
 
     // Enable interrupts on the current cpu as it will send a message to itself.
@@ -40,7 +40,7 @@ static uint32_t remote_call_flag = 0;
 
 static void remote_call_func(void * arg) {
     uint32_t const val = (uint32_t)arg;
-    LOG("CPU %u exec remote call, value = %u\n", this_cpu_var(cpu_id), val);
+    LOG("CPU %u exec remote call, value = %u\n", cpu_id(), val);
     remote_call_flag = val;
 }
 
@@ -101,7 +101,7 @@ static void overload_test_message_callback(struct ipm_message const * msg) {
 static bool overload_test_all_messages_received(void) {
     uint8_t const ncpus = acpi_get_number_cpus();
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
-        if (cpu == this_cpu_var(cpu_id)) {
+        if (cpu == cpu_id()) {
             continue;
         } else if (num_received_msg_per_core[cpu] !=
             overload_test_num_messages_per_core) {
@@ -123,12 +123,12 @@ static bool do_ipm_overload_test(bool const disable_interrupts) {
     TEST_TAG_CALLBACK = overload_test_message_callback;
 
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
-        if (cpu == this_cpu_var(cpu_id)) {
+        if (cpu == cpu_id()) {
             continue;
         }
         exec_remote_call(cpu,
                          overload_test_wait_and_send_messages,
-                         (void*)(uint32_t)this_cpu_var(cpu_id),
+                         (void*)(uint32_t)cpu_id(),
                          false);
     }
 
@@ -176,7 +176,7 @@ static bool ipm_while_interrupt_flag_clear_test(void) {
 static bool *ipm_broadcast_test_recv = NULL;
 static void ipm_broadcast_test_test_message_callback(
     __attribute__((unused)) struct ipm_message const * msg) {
-    ipm_broadcast_test_recv[this_cpu_var(cpu_id)] = true;
+    ipm_broadcast_test_recv[cpu_id()] = true;
 }
 
 static bool ipm_broadcast_test(void) {
@@ -198,7 +198,7 @@ static bool ipm_broadcast_test(void) {
 
         done = true;
         for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
-            if (cpu == this_cpu_var(cpu_id)) {
+            if (cpu == cpu_id()) {
                 continue;
             } else if (!ipm_broadcast_test_recv[cpu]) {
                 done = false;
@@ -223,7 +223,7 @@ static bool ipm_broadcast_remote_call_test(void) {
                           true);
 
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
-        if (cpu == this_cpu_var(cpu_id)) {
+        if (cpu == cpu_id()) {
             continue;
         } 
         TEST_ASSERT(ipm_broadcast_test_recv[cpu]);
@@ -262,10 +262,10 @@ static void _ipm_no_deadlock_test_function(void * arg) {
 static bool ipm_no_deadlock_test(void) {
     TEST_ASSERT(acpi_get_number_cpus() >= 3);
 
-    uint32_t const cpu1 = next_cpu(this_cpu_var(cpu_id));
+    uint32_t const cpu1 = next_cpu(cpu_id());
     uint32_t const cpu2 = next_cpu(cpu1);
-    ASSERT(this_cpu_var(cpu_id) != cpu1);
-    ASSERT(this_cpu_var(cpu_id) != cpu2);
+    ASSERT(cpu_id() != cpu1);
+    ASSERT(cpu_id() != cpu2);
 
     exec_remote_call(cpu1, _ipm_no_deadlock_test_function, (void*)cpu2, false);
     exec_remote_call(cpu2, _ipm_no_deadlock_test_function, (void*)cpu1, false);

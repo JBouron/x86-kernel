@@ -12,7 +12,7 @@ static uint8_t get_curr_cpu_id(void) {
     // not be yet setup. In this case fall back to cpu_apic_id() which uses the
     // cpuid instruction to get the cpu id.
     if (percpu_initialized()) {
-        return this_cpu_var(cpu_id);
+        return cpu_id();
     } else {
         return cpu_apic_id();
     }

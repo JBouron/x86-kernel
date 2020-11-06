@@ -24,7 +24,7 @@ struct atomic_test_helper_args {
 static void _atomic_test_helper(void * arg) {
     struct atomic_test_helper_args const * const params = arg;
     atomic_t * const atomic = params->target;
-    int32_t const val = this_cpu_var(cpu_id);
+    int32_t const val = cpu_id();
     for (uint32_t i = 0; i < params->N; ++i) {
         if (params->mode == 0) {
             atomic_add(atomic, val);
@@ -44,7 +44,7 @@ static bool atomic_add_stress_test(void) {
     atomic_init(&atomic, 0);
 
     uint8_t const ncpus = acpi_get_number_cpus();
-    uint8_t const this_cpu = this_cpu_var(cpu_id);
+    uint8_t const this_cpu = cpu_id();
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
         cpu_var(atomic_test_helper_done, cpu) = (cpu == this_cpu)?true : false;
     }
@@ -88,7 +88,7 @@ static bool atomic_fetch_and_add_stress_test(void) {
     atomic_init(&atomic, 0);
 
     uint8_t const ncpus = acpi_get_number_cpus();
-    uint8_t const this_cpu = this_cpu_var(cpu_id);
+    uint8_t const this_cpu = cpu_id();
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
         cpu_var(atomic_test_helper_done, cpu) = (cpu == this_cpu)?true : false;
     }
@@ -137,7 +137,7 @@ static bool atomic_dec_and_test_stress_test(void) {
     atomic_t atomic;
     atomic_init(&atomic, ncpus - 1);
 
-    uint8_t const this_cpu = this_cpu_var(cpu_id);
+    uint8_t const this_cpu = cpu_id();
     for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
         cpu_var(atomic_test_helper_done, cpu) = (cpu == this_cpu)?true : false;
     }

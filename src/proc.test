@@ -55,7 +55,7 @@ static reg_t privileged_instr_in_ring3_expected_eip = 0;
 static void privileged_instr_in_ring3_gp_handler(
     struct interrupt_frame const * const frame) {
 
-    LOG("General protection fault recieved on cpu %u\n", this_cpu_var(cpu_id));
+    LOG("General protection fault recieved on cpu %u\n", cpu_id());
 
     // Check that the EIP points to the correct instruction and that the
     // original CS was user code segment.
@@ -85,7 +85,7 @@ static bool privileged_instr_in_ring3_test(void) {
     interrupt_register_global_callback(v, privileged_instr_in_ring3_gp_handler);
 
     TEST_ASSERT(acpi_get_number_cpus() > 1);
-    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+    uint8_t const target = (cpu_id() + 1) % acpi_get_number_cpus();
 
     // make the other cpu execute the process. we cannot wait since the
     // exec_proc function does not return.
@@ -147,7 +147,7 @@ static bool register_saving_ring3_int_test(void) {
         register_saving_ring3_int_syscall_handler);
 
     TEST_ASSERT(acpi_get_number_cpus() > 1);
-    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+    uint8_t const target = (cpu_id() + 1) % acpi_get_number_cpus();
 
     // make the other cpu execute the process. we cannot wait since the
     // exec_proc function does not return.
@@ -205,7 +205,7 @@ static bool kernel_access_from_ring3_test(void) {
     interrupt_register_global_callback(14, kernel_access_from_ring3_pg_handler);
 
     TEST_ASSERT(acpi_get_number_cpus() > 1);
-    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+    uint8_t const target = (cpu_id() + 1) % acpi_get_number_cpus();
 
     // make the other cpu execute the process. we cannot wait since the
     // exec_proc function does not return.
@@ -232,7 +232,7 @@ static bool volatile kernel_process_test_success = false;
 static void * kernel_process_expected_arg = NULL;
 
 static void kernel_process_code(void * arg) {
-    LOG("[%u] Kernel process is running kernel code.\n", this_cpu_var(cpu_id));
+    LOG("[%u] Kernel process is running kernel code.\n", cpu_id());
     bool success = true;
 
     // Check that the correct arg was passed onto the stack.
@@ -263,7 +263,7 @@ static void kernel_process_code(void * arg) {
 static void remote_read_gs(void * arg) {
     ASSERT(percpu_initialized());
     uint16_t const expected_gs = cpu_read_gs().value;
-    LOG("[%u] Expected GS = %x\n", this_cpu_var(cpu_id), expected_gs);
+    LOG("[%u] Expected GS = %x\n", cpu_id(), expected_gs);
     *(uint16_t*)arg = expected_gs;
 }
 
@@ -277,7 +277,7 @@ static bool kernel_process_test(void) {
     kernel_process_test_data_expected = rand;
 
     TEST_ASSERT(acpi_get_number_cpus() > 1);
-    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+    uint8_t const target = (cpu_id() + 1) % acpi_get_number_cpus();
 
     cpu_var(kernel_process_test_data, target) = rand;
 
@@ -332,7 +332,7 @@ static bool register_saving_ring0_int_test(void) {
         register_saving_ring0_int_syscall_handler);
 
     TEST_ASSERT(acpi_get_number_cpus() > 1);
-    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+    uint8_t const target = (cpu_id() + 1) % acpi_get_number_cpus();
 
     // make the other cpu execute the process. we cannot wait since the
     // exec_proc function does not return.

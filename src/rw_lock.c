@@ -33,7 +33,7 @@ void rwlock_read_unlock(rwlock_t * const lock) {
         // This is the last reader, releas the write lock to unblock writers.
         // FIXME: Since the first and last readers might be different cpus, we
         // need to fixup the owner field in the spinlock. This is disgusting.
-        lock->writer_lock.owner = this_cpu_var(cpu_id);
+        lock->writer_lock.owner = cpu_id();
         spinlock_unlock(&lock->writer_lock);
     }
     spinlock_unlock(&lock->readers_lock);

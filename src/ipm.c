@@ -208,7 +208,7 @@ static struct ipm_message * alloc_message(enum ipm_tag_t const tag,
     }
 
     message->tag = tag;
-    message->sender_id = this_cpu_var(cpu_id);
+    message->sender_id = cpu_id();
     // By default make the receiving cpu deallocate the ipm_message_t. This is
     // because the sender has no idea when a particular message has been
     // procesed by the destination.
@@ -257,7 +257,7 @@ static void do_send_ipm(uint8_t const cpu,
     uint8_t const start = is_broadcast ? 0 : cpu;
     uint8_t const end = is_broadcast ? ncpus : cpu + 1;
     for (uint8_t i = start; i < end; ++i) {
-        if (is_broadcast && i == this_cpu_var(cpu_id)) {
+        if (is_broadcast && i == cpu_id()) {
             // Don't send the message to ourselves if we request a broadcast.
             continue;
         }
@@ -376,7 +376,7 @@ void exec_tlb_shootdown(void) {
     // a TLB shootdown leading to an infinite loop.
     struct ipm_message tlb_message = {
         .tag = TLB_SHOOTDOWN,
-        .sender_id = this_cpu_var(cpu_id),
+        .sender_id = cpu_id(),
         .receiver_dealloc = false,
         .data = &wait,
         .len = sizeof(wait),
@@ -386,7 +386,7 @@ void exec_tlb_shootdown(void) {
     // is because of a limitation of IPM messages that can only be enqueued in a
     // single message queue at any time. This is slow but will do for now.
     for (uint8_t cpu = 0; cpu < acpi_get_number_cpus(); ++cpu) {
-        if (cpu == this_cpu_var(cpu_id)) {
+        if (cpu == cpu_id()) {
             continue;
         }
 

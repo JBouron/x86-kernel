@@ -367,10 +367,10 @@ void setup_tss(void) {
     ASSERT(percpu_initialized());
 
     uint8_t const ncpus = acpi_get_number_cpus();
-    uint8_t const cpu_id = this_cpu_var(cpu_id);
+    uint8_t const cpu = cpu_id();
     uint16_t const tss_seg_start_index = PERCPU_SEG_START_INDEX + ncpus;
     struct tss * const tss = &this_cpu_var(tss);
-    uint16_t const tss_index = tss_seg_start_index + cpu_id;
+    uint16_t const tss_index = tss_seg_start_index + cpu;
     union segment_descriptor_t * desc = GDT + tss_index;
 
     struct tss_descriptor const tss_desc = generate_tss_descriptor(tss);

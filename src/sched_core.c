@@ -51,7 +51,7 @@ void sched_init(void) {
         // curr_proc is idle, then _schedule() will wrongly think that it is
         // using idle's kernel stack.
         cpu_var(curr_proc, cpu) = NULL;
-        LOG("[%u] Idle proc for %u = %p\n", this_cpu_var(cpu_id), cpu, idle);
+        LOG("[%u] Idle proc for %u = %p\n", cpu_id(), cpu, idle);
     }
 
     // Initialize the actual scheduler.
@@ -68,7 +68,7 @@ bool sched_running_on_cpu(void) {
 // @param frame: Unused, but mandatory to be used as an interrupt callback.
 static void sched_tick(struct interrupt_frame const * const frame) {
     ASSERT(SCHEDULER);
-    uint8_t const this_cpu = this_cpu_var(cpu_id);
+    uint8_t const this_cpu = cpu_id();
     SCHEDULER->tick(this_cpu);
 }
 
@@ -127,7 +127,7 @@ void sched_update_curr(void) {
         // This process just became dead, need to resched.
         sched_resched();
     } else {
-        SCHEDULER->update_curr(this_cpu_var(cpu_id));
+        SCHEDULER->update_curr(cpu_id());
     }
 }
 
@@ -139,7 +139,7 @@ void schedule(void) {
     // generic_interrupt_handler().
     ASSERT(!interrupts_enabled());
 
-    uint8_t const this_cpu = this_cpu_var(cpu_id);
+    uint8_t const this_cpu = cpu_id();
     struct proc * const curr = this_cpu_var(curr_proc);
     struct proc * next = NULL;
 

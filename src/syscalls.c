@@ -112,7 +112,7 @@ void do_exit(uint8_t const exit_code) {
     // For now, do_exit is trivial, we only set the state of the process to
     // dead. The exit code is stored, but not used yet.
     struct proc * const curr = this_cpu_var(curr_proc);
-    LOG("[%u] Process %p is dead\n", this_cpu_var(cpu_id), curr);
+    LOG("[%u] Process %p is dead\n", cpu_id(), curr);
     curr->exit_code = exit_code;
     curr->state_flags |= PROC_DEAD;
 
@@ -198,7 +198,7 @@ void do_klog(char const * const message) {
     struct proc * const curr = this_cpu_var(curr_proc);
     uint64_t const tsc = read_tsc();
     pid_t const pid = curr->pid;
-    uint8_t const cpu = this_cpu_var(cpu_id);
+    uint8_t const cpu = cpu_id();
     LOG("[%X | cpu %u | pid %u] %s", tsc, cpu, pid, message);
 }
 

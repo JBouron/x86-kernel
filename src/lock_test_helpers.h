@@ -153,7 +153,7 @@ static void run_step_action_remote(void * const arg) {
     struct step_action * const step_action = arg;
     ASSERT(!step_action->done);
 
-    uint8_t const cpu = this_cpu_var(cpu_id);
+    uint8_t const cpu = cpu_id();
     bool volatile * const flag = step_action->start_flag;
     LOG("[%u] Waiting on start flag %p\n", cpu, flag);
     while (!*flag);

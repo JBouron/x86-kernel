@@ -692,7 +692,7 @@ void * kmalloc_debug_wrapper(char const * const func_name,
     info->func_name = func_name;
     info->filename = filename;
     info->line = line_number;
-    uint8_t const cpu = percpu_initialized() ? this_cpu_var(cpu_id) : 0;
+    uint8_t const cpu = percpu_initialized() ? cpu_id() : 0;
     info->cpu = cpu;
 
     return ret_addr;

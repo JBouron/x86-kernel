@@ -376,7 +376,7 @@ extern __attribute__((stdcall))
 
 void switch_to_proc(struct proc * const proc) {
     struct proc * const prev = this_cpu_var(curr_proc);
-    proc->cpu = this_cpu_var(cpu_id);
+    proc->cpu = cpu_id();
 
     // Switch to the next process' address space and update this cpu's curr_proc
     // variable.

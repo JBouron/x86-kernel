@@ -101,7 +101,7 @@ static bool volatile *received_ipi = NULL;
 static uint32_t const ipi_vector = 32;
 static void ipi_handler(struct interrupt_frame const * const frame) {
 
-    uint8_t const cpuid = this_cpu_var(cpu_id);
+    uint8_t const cpuid = cpu_id();
     uint8_t const vector = frame->vector;
     if (vector == ipi_vector) {
         LOG("CPU %u received IPI\n", cpuid);
@@ -161,7 +161,7 @@ static bool lapic_send_ipi_broadcast_test(void) {
         lapic_sleep(50);
         done = true;
         for (uint8_t cpu = 0; cpu < ncpus; ++cpu)  {
-            if (cpu == this_cpu_var(cpu_id)) {
+            if (cpu == cpu_id()) {
                 continue;
             }
             if (!received_ipi[cpu]) {

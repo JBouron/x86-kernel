@@ -117,21 +117,21 @@ static void syscall_handler(struct interrupt_frame const * const frame) {
     ASSERT(curr == test_data_1.proc || curr == test_data_2.proc);
     struct test_data * data;
     if (curr == test_data_1.proc) {
-        LOG("[%u] Syscall for proc 1\n", this_cpu_var(cpu_id));
+        LOG("[%u] Syscall for proc 1\n", cpu_id());
         data = &test_data_1;
     } else {
-        LOG("[%u] Syscall for proc 2\n", this_cpu_var(cpu_id));
+        LOG("[%u] Syscall for proc 2\n", cpu_id());
         data = &test_data_2;
     }
     data->syscall_count ++;
     if (data->syscall_count == 2) {
         // Second syscall indicate success or failure in EAX.
         ASSERT(frame->registers->eax);
-        LOG("[%u] EAX = %x\n", this_cpu_var(cpu_id), frame->registers->eax);
+        LOG("[%u] EAX = %x\n", cpu_id(), frame->registers->eax);
     }
 
     if (num_syscalls == max_syscalls) {
-        LOG("[%u] Test over\n", this_cpu_var(cpu_id));
+        LOG("[%u] Test over\n", cpu_id());
         test_over = true;
 
         // Wait for this cpu to die. We need to do an infinite loop with
@@ -154,7 +154,7 @@ static void test_sched_start_remote(void * unused) {
 extern void register_saving_ring3_int_code(void);
 
 static void process_code(void * name) {
-    LOG("[%u] Running %s\n", this_cpu_var(cpu_id), name);
+    LOG("[%u] Running %s\n", cpu_id(), name);
     register_saving_ring3_int_code();
     __UNREACHABLE__;
 }
@@ -186,7 +186,7 @@ static bool run_test(void) {
     test_data_2.syscall_count = 0;
 
     TEST_ASSERT(acpi_get_number_cpus() > 1);
-    test_cpu = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+    test_cpu = (cpu_id() + 1) % acpi_get_number_cpus();
 
     interrupt_register_global_callback(0x80, syscall_handler);
 

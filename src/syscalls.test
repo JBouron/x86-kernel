@@ -73,7 +73,7 @@ static bool run_scenario(struct test_scenario const * const scenario) {
 
     // Choose a cpu on which the process should be run.
     TEST_ASSERT(acpi_get_number_cpus() > 1);
-    uint8_t const target = (this_cpu_var(cpu_id) + 1) % acpi_get_number_cpus();
+    uint8_t const target = (cpu_id() + 1) % acpi_get_number_cpus();
 
     // Make the other cpu execute the process. we cannot wait since the
     // exec_proc function does not return.
@@ -116,7 +116,7 @@ static reg_t simple_syscall(reg_t const ebx,
                             reg_t const esi,
                             reg_t const edi,
                             reg_t const ebp) {
-    uint8_t const cpu = this_cpu_var(cpu_id);
+    uint8_t const cpu = cpu_id();
     reg_t const sum = ebx + ecx + edx + esi + edi + ebp;
     LOG("[%u] Sum syscall, res = %x\n", cpu, sum);
 
