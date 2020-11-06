@@ -351,11 +351,6 @@ static void check_segments(struct proc const * const proc) {
         // will use kernel segments.
     } else {
         struct register_save_area const * const reg = proc->saved_registers;
-        // If this is a user process and we are switching to it, then this
-        // process must have been swapped out while in the kernel for any
-        // (nested) interrupt, hence its interrupt_nest_level must be > 0 and
-        // the saved_registers pointer must be valid.
-        ASSERT(proc->interrupt_nest_level);
         ASSERT(reg);
         uint16_t const ucode = user_code_seg_sel().value;
         uint16_t const udata = user_data_seg_sel().value;
