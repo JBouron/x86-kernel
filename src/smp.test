@@ -6,7 +6,6 @@
 // @return: True if the data frame is valid, false otherwise.
 static bool check_data_frame(struct ap_boot_data_frame * const data_frame) {
     // Use the TEST_ASSERT macro for early returns. Hacky bt does the trick.
-    TEST_ASSERT(data_frame);
     TEST_ASSERT(is_under_1mib(data_frame));
 
     // The GDT table desc should be as follows:
@@ -101,7 +100,6 @@ static bool create_trampoline_no_memleak_test(void) {
 
 static bool create_trampoline_test(void) {
     void * const tramp = create_trampoline(&_dummy);
-    TEST_ASSERT(tramp);
     // Under 65K.
     TEST_ASSERT((uint32_t)tramp < (1 << 16));
 
