@@ -440,5 +440,6 @@ uint8_t acpi_get_isa_interrupt_vector_mapping(uint8_t const isa_vector) {
 }
 
 uint16_t acpi_get_number_cpus(void) {
+    ASSERT(NCPUS);
     return NCPUS;
 }
