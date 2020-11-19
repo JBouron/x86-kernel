@@ -148,6 +148,26 @@ STATIC_ASSERT(sizeof(struct tss_descriptor) == 8, "");
         .value = 0,                 \
     }
 
+// Generate a GDT entry for a TSS.
+// @param tss_addr: The address of the TSS structure to be referenced by the
+// entry.
+#define GDT_TSS_ENTRY(tss_addr)                                     \
+    (union segment_descriptor_t){                                   \
+        .value = (struct tss_descriptor){                           \
+            .base_15_0 =  tss_addr & 0x0000FFFF,                    \
+            .base_23_16 = (tss_addr & 0x00FF0000) >> 16,            \
+            .base_31_24 = (tss_addr & 0xFF000000) >> 24,            \
+            .limit_15_0 =  sizeof(struct tss) & 0x0000FFFF,         \
+            .limit_19_16 = (sizeof(struct tss) & 0x000F0000) >> 16, \
+            .type = 0b1001,                                         \
+            .privilege_level = 0,                                   \
+            .present = 1,                                           \
+            .granularity = 0,                                       \
+            .zero = 0,                                              \
+            .zero2 = 0,                                             \
+            }.value                                                 \
+    }
+
 // Compute the value of a segment selector.
 // @param idx: The index of the segment to select.
 // @param rpl: The requested privilege level.
@@ -400,45 +420,21 @@ void init_final_gdt() {
     set_segment_regs(kcode, kdata, percpu);
 }
 
-// Construct a TSS descriptor to point to a particular TSS.
-// @param tss: The address the descriptor should point to.
-// @return: A struct tss_descriptor fully initialized and ready to be inserted
-// into the GDT.
-struct tss_descriptor generate_tss_descriptor(struct tss const * const tss) {
-    struct tss_descriptor desc;
-    memzero(&desc, sizeof(desc));
-    uint32_t const base = (uint32_t)(void*)tss;
-    uint32_t const limit = sizeof(*tss);
-    desc.base_15_0 =  base & 0x0000FFFF;
-    desc.base_23_16 = (base & 0x00FF0000) >> 16;
-    desc.base_31_24 = (base & 0xFF000000) >> 24;
-    desc.limit_15_0 =  limit & 0x0000FFFF;
-    desc.limit_19_16 = (limit & 0x000F0000) >> 16;
-    // Second bit indicate if the task is busy. This is not used in this kernel
-    // but must be set to 0 when creating a new TSS segment.
-    desc.type = 0b1001;
-    desc.privilege_level = 0;
-    desc.present = 1;
-    desc.granularity = 0;
-    return desc;
-}
-
 void setup_tss(void) {
     uint8_t const cpu = cpu_id();
-    struct tss * const tss = &this_cpu_var(tss);
-    uint16_t const tss_index = GDT_TSS_IDX(cpu);
-    union segment_descriptor_t * desc = GDT + tss_index;
-
-    struct tss_descriptor const tss_desc = generate_tss_descriptor(tss);
-    desc->value = tss_desc.value;
 
     // Prepare the TSS for this cpu.
+    struct tss * const tss = &this_cpu_var(tss);
     memzero(tss, sizeof(*tss));
     tss->esp0 = this_cpu_var(kernel_stack);
     tss->ss0 = cpu_read_ss();
 
-    // Load the TSS.
-    union segment_selector_t const tss_sel = {.index = tss_index};
+    // Insert the TSS into the GDT.
+    uint32_t const tss_index = GDT_TSS_IDX(cpu);
+    GDT[tss_index] = GDT_TSS_ENTRY((uint32_t)tss);
+
+    // Load the TSS into the Task Register.
+    union segment_selector_t const tss_sel = SEG_SEL(tss_index, 0);
     cpu_ltr(tss_sel);
 }
 
