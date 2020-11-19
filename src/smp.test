@@ -17,8 +17,8 @@ static bool check_data_frame(struct ap_boot_data_frame * const data_frame) {
     // By convention, the temporary GDT contains a data segment at index 1 and a
     // code segment at index 2. Both are flat segments on the entire address
     // space.
-    uint64_t const data_seg = 0xCF93000000FFFFULL;
-    uint64_t const code_seg = 0xCF9B000000FFFFULL;
+    uint64_t const data_seg = 0xCF92000000FFFFULL;
+    uint64_t const code_seg = 0xCF9A000000FFFFULL;
     TEST_ASSERT(data_frame->gdt[1] == data_seg);
     TEST_ASSERT(data_frame->gdt[2] == code_seg);
     TEST_ASSERT(data_frame->page_dir_addr == get_kernel_page_dir_phy_addr());

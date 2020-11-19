@@ -10,17 +10,16 @@ static bool segmentation_init_segment_test(void) {
     union segment_descriptor_t seg;
     uint32_t const base = 0x12345678;
     uint32_t const limit = 0xABCDE;
-    bool const is_code = true;
     uint8_t const priv_level = 2;
 
-    init_desc(&seg, base, limit, is_code, priv_level);
+    seg = GDT_ENTRY(base, PAGES, limit, CODE, priv_level);
 
     uint32_t encoded_base = seg.base_15_0 | seg.base_23_16 << 16 |
         seg.base_31_24 << 24;
     TEST_ASSERT(encoded_base == base);
     uint32_t encoded_limit = seg.limit_15_0 | seg.limit_19_16 << 16;
     TEST_ASSERT(encoded_limit == limit);
-    TEST_ASSERT(seg.type == 10);
+    TEST_ASSERT(seg.type == 5);
     TEST_ASSERT(seg.system == 1);
     TEST_ASSERT(seg.privilege_level == 2);
     TEST_ASSERT(seg.present == 1);
@@ -29,12 +28,12 @@ static bool segmentation_init_segment_test(void) {
     TEST_ASSERT(seg.granularity == 1);
 
     // Now test with a data segment.
-    init_desc(&seg, base, limit, false, priv_level);
+    seg = GDT_ENTRY(base, PAGES, limit, DATA, priv_level);
     encoded_base = seg.base_15_0 | seg.base_23_16 << 16 | seg.base_31_24 << 24;
     TEST_ASSERT(encoded_base == base);
     encoded_limit = seg.limit_15_0 | seg.limit_19_16 << 16;
     TEST_ASSERT(encoded_limit == limit);
-    TEST_ASSERT(seg.type == 2);
+    TEST_ASSERT(seg.type == 1);
     TEST_ASSERT(seg.system == 1);
     TEST_ASSERT(seg.privilege_level == 2);
     TEST_ASSERT(seg.present == 1);
@@ -63,7 +62,7 @@ static bool segmentation_data_segment_test(void) {
     // the address of buffer, of length 1 (=4KB), accessible with privilege 0.
     // Note: Since we enforce a granularity of pages, the segment is 4KB even
     // though the buffer is smaller than that.
-    init_desc(fake_gdt + 1, (uint32_t)buffer, 1, false, 0);
+    fake_gdt[1] = GDT_ENTRY((uint32_t)buffer, PAGES, 1, DATA, 0);
     // Load the GDT. Note that since we are only changing gs in this test, the
     // other segments are still using the old GDT coming from the boot loader.
     struct gdt_desc const table_desc = {
@@ -110,18 +109,16 @@ static bool segmentation_flat_model_initialized_test(void) {
     //     _ and a kernel data segment.
     // Both segments should span the entire linear address space from 0 to 4GiB.
     union segment_descriptor_t const * const code_seg =
-        (union segment_descriptor_t *)gdtr.base + KERNEL_CODE_INDEX;
+        (union segment_descriptor_t *)gdtr.base + GDT_KCODE_IDX;
     union segment_descriptor_t const * const data_seg =
-        (union segment_descriptor_t *)gdtr.base + KERNEL_DATA_INDEX;
+        (union segment_descriptor_t *)gdtr.base + GDT_KDATA_IDX;
 
     uint32_t encoded_base = code_seg->base_15_0 | code_seg->base_23_16 << 16 |
         code_seg->base_31_24 << 24;
     TEST_ASSERT(encoded_base == 0);
     uint32_t encoded_limit = code_seg->limit_15_0 | code_seg->limit_19_16 << 16;
     TEST_ASSERT(encoded_limit == 0xFFFFF);
-    // The type is the expected type + 1 since the segment has been accessed
-    // since being set up.
-    TEST_ASSERT(code_seg->type == 11);
+    TEST_ASSERT(code_seg->type == 5);
     TEST_ASSERT(code_seg->system == 1);
     TEST_ASSERT(code_seg->privilege_level == 0);
     TEST_ASSERT(code_seg->present == 1);
@@ -134,9 +131,7 @@ static bool segmentation_flat_model_initialized_test(void) {
     TEST_ASSERT(encoded_base == 0);
     encoded_limit = data_seg->limit_15_0 | data_seg->limit_19_16 << 16;
     TEST_ASSERT(encoded_limit == 0xFFFFF);
-    // The type is the expected type + 1 since the segment has been accessed
-    // since being set up.
-    TEST_ASSERT(data_seg->type == 3);
+    TEST_ASSERT(data_seg->type == 1);
     TEST_ASSERT(data_seg->system == 1);
     TEST_ASSERT(data_seg->privilege_level == 0);
     TEST_ASSERT(data_seg->present == 1);
@@ -149,7 +144,7 @@ static bool segmentation_flat_model_initialized_test(void) {
     union segment_selector_t const exp_data_sel = kernel_data_selector();
     union segment_selector_t const exp_code_sel = kernel_code_selector();
     union segment_selector_t const per_cpu_sel =
-        per_cpu_segment_selector(cpu_apic_id());
+        SEG_SEL(GDT_PERCPU_IDX(cpu_apic_id()), 0);
     TEST_ASSERT(cpu_read_cs().value == exp_code_sel.value);
     TEST_ASSERT(cpu_read_ds().value == exp_data_sel.value);
     TEST_ASSERT(cpu_read_es().value == exp_data_sel.value);

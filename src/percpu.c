@@ -4,9 +4,7 @@
 #include <kmalloc.h>
 #include <memory.h>
 
-// Allocate one per-cpu variable area per cpu on the system and initialize basic
-// variables (defined above).
-static void allocate_per_cpu_areas(void) {
+void allocate_aps_percpu_areas(void) {
     uint8_t const ncpus = acpi_get_number_cpus();
 
     // Allocate the PER_CPU_OFFSETS.
@@ -23,32 +21,42 @@ static void allocate_per_cpu_areas(void) {
     // Allocate, for each cpu, a memory area to contain its private variables.
     // Register the offsets in PER_CPU_OFFSETS.
     for (uint8_t i = 0; i < ncpus; ++i) {
-        void * const cpu_var_area = kmalloc(size);
-        if (!cpu_var_area) {
-            PANIC("Cannot allocate percpu area for cpu %u\n", i);
+        if (i == cpu_id()) {
+            // This is the BSP percpu segment, this segment as already been
+            // allocated (statically) and variables have been initialized.
+            PER_CPU_OFFSETS[i] = this_cpu_var(this_cpu_off);
+        } else {
+            void * const cpu_var_area = kmalloc(size);
+            if (!cpu_var_area) {
+                PANIC("Cannot allocate percpu area for cpu %u\n", i);
+            }
+
+            PER_CPU_OFFSETS[i] = cpu_var_area;
+
+            // Initialize basic vars.
+            cpu_var(this_cpu_off, i) = cpu_var_area;
+            cpu_var(cpu_id, i) = i;
+
+            LOG("Per cpu data for cpu %u @ %p\n", i, cpu_var_area);
         }
-
-        PER_CPU_OFFSETS[i] = cpu_var_area;
-
-        // Initialize basic vars.
-        cpu_var(this_cpu_off, i) = cpu_var_area;
-        cpu_var(cpu_id, i) = i;
-
-        LOG("Per cpu data for cpu %u @ %p\n", i, cpu_var_area);
     }
 }
 
-// Has the percpu system been initialized ?
-static bool PERCPU_INITIALIZED = false;
+void init_bsp_boot_percpu(void) {
+    ASSERT(!cpu_paging_enabled());
+    void * const base = to_phys(SECTION_PERCPU_START_ADDR);
+    // In order to be able to use the this_cpu_var() macro, the `this_cpu_off`
+    // variable must be set in the percpu segment of the current cpu.
+    void ** const this_cpu_off_ptr = (void*)base + _VAR_OFFSET(this_cpu_off);
+    *this_cpu_off_ptr = (void*)base;
 
-void init_percpu(void) {
-    allocate_per_cpu_areas();
-    PERCPU_INITIALIZED = true;
+    // We can now use this_cpu_var().
+    this_cpu_var(cpu_id) = cpu_apic_id();
 }
 
 bool percpu_initialized(void) {
-    // If %GS is zero then this cpu is not ready to use percpu data.
-    return cpu_read_gs().value != 0x0 && PERCPU_INITIALIZED;
+    ASSERT(cpu_read_gs().value);
+    return true;
 }
 
 #include <percpu.test>

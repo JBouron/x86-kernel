@@ -98,15 +98,20 @@ static void init_kernel_state(void) {
     vga_init();
     serial_init();
     tty_init(NULL, &SERIAL_STREAM);
+    
+    // Under this line, LOG can be called.
+    LOG("CPU %d is the BSP\n", this_cpu_var(cpu_id));
 
     // Parse ACPI tables.
     acpi_init();
 
     // Parsing the ACPI tables gave us the number of cpus on the system. We can
-    // now proceed to allocate percpu areas.
-    init_percpu();
-    // Switch to the final GDT containing percpu segments.
-    switch_to_final_gdt(PER_CPU_OFFSETS);
+    // now proceed to allocate percpu areas for the Application Processor(s).
+    allocate_aps_percpu_areas();
+
+    // Allocate the final GDT (containing all percpu + tss segments and user
+    // segments) and switch to it.
+    init_final_gdt();
 
     // Setup the BSP's TSS.
     extern uint8_t stack_top;

@@ -8,6 +8,20 @@
 #include <percpu.h>
 #include <addr_space.h>
 
+// The granularity of a segment.
+enum segment_granularity {
+    BYTES = 0,
+    PAGES = 1,
+};
+
+// The type of a segment, per Intel's manual vol 3 (3.4.5.1 table 3.1):
+//  - type:accessed == 10 (type == 5, accessed == 0): Code seg, execute and read
+//  - type:accessed == 2  (type == 1, accessed == 0): Data seg, R/W
+enum segment_type {
+    DATA = 1,
+    CODE = 5,
+};
+
 union segment_descriptor_t {
     uint64_t value;
     struct {
@@ -17,8 +31,10 @@ union segment_descriptor_t {
         uint16_t base_15_0 : 16;
         // Bits 16 to 23 of base.
         uint8_t base_23_16 : 8;
+        // Has the segment been accessed ?
+        uint8_t accessed : 1;
         // Type of segment.
-        uint8_t type : 4;
+        enum segment_type type : 3;
         // Is the segment a system segment (0) or a code/data segment (1).
         uint8_t system : 1;
         // Required privilege level to access the segment.
@@ -34,7 +50,7 @@ union segment_descriptor_t {
         // Is the segment a 32 bits segment ? 0 means 16 bits.
         uint8_t operation_size : 1;
         // Granularity. If set the limit is by 4K increments.
-        uint8_t granularity : 1;
+        enum segment_granularity granularity : 1;
         // Bites 24 to 32 of base.
         uint8_t base_31_24 : 8;
     } __attribute__((packed));
@@ -61,6 +77,9 @@ struct tss {
     } __attribute__((packed));
 } __attribute__((packed));
 STATIC_ASSERT(sizeof(struct tss) == 104, "");
+
+// Each CPU has its own TSS since each cpu has its own kernel stack.
+DECLARE_PER_CPU(struct tss, tss);
 
 // TSS descriptor for the GDT.
 struct tss_descriptor {
@@ -97,69 +116,102 @@ struct tss_descriptor {
 } __attribute__((packed));
 STATIC_ASSERT(sizeof(struct tss_descriptor) == 8, "");
 
-// Each CPU has its own TSS since each cpu has its own kernel stack.
-DECLARE_PER_CPU(struct tss, tss);
+// Statically initialize a segment descriptor.
+// @param base: The base linear address of the segment.
+// @param gran: The granularity of the segment, this is an enum
+// segment_granularity value.
+// @param limit: The limit of the segment (bytes or pages depending on the value
+// of `gran`).
+// @param _type: enum segment_type indicating if the segment is a code or data
+// segment.
+// @param dpl: The privilege level of the segment.
+#define GDT_ENTRY(base, gran, limit, _type, dpl)   \
+    (union segment_descriptor_t){                  \
+        .base_15_0 =  base & 0x0000FFFF,           \
+        .base_23_16 = (base & 0x00FF0000) >> 16,   \
+        .base_31_24 = (base & 0xFF000000) >> 24,   \
+        .limit_15_0 =  limit & 0x0000FFFF,         \
+        .limit_19_16 = (limit & 0x000F0000) >> 16, \
+        .accessed = 0,                             \
+        .type = _type,                             \
+        .system = 1,                               \
+        .privilege_level = dpl,                    \
+        .present = 1,                              \
+        .is_64_bit_segment = 0,                    \
+        .operation_size = 1,                       \
+        .granularity = gran                        \
+    }
 
-static void init_desc(union segment_descriptor_t * const desc,
-                      uint32_t const base,
-                      uint32_t const limit,
-                      bool const code,
-                      uint8_t const priv_level) {
-    // The limit is only encoded on 20 bits and therefore is limited to 2^20.
-    ASSERT(limit < (2 << 20));
-    desc->base_15_0 =  base & 0x0000FFFF;
-    desc->base_23_16 = (base & 0x00FF0000) >> 16;
-    desc->base_31_24 = (base & 0xFF000000) >> 24;
-    desc->limit_15_0 =  limit & 0x0000FFFF;
-    desc->limit_19_16 = (limit & 0x000F0000) >> 16;
+// Statically initialize a NUL segment.
+#define GDT_NULL_ENTRY()            \
+    (union segment_descriptor_t){   \
+        .value = 0,                 \
+    }
 
-    // Set the type depending if this is a code segment or data segment. See
-    // chapter 3.4.5.1 for more info about the meaning of the value of the type.
-    uint8_t const type = code ? 10 : 2;
-    desc->type = type;
-    desc->system = 1;
-    desc->privilege_level = priv_level;
-    desc->present = 1;
-    desc->is_64_bit_segment = 0;
-    desc->operation_size = 1;
-    desc->granularity = 1;
-}
+// Compute the value of a segment selector.
+// @param idx: The index of the segment to select.
+// @param rpl: The requested privilege level.
+// @return: An union segment_selector_t initialized with the provided values.
+// Note: This kernel does not yet support LDTs hence the local bit is 0.
+#define SEG_SEL(idx, rpl)               \
+    (union segment_selector_t){         \
+        .index = idx,                   \
+        .is_local = 0,                  \
+        .requested_priv_level = rpl,    \
+    }
 
-// This is the early GDT used during BSP boot sequence. This GDT contains two
-// segments: a data segment (index 1) and a code segment (index 2). Both
-// segments are flat and covering the entire linear address space.
-// The reason behind having an early GDT is that later on, once paging and
-// virtual memory allocation set up, we can dynamically allocate a GDT for our
-// needs (percpu segments, ...).
-#define EARLY_GDT_SIZE 3
-static union segment_descriptor_t EARLY_GDT[EARLY_GDT_SIZE]
-    __attribute__ ((aligned (8)));
+// The Boot GDT is the GDT used by the BSP during boot/kernel initialization. It
+// contains the mininum amount of segments to perform initialization, that is:
+//  - Kernel flat data segment.
+//  - Kernel flat code segment.
+//  - Percpu segment for the BSP.
+// Later on, once paging is enabled and the number of cpus on the system is
+// known, the final GDT will be allocated and the BSP will switch to it.
+#define BOOT_GDT_KDATA_IDX  1
+#define BOOT_GDT_KCODE_IDX  2
+#define BOOT_GDT_BSP_PC_IDX 3
 
-// This is the final GDT. This will be dynamically allocated once we know the
-// exact size of it. In particular once we know the per-cpu segments.
+static union segment_descriptor_t BOOT_GDT[] __attribute__((aligned(8))) = {
+    [0]                     = GDT_NULL_ENTRY(),
+    [BOOT_GDT_KDATA_IDX]    = GDT_ENTRY(0x00000000, PAGES, 0xFFFFF, DATA, 0),
+    [BOOT_GDT_KCODE_IDX]    = GDT_ENTRY(0x00000000, PAGES, 0xFFFFF, CODE, 0),
+    // The Percpu segment is initialized in init_segmentation() prior to loading
+    // the boot GDT.
+    [BOOT_GDT_BSP_PC_IDX]   = GDT_NULL_ENTRY(),
+};
+
+// This is the final GDT. This GDT will contain the kernel and user segments as
+// well as one percpu segment + tss segment per cpu. The GDT will be dynamically
+// allocated by the BSP once the number of cpus in the system is known, paging
+// is enabled and the dynamic memory allocator is initialized.
+// The final GDT will have the following layout, assuming N cpus:
+//   0   |   NULL entry                  |
+//   1   |   Kernel Data Segment         |
+//   2   |   Kernel Code Segment         |
+//   3   |   User Data Segment           |
+//   4   |   User Code Segment           |
+//   5   |   CPU 0's percpu segment      |
+//   6   |   CPU 1's percpu segment      |
+//       |           ...                 |
+// 5+N-1 |   CPU N's percpu segment      |
+//  5+N  |   CPU 0's TSS segment         |
+// 5+N+1 |   CPU 1's TSS segment         |
+//       |           ...                 |
+// 5+2N-1|   CPU N's TSS segment         |
 static union segment_descriptor_t *GDT = NULL;
-// The number of _entries_ in `GDT`, counting the NULL entry.
 static size_t GDT_SIZE = 0;
 
-// The layout of the final GDT is as follows:
-// 0    |   NULL entry                  |
-// 1    |   Kernel Data Segment         |
-// 2    |   Kernel Code Segment         |
-// 3    |   First CPU's percpu segment  |
-// 4    |           ...                 |
-// 5    |   Last CPU's percpu segment   |
-// The following defines/const provide shortcuts to indices in the final GDT.
-// The index of the kernel data segment in the GDT.
-static uint16_t const KERNEL_DATA_INDEX = 1;
-// The index of the kernel code segment in the GDT.
-static uint16_t const KERNEL_CODE_INDEX = 2;
-// The index of the user data segment in the GDT.
-uint16_t const USER_DATA_INDEX = 3;
-// The index of the user code segment in the GDT.
-uint16_t const USER_CODE_INDEX = 4;
-
-// The index of the first cpu's percpu segment.
-static uint16_t const PERCPU_SEG_START_INDEX = 5;
+// The following macros are defining the index of each segment in the final GDT.
+#define GDT_KDATA_IDX       1
+#define GDT_KCODE_IDX       2
+#define GDT_UDATA_IDX       3
+#define GDT_UCODE_IDX       4
+// The index of the percpu segment in the GDT for a particular cpu.
+// @param cpu: The ACPI index of the cpu (starting at 0).
+#define GDT_PERCPU_IDX(cpu) (5 + (cpu))
+// The index of the TSS segment in the GDT for a particular cpu.
+// @param cpu: The ACPI index of the cpu (starting at 0).
+#define GDT_TSS_IDX(cpu)    (5 + acpi_get_number_cpus() + (cpu))
 
 // Load a GDT into the GDTR of the current cpu.
 // @param gdt: The linear address of the GDT to load.
@@ -173,70 +225,77 @@ static void load_gdt(union segment_descriptor_t* const gdt, size_t const size) {
     cpu_lgdt(&table_desc);
 }
 
-// Get the segment descriptor for the segment containing a cpu's copy of per-cpu
-// variables.
-// @param cpuid: The APIC ID of the cpu to get the segment.
-// @return: The segment descriptor that should be used to access cpu's copy of
-// per-cpu variables.
-static union segment_selector_t per_cpu_segment_selector(uint8_t const cpuid) {
-    union segment_selector_t sel = {
-        .index = PERCPU_SEG_START_INDEX + cpuid,
-        .is_local = 0,
-        .requested_priv_level = 0,
-    };
-    return sel;
-}
+// Set the segment registers of the current cpu to the given segments.
+// @param code_seg: The code segment to use. This will be loaded in CS.
+// @param data_seg: The data segment to use. This will be loaded in DS, ES, FS,
+// and SS.
+// @param pcpu_seg: The percpu segment to use. This will be loaded in GS.
+static void set_segment_regs(union segment_selector_t code_seg,
+                             union segment_selector_t data_seg,
+                             union segment_selector_t pcpu_seg) {
+    cpu_set_cs(&code_seg);
 
-// Setup the segment selectors on this cpu to use the flat kernel data and
-// kernel code segments in GDT.
-// @param set_percpu_seg: If true, this function will set %GS to point to the
-// percpu segment of this cpu. If percpu segments have not yet been enabled
-// (when this function is called from init_segmentation for instance) it must be
-// false to avoid a #GP.
-static void setup_segment_selectors(bool const set_percpu_seg) {
-    union segment_selector_t data_seg = kernel_data_selector();
     cpu_set_ds(&data_seg);
     cpu_set_es(&data_seg);
     cpu_set_fs(&data_seg);
     cpu_set_ss(&data_seg);
 
-    union segment_selector_t code_seg = kernel_code_selector();
-    cpu_set_cs(&code_seg);
-
-    if (set_percpu_seg) {
-        // Setup the per-cpu segment.
-        uint8_t const id = cpu_apic_id();
-        union segment_selector_t const pcpu_seg = per_cpu_segment_selector(id);
-        cpu_set_gs(&pcpu_seg);
-    } else {
-        // Before percpu segments are set, %GS is set to 0. This makes it easy
-        // to check if percpu data is ready on a given cpu or not.
-        union segment_selector_t null_sel = {.value = 0};
-        cpu_set_gs(&null_sel);
-    }
+    cpu_set_gs(&pcpu_seg);
 }
 
 void init_segmentation(void) {
     // The segmentation is initialized very early during boot _before_ paging.
     // Therefore we need to fix up the pointer to global variables as they are
     // virtual. to_phys defined in boot.S does exactly this.
-    // Get the physical address (which is also the linear address since paging
-    // is not yet enabled) of the EARLY_GDT.
-    union segment_descriptor_t *gdt_phy = to_phys(&EARLY_GDT);
+    union segment_descriptor_t *gdt_phy = to_phys(&BOOT_GDT);
 
-    // Now that we have a linear/physical pointer on the EARLY_GDT we can start
-    // its initialization.
-
-    memzero(gdt_phy, sizeof(union segment_descriptor_t) * EARLY_GDT_SIZE);
-    // Create flat data segment for ring 0.
-    init_desc(gdt_phy + KERNEL_DATA_INDEX, 0, 0xFFFFF, false, 0);
-    // Create flat code segment for ring 0.
-    init_desc(gdt_phy + KERNEL_CODE_INDEX, 0, 0xFFFFF, true, 0);
+    // The BSP percpu segment in the Boot GDT is the only segment that is not
+    // initialized, do it now.
+    // The BSP uses the .percpu section from the ELF loaded into memory as its
+    // percpu segment. This is because we cannot yet allocate the segment
+    // (paging and dynamic allocators are not initialized).
+    // NOTE: Since paging is not yet enabled, we need to use the physical
+    // address of the .percpu section as the base. Once paging is enabled, we
+    // will need to change the base to the physical address of the section
+    // (which will be in higher half).
+    uint32_t const base = (uint32_t)to_phys(SECTION_PERCPU_START_ADDR);
+    uint16_t const limit = (uint16_t)SECTION_PERCPU_SIZE;
+    gdt_phy[BOOT_GDT_BSP_PC_IDX] = GDT_ENTRY(base, BYTES, limit, DATA, 0);
 
     // Load the GDTR.
-    load_gdt(gdt_phy, EARLY_GDT_SIZE * sizeof(*gdt_phy));
+    load_gdt(gdt_phy, sizeof(BOOT_GDT));
 
-    setup_segment_selectors(false);
+    // Initialize the segment registers, don't trust the boot loader.
+    union segment_selector_t const kdata = SEG_SEL(BOOT_GDT_KDATA_IDX, 0);
+    union segment_selector_t const kcode = SEG_SEL(BOOT_GDT_KCODE_IDX, 0);
+    union segment_selector_t const percpu = SEG_SEL(BOOT_GDT_BSP_PC_IDX, 0);
+    set_segment_regs(kcode, kdata, percpu);
+    // Note: percpu variables cannot be accessed until init_bsp_boot_percpu() is
+    // called.
+}
+
+void fixup_gdt_after_paging_enable(void) {
+    // When paging is finally enabled, two things need to be taken care of:
+    //  - The address in the GDTR should be changed to an higher half address.
+    //  - The base address of the percpu segment should be fixed as well.
+    // When this function is called, we should be using the Boot GDT.
+    struct gdt_desc gdtr;
+    cpu_sgdt(&gdtr);
+    ASSERT(gdtr.base == to_phys(&BOOT_GDT));
+
+    // Fixup the percpu segment.
+    uint32_t const base = (uint32_t)SECTION_PERCPU_START_ADDR;
+    uint16_t const limit = (uint16_t)SECTION_PERCPU_SIZE;
+    BOOT_GDT[BOOT_GDT_BSP_PC_IDX] = GDT_ENTRY(base, BYTES, limit, DATA, 0);
+    // Reload the GS register to update the hidden copy.
+    union segment_selector_t const percpu = SEG_SEL(BOOT_GDT_BSP_PC_IDX, 0);
+    cpu_set_gs(&percpu);
+
+    // Other segment registers do not need to change since the code and data
+    // segments did not change (still from 0x0 to 0xFF..FF).
+
+    // Use the higher half address of the Boot GDT in GDTR.
+    load_gdt(BOOT_GDT, sizeof(BOOT_GDT));
 }
 
 void ap_init_segmentation(void) {
@@ -249,8 +308,17 @@ void ap_init_segmentation(void) {
     // Load the final GDT.
     load_gdt(GDT, GDT_SIZE * sizeof(*GDT));
 
-    // Re-init all segment selectors on the current cpu.
-    setup_segment_selectors(true);
+    // We cannot use cpu_id() here since the percpu segment is not yet loaded
+    // for this cpu.
+    uint8_t const cpu = cpu_apic_id();
+
+    // Set the segment registers.
+    union segment_selector_t const kdata = SEG_SEL(GDT_KDATA_IDX, 0);
+    union segment_selector_t const kcode = SEG_SEL(GDT_KCODE_IDX, 0);
+    union segment_selector_t const percpu = SEG_SEL(GDT_PERCPU_IDX(cpu), 0);
+    set_segment_regs(kcode, kdata, percpu);
+
+    // From now on, this cpu can access its percpu variables.
 
     // Paging has been enabled manually, use switch_to_addr_space() to set up
     // all the state correctly now that we can use percpu variables.
@@ -258,21 +326,11 @@ void ap_init_segmentation(void) {
 }
 
 union segment_selector_t kernel_data_selector(void) {
-    union segment_selector_t sel = {
-        .index = KERNEL_DATA_INDEX,
-        .is_local = 0,
-        .requested_priv_level = 0,
-    };
-    return sel;
+    return SEG_SEL(GDT_KDATA_IDX, 0);
 }
 
 union segment_selector_t kernel_code_selector(void) {
-    union segment_selector_t sel = {
-        .index = KERNEL_CODE_INDEX,
-        .is_local = 0,
-        .requested_priv_level = 0,
-    };
-    return sel;
+    return SEG_SEL(GDT_KCODE_IDX, 0);
 }
 
 void initialize_trampoline_gdt(struct ap_boot_data_frame * const data_frame) {
@@ -283,7 +341,9 @@ void initialize_trampoline_gdt(struct ap_boot_data_frame * const data_frame) {
     //      GDT[2] = flat code segment spanning from 0x00000000 to 0xFFFFFFFF.
     // Since the GDT used by the BSP has the same layout, we can simply copy it
     // over to the temporary GDT.
-    memcpy(data_frame->gdt, EARLY_GDT, sizeof(EARLY_GDT));
+    data_frame->gdt[0] = GDT_NULL_ENTRY().value;
+    data_frame->gdt[1] = GDT_ENTRY(0x0, PAGES, 0xFFFFF, DATA, 0).value;
+    data_frame->gdt[2] = GDT_ENTRY(0x0, PAGES, 0xFFFFF, CODE, 0).value;
 
     // Initialize the GDT table descriptor in the data frame so that APs can
     // simply call the lgdt instruction without having to deal with the desc
@@ -297,41 +357,47 @@ void initialize_trampoline_gdt(struct ap_boot_data_frame * const data_frame) {
     data_frame->gdt_desc.base = &data_frame->gdt;
 }
 
-void switch_to_final_gdt(void **per_cpu_areas) {
+void init_final_gdt() {
+    if (!PER_CPU_OFFSETS) {
+        // allocate_aps_percpu_areas() _must_ be called before init_final_gdt.
+        PANIC("Percpu areas were not allocated prior to the final GDT\n");
+    }
+
     // 1 NULL entry, one kernel data segment, one kernel code segment, one user
     // data segment, one user code segment, one segment per cpu for per-cpu data
     // and one segment per cpu for TSS.
     uint8_t const ncpus = acpi_get_number_cpus();
-    size_t const num_entries = 5 + 2 * ncpus;
+    GDT_SIZE = 5 + 2 * ncpus;
 
     // Allocate the final GDT. Kmalloc zeroes the GDT for us.
-    GDT = kmalloc(num_entries * sizeof(*GDT));
+    GDT = kmalloc(GDT_SIZE * sizeof(*GDT));
     if (!GDT) {
         PANIC("Cannot allocate final GDT\n");
     }
 
-    // Copy the data and code segments from the early GDT. Those stay the same.
-    GDT[KERNEL_DATA_INDEX] = EARLY_GDT[KERNEL_DATA_INDEX];
-    GDT[KERNEL_CODE_INDEX] = EARLY_GDT[KERNEL_CODE_INDEX];
-
-    // Prepare the user segments.
-    init_desc(GDT + USER_DATA_INDEX, 0, 0xFFFFF, false, 3);
-    init_desc(GDT + USER_CODE_INDEX, 0, 0xFFFFF, true, 3);
+    // Create flat user and kernel data/code segments.
+    GDT[GDT_KDATA_IDX] = GDT_ENTRY(0x0, PAGES, 0xFFFFF, DATA, 0);
+    GDT[GDT_KCODE_IDX] = GDT_ENTRY(0x0, PAGES, 0xFFFFF, CODE, 0);
+    GDT[GDT_UDATA_IDX] = GDT_ENTRY(0x0, PAGES, 0xFFFFF, DATA, 3);
+    GDT[GDT_UCODE_IDX] = GDT_ENTRY(0x0, PAGES, 0xFFFFF, CODE, 3);
 
     // Add one entry per cpu to contain per-cpu copies.
     size_t const pcpu_size = SECTION_PERCPU_SIZE;
     for (uint8_t i = 0; i < ncpus; ++i) {
-        union segment_descriptor_t * desc = GDT + PERCPU_SEG_START_INDEX + i;
-
-        // FIXME: Because the default granularity is a page, the percpu segment
-        // may overlap other data towards the end of it. This could be fixed by
-        // adding an option to seg byte-granularity in the per-cpu segments of
-        // the GDT. For now page granularity is enough.
-        init_desc(desc, (uint32_t)per_cpu_areas[i], pcpu_size, false, 0);
+        uint32_t const base = (uint32_t)cpu_var(this_cpu_off, i);
+        GDT[GDT_PERCPU_IDX(i)] = GDT_ENTRY(base, BYTES, pcpu_size, DATA, 0);
     }
 
-    load_gdt(GDT, num_entries * sizeof(*GDT) - 1);
-    setup_segment_selectors(true); 
+    load_gdt(GDT, GDT_SIZE * sizeof(*GDT));
+
+    // Reload the segment selector to use the new segment. Note: The GS segment
+    // will change since the index of the percpu segment for the BSP is
+    // different from the Boot GDT.
+    uint8_t const cpu = cpu_id();
+    union segment_selector_t const kdata = SEG_SEL(GDT_KDATA_IDX, 0);
+    union segment_selector_t const kcode = SEG_SEL(GDT_KCODE_IDX, 0);
+    union segment_selector_t const percpu = SEG_SEL(GDT_PERCPU_IDX(cpu), 0);
+    set_segment_regs(kcode, kdata, percpu);
 
     // We couldn't set the curr_addr_space variable when initializing paging
     // because percpu was not initialized. Set it now.
@@ -366,11 +432,9 @@ void setup_tss(void) {
     // We require percpu to be initialized as the tss is stored as a percpu var.
     ASSERT(percpu_initialized());
 
-    uint8_t const ncpus = acpi_get_number_cpus();
     uint8_t const cpu = cpu_id();
-    uint16_t const tss_seg_start_index = PERCPU_SEG_START_INDEX + ncpus;
     struct tss * const tss = &this_cpu_var(tss);
-    uint16_t const tss_index = tss_seg_start_index + cpu;
+    uint16_t const tss_index = GDT_TSS_IDX(cpu);
     union segment_descriptor_t * desc = GDT + tss_index;
 
     struct tss_descriptor const tss_desc = generate_tss_descriptor(tss);
@@ -387,25 +451,24 @@ void setup_tss(void) {
 }
 
 union segment_selector_t user_code_seg_sel(void) {
-    union segment_selector_t code_seg_sel = {
-        .index = USER_CODE_INDEX,
-        .is_local = false,
-        .requested_priv_level = 3,
-    };
-    return code_seg_sel;
+    return SEG_SEL(GDT_UCODE_IDX, 3);
 }
 
 union segment_selector_t user_data_seg_sel(void) {
-    union segment_selector_t data_seg_sel = {
-        .index = USER_DATA_INDEX,
-        .is_local = false,
-        .requested_priv_level = 3,
-    };
-    return data_seg_sel;
+    return SEG_SEL(GDT_UDATA_IDX, 3);
 }
 
 void set_segment_registers_for_kernel(void) {
-    setup_segment_selectors(true);
+    union segment_selector_t const kdata = SEG_SEL(GDT_KDATA_IDX, 0);
+    union segment_selector_t const kcode = SEG_SEL(GDT_KCODE_IDX, 0);
+    // NOTE /!\ We cannot use cpu_id() here because GS does not point to the
+    // percpu segment yet !! This is because this function is called when
+    // entring an interrupt handler.
+    // TODO: There should be a check in this_cpu_var() that the correct segment
+    // is loaded in %GS.
+    uint8_t const cpu = cpu_apic_id();
+    union segment_selector_t const percpu = SEG_SEL(GDT_PERCPU_IDX(cpu), 0);
+    set_segment_regs(kcode, kdata, percpu);
 }
 
 void change_tss_esp0(void const * const new_esp0) {

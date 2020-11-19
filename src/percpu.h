@@ -74,8 +74,14 @@ void *_read_void_ptr_at_offset(uint32_t const offset);
 // variable area. This is allocated in the allocate_per_cpu_areas() function.
 void **PER_CPU_OFFSETS;
 
-// Initialize per-cpu variables.
-void init_percpu(void);
+// Initialize percpu variables of the BSP cpu during boot. This function is
+// meant to be called when segmentation has been initialized and paging is not
+// yet enabled.
+void init_bsp_boot_percpu();
+
+// Allocate percpu areas for Application Processors. After this function it is
+// possible to call cpu_var().
+void allocate_aps_percpu_areas(void);
 
 // Return whether or not percpu has been initialized, that is this_cpu_var() and
 // cpu_var() can be used to access percpu variables.

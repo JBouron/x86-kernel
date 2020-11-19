@@ -9,6 +9,7 @@
 #include <smp.h>
 #include <addr_space.h>
 #include <error.h>
+#include <segmentation.h>
 
 // Some helper constants to interact with page tables/dirs.
 #define PDES_PER_PAGE       1024
@@ -622,22 +623,25 @@ void init_paging(void const * const esp) {
     //   _ Set the stack pointer to a virtual stack pointer.
     //   _ Tell the frame allocator to switch to virtual addresses for its
     //   internal state.
+    //   _ Do some fixes in the current GDT and GDTR (see segmentation.c).
+    //   _ Fixup the value of this_cpu_off percpu var to use a higher half
+    //   address.
+    //   _ The curr_addr_space percpu var contains the physical address of the
+    //   kernel struct addr_space, this needs to be fixed as well.
     extern void fixup_esp_and_ebp_to_virt(void);
     fixup_esp_and_ebp_to_virt();
     fixup_frame_alloc_to_virt();
+    fixup_gdt_after_paging_enable();
+
+    this_cpu_var(this_cpu_off) = to_virt(this_cpu_var(this_cpu_off));
+
+    // Calling switch_to_addr_space() on the kernel address space will fixup the
+    // value of curr_addr_space.
+    switch_to_addr_space(get_kernel_addr_space());
 
     // We can now get rid of the identity mapping.
     remove_identity_mapping();
     cpu_invalidate_tlb();
-
-    // Since the GDT has been setup _before_ paging, the base address in GDTR
-    // uses a linear address which is equivalent to physical address. However
-    // this won't work once we get rid of the identity mapping. Therefore we
-    // need to fixup the base address in the GDTR.
-    struct gdt_desc gdtr;
-    cpu_sgdt(&gdtr);
-    gdtr.base = to_virt(gdtr.base);
-    cpu_lgdt(&gdtr);
 
     // Fixup the return address of this function call. We access this address
     // using the value of ESP given as arg.

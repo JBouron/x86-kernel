@@ -59,6 +59,12 @@ ASM_FUNC_DEF(_start_kernel):
     # before entering the kernel.
     call    init_segmentation
 
+    # Segments have been setup, including the percpu segment for the BSP. We can
+    # now setup the BSP's percpu variables.
+    call    init_bsp_boot_percpu
+
+    # From now on percpu variables of the BSP can be used.
+
     # Before setting up paging we need to setup the frame allocator so that we
     # can allocate physical frames to hold the kernel page directory and page
     # tables.

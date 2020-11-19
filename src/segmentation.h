@@ -8,6 +8,11 @@
 // code and data.
 void init_segmentation(void);
 
+// Fixup the GDT after paging has been enabled. This function should be called
+// when paging is enabled and both the ID mapping and the higher half mapping
+// are available.
+void fixup_gdt_after_paging_enable(void);
+
 // Init the segmentation mechanism for an Application Processor. This function
 // will load the GDTR of the AP with the address of the current kernel-wide GDT
 // and set the code and data segments accordingly.
@@ -30,10 +35,7 @@ union segment_selector_t kernel_code_selector(void);
 void initialize_trampoline_gdt(struct ap_boot_data_frame * const data_frame);
 
 // Allocate the final GDT and load it into the GDTR.
-// @param per_cpu_areas: Array containing one void* per cpu on the system
-// pointing to their private per-cpu areas. Those areas will be transformed into
-// segment in the final GDT.
-void switch_to_final_gdt(void **per_cpu_areas);
+void init_final_gdt();
 
 // Get the segment selector that should be used for the user space code segment.
 // @return: The correct selector.
