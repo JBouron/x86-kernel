@@ -261,7 +261,6 @@ static void kernel_process_code(void * arg) {
 }
 
 static void remote_read_gs(void * arg) {
-    ASSERT(percpu_initialized());
     uint16_t const expected_gs = cpu_read_gs().value;
     LOG("[%u] Expected GS = %x\n", cpu_id(), expected_gs);
     *(uint16_t*)arg = expected_gs;

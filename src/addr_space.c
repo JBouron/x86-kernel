@@ -23,12 +23,8 @@ struct addr_space *get_curr_addr_space(void) {
         // We are very early in the boot process, return the physical address of
         // KERNEL_ADDR_SPACE.
         return to_phys(&KERNEL_ADDR_SPACE);
-    } else if (percpu_initialized()) {
-        return this_cpu_var(curr_addr_space);
     } else {
-        // If percpu has not yet been enabled then we can only be in the kernel
-        // address space.
-        return &KERNEL_ADDR_SPACE;
+        return this_cpu_var(curr_addr_space);
     }
 }
 
@@ -40,11 +36,7 @@ void switch_to_addr_space(struct addr_space * const addr_space) {
     bool const irqs = interrupts_enabled();
     cpu_set_interrupt_flag(false);
 
-    if (percpu_initialized()) {
-        // switch_to_addr_space() is also called in init_paging(). At this point
-        // percpu is not initialized and it is not safe to use it.
-        this_cpu_var(curr_addr_space) = addr_space;
-    }
+    this_cpu_var(curr_addr_space) = addr_space;
     cpu_set_cr3(addr_space->page_dir_phy_addr);
 
     cpu_set_interrupt_flag(irqs);

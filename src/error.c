@@ -69,11 +69,6 @@ void _set_error(char const * const file,
     LOG("In function %s @ %s:%u\n", func, file, line);
     LOG("Error (%d): %s\n", error_code, message);
 
-    if (!percpu_initialized()) {
-        // No chain of errors if percpu is not initialized.
-        goto reset_irq_and_ret;
-    }
-
     if (!this_cpu_var(error_list_initialized)) {
         init_error_mechanism();
     }
@@ -124,9 +119,6 @@ reset_irq_and_ret:
 }
 
 void _clear_error(void) {
-    if (!percpu_initialized()) {
-        return;
-    }
     // Interrupt must be disabled while flushing the linked list to avoid race
     // conditions.
     bool const irq = get_irq_flag_and_disable(); 

@@ -5,19 +5,6 @@
 
 // This file contains the definitions of spinlock_lock and spinlock_unlock.
 
-// Get the Id of the current cpu.
-// @return: The id of the current cpu.
-static uint8_t get_curr_cpu_id(void) {
-    // Since locks are used very early in the boot sequence, percpu data might
-    // not be yet setup. In this case fall back to cpu_apic_id() which uses the
-    // cpuid instruction to get the cpu id.
-    if (percpu_initialized()) {
-        return cpu_id();
-    } else {
-        return cpu_apic_id();
-    }
-}
-
 // Do the actual lock operation on the spinlock. Definition in the assembly
 // file.
 // @param lock: The spinlock to acquire.
@@ -50,14 +37,14 @@ void spinlock_lock(spinlock_t * const lock) {
 
     // The owner field is reset upon unlocking.
     ASSERT(lock->owner == 0xFF);
-    lock->owner = get_curr_cpu_id();
+    lock->owner = cpu_id();
 }
 
 void spinlock_unlock(spinlock_t * const lock) {
     // Get back the saved IF from the lock.
     bool const interrupts = lock->interrupts_enabled;
 
-    ASSERT(lock->owner == get_curr_cpu_id());
+    ASSERT(lock->owner == cpu_id());
     lock->owner = 0xFF;
 
     _spinlock_unlock(lock);
@@ -66,7 +53,7 @@ void spinlock_unlock(spinlock_t * const lock) {
 }
 
 bool spinlock_is_held(spinlock_t const * const lock) {
-    return lock->lock == 1 && lock->owner == get_curr_cpu_id();
+    return lock->lock == 1 && lock->owner == cpu_id();
 }
 
 #include <spinlock_def.test>

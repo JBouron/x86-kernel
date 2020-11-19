@@ -83,11 +83,6 @@ void init_bsp_boot_percpu();
 // possible to call cpu_var().
 void allocate_aps_percpu_areas(void);
 
-// Return whether or not percpu has been initialized, that is this_cpu_var() and
-// cpu_var() can be used to access percpu variables.
-// @return: true if initialized, false otherwise.
-bool percpu_initialized(void);
-
 // Execute per-cpu variables related tests.
 void percpu_test(void);
 

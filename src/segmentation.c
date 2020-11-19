@@ -398,11 +398,6 @@ void init_final_gdt() {
     union segment_selector_t const kcode = SEG_SEL(GDT_KCODE_IDX, 0);
     union segment_selector_t const percpu = SEG_SEL(GDT_PERCPU_IDX(cpu), 0);
     set_segment_regs(kcode, kdata, percpu);
-
-    // We couldn't set the curr_addr_space variable when initializing paging
-    // because percpu was not initialized. Set it now.
-    ASSERT(percpu_initialized());
-    switch_to_addr_space(get_kernel_addr_space());
 }
 
 // Construct a TSS descriptor to point to a particular TSS.
@@ -429,9 +424,6 @@ struct tss_descriptor generate_tss_descriptor(struct tss const * const tss) {
 }
 
 void setup_tss(void) {
-    // We require percpu to be initialized as the tss is stored as a percpu var.
-    ASSERT(percpu_initialized());
-
     uint8_t const cpu = cpu_id();
     struct tss * const tss = &this_cpu_var(tss);
     uint16_t const tss_index = GDT_TSS_IDX(cpu);

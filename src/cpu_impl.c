@@ -62,7 +62,6 @@ uint8_t cpu_id(void) {
     } else {
         // We are most likely early at boot and percpu segments were not
         // initialized yet. Use the CPUID instruction to get the ID.
-        ASSERT(!percpu_initialized());
         return cpu_apic_id();
     }
 }

@@ -54,9 +54,4 @@ void init_bsp_boot_percpu(void) {
     this_cpu_var(cpu_id) = cpu_apic_id();
 }
 
-bool percpu_initialized(void) {
-    ASSERT(cpu_read_gs().value);
-    return true;
-}
-
 #include <percpu.test>

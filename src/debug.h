@@ -61,7 +61,7 @@ inline void PANIC_ASM(void) {
 DECLARE_PER_CPU(bool, cond_break) = false;
 #define CBREAK()                                                \
     do {                                                        \
-        if (percpu_initialized()&&this_cpu_var(cond_break)) {   \
+        if (this_cpu_var(cond_break)) {                         \
             BREAK();                                            \
         }                                                       \
     } while (0)

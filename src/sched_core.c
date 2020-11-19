@@ -61,7 +61,7 @@ void sched_init(void) {
 }
 
 bool sched_running_on_cpu(void) {
-    return percpu_initialized() && this_cpu_var(sched_running);
+    return this_cpu_var(sched_running);
 }
 
 // Handle a tick of the scheduler timer.

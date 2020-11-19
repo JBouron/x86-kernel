@@ -601,10 +601,8 @@ static bool KMALLOC_OOM_SIMULATION = false;
 // @param size: The requested amount of memory.
 // @return: The virtual address of the allocated memory.
 void * kmalloc(size_t const size) {
-    if (percpu_initialized()) {
-        this_cpu_var(kmalloc_nest_level) ++;
-    }
-
+    ASSERT(cpu_paging_enabled());
+    this_cpu_var(kmalloc_nest_level) ++;
     spinlock_lock(&KMALLOC_LOCK);
 
     if (!KMALLOC_INITIALIZED) {
@@ -621,9 +619,7 @@ void * kmalloc(size_t const size) {
         addr = do_kmalloc(&GROUP_LIST, size);
     }
 
-    if (percpu_initialized()) {
-        this_cpu_var(kmalloc_nest_level) --;
-    }
+    this_cpu_var(kmalloc_nest_level) --;
     spinlock_unlock(&KMALLOC_LOCK);
     return addr;
 }
@@ -692,7 +688,7 @@ void * kmalloc_debug_wrapper(char const * const func_name,
     info->func_name = func_name;
     info->filename = filename;
     info->line = line_number;
-    uint8_t const cpu = percpu_initialized() ? cpu_id() : 0;
+    uint8_t const cpu = cpu_id();
     info->cpu = cpu;
 
     return ret_addr;
