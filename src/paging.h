@@ -161,5 +161,9 @@ void paging_setup_new_page_dir(void * const page_dir_phy_addr);
 // Therefore it is not compatible with page table/frame sharing.
 void paging_free_addr_space(struct addr_space * const addr_space);
 
+// Debug function printing the contiguous ranges of virtual addresses that are
+// mapped in the current address space.
+void paging_walk(void);
+
 // Execute tests related to paging.
 void paging_test(void);

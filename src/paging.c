@@ -1077,4 +1077,40 @@ void paging_free_addr_space(struct addr_space * const addr_space) {
     maybe_to_tlb_shootdown();
 }
 
+void paging_walk(void) {
+    // This is quick and dirty, only used for baremetal debugging.
+    LOG("Page table walk:\n");
+    uint32_t int_begin = 0, int_end = 0;
+    bool int_open = false;
+    uint32_t num = 0;
+
+    struct page_dir * const page_dir = get_page_dir(get_curr_addr_space());
+    for (uint32_t i = 0; i < 1024; ++i) {
+        if (page_dir->entry[i].present) {
+            struct page_table * const page_table = get_page_table(page_dir, i);
+            for (uint32_t j = 0; j < 1024; ++j) {
+                if (page_table->entry[j].present) {
+                    if (!int_open) {
+                        int_begin = (i << 22) | (j << 12);
+                        int_end = int_begin;
+                        int_open = true;
+                    }
+                    int_end +=  PAGE_SIZE;
+                } else if (int_open) {
+                    LOG("  %x - %x\n", int_begin, int_end);
+                    int_open = false;
+                    if (num++ > 20) return;
+                }
+            }
+        } else if (int_open) {
+            LOG("  %x - %x\n", int_begin, int_end);
+            int_open = false;
+            if (num++ > 20) return;
+        }
+    }
+    if (int_open) {
+        LOG("  %x - %x\n", int_begin, int_end ? int_end : 0xFFFFFFFF);
+    }
+}
+
 #include <paging.test>
