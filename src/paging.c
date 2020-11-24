@@ -582,18 +582,19 @@ void init_paging(void) {
 
     // Allocate a page directory for the kernel itself. Use the to_virt() macro
     // so that we can manipulate the page directory directly.
-    struct page_dir * const page_dir = to_virt(alloc_page_dir());
-    if (page_dir == NO_FRAME) {
+    struct page_dir * const page_dir_phy = alloc_page_dir();
+    if (page_dir_phy == NO_FRAME) {
         PANIC("Not enough physical memory to even initialize paging ??\n");
     }
-    LOG("Kernel's page directory allocated at physical address %p\n", page_dir);
+    LOG("Kernel's page directory allocated at phy address %p\n", page_dir_phy);
 
+    struct page_dir * const page_dir = to_virt(page_dir_phy);
     memzero(page_dir, PAGE_SIZE);
 
     // Initialize the kernel's struct addr_space with the frame we just
     // allocated for the page directory. This _must_ be done before calling any
     // mapping/unmapping function as those will use the struct addr_space.
-    init_kernel_addr_space(to_phys(page_dir));
+    init_kernel_addr_space(page_dir_phy);
 
     // Switch to the kernel's address space. Do this now so that the percpu var
     // curr_addr_space is set and the code can call get_curr_addr_space().
@@ -625,7 +626,7 @@ void init_paging(void) {
     preallocate_kernel_page_table(page_dir);
 
     // Enable the paging bit.
-    LOG("Enabling paging bit.\n");
+    LOG("Enabling paging bit. CR3 = %p\n", cpu_read_cr3());
     cpu_enable_paging();
 
     LOG("Paging enabled, EIP = %p.\n", cpu_read_eip());
@@ -633,6 +634,10 @@ void init_paging(void) {
     // Since we are now implementing higher half mapping using paging, we can
     // change the GDT entries of the Boot GDT to become flat segments.
     fixup_gdt_after_paging_enable();
+
+    // The value of the IDTR on the current processor needs to be updated to an
+    // higher half linear address.
+    interrupt_fixup_idtr();
 
     // We can now get rid of the identity mapping.
     LOG("Getting rid of ID mapping.\n");

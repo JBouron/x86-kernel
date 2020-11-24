@@ -93,6 +93,8 @@ ASM_FUNC_DEF(_start_kernel):
     # now setup the BSP's percpu variables.
     call    init_bsp_boot_percpu
 
+    call    interrupt_init
+
     # From now on percpu variables of the BSP can be used.
 
     # Before setting up paging we need to setup the frame allocator so that we

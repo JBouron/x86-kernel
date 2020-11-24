@@ -91,6 +91,36 @@ static void save_registers(struct proc * const proc,
     proc->saved_registers = (struct register_save_area *)regs;
 }
 
+// Dump the value of the registers at the time of the interrupt.
+// @param frame: The interrupt frame for which the registers should be dumped.
+static void dump_registers(struct interrupt_frame const * const frame) {
+    struct register_save_area const * const regs = frame->registers;
+    LOG("EAX = %x EBX = %x ECX = %x EDX = %x\n",
+        regs->eax, regs->ebx, regs->ecx, regs->edx);
+    LOG("ESI = %x EDI = %x EBP = %x ESP = %x\n",
+        regs->esi, regs->edi, regs->ebp, regs->esp);
+    LOG("EIP = %x EFL = %x\n", frame->eip, frame->eflags);
+    LOG("ES  = %x CS  = %x SS  = %x DS  = %x\n",
+        regs->es, regs->cs, regs->ss, regs->ds);
+    LOG("FS  = %x GS  = %x\n", regs->fs, regs->gs);
+    struct gdt_desc gdt;
+    struct idt_desc idt;
+    cpu_sgdt(&gdt);
+    cpu_sidt(&idt);
+    LOG("GDT = %x %x\n", gdt.base, gdt.limit);
+    LOG("IDT = %x %x\n", idt.base, idt.limit);
+
+    // Control registers should be the same as the time of the interrupt. FIXME.
+    uint32_t const cr0 = cpu_read_cr0();
+    uint32_t const cr2 = (uint32_t)cpu_read_cr2();
+    uint32_t const cr3 = cpu_read_cr3();
+    uint32_t const cr4 = cpu_read_cr4();
+    LOG("CR0 = %x CR2 = %x CR3 = %x CR4 = %x\n", cr0, cr2, cr3, cr4);
+
+    uint64_t const efer = read_msr(0xC0000080);
+    LOG("EFER = %X\n", efer);
+}
+
 // The generic interrupt handler. Eventually all the interrupts call the generic
 // handler.
 // @param frame: Information about the interrupt.
@@ -106,9 +136,9 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
         if (!curr->interrupt_nest_level) {
             // The current process on this cpu just got interrupted, save its
             // registers into its struct proc.
-            // This is not required per se, since the register values are onto the
-            // kernel stack of the current process, however it does make testing and
-            // debug easier.
+            // This is not required per se, since the register values are onto
+            // the kernel stack of the current process, however it does make
+            // testing and debug easier.
             save_registers(curr, frame->registers);
         }
         curr->interrupt_nest_level++;
@@ -148,6 +178,7 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
         LOG("eip = %x\n", frame->eip);
         LOG("cs = %x\n", frame->cs);
         LOG("eflags = %x\n", frame->eflags);
+        dump_registers(frame);
         PANIC("Unexpected interrupt in kernel\n");
     }
 
@@ -197,6 +228,8 @@ void interrupt_init(void) {
     // Disable interrupts.
     cpu_set_interrupt_flag(false);
 
+    LOG("Initializing interrupt table\n");
+
     // Zero the IDT, be safe.
     memzero(IDT, sizeof(IDT));
 
@@ -217,9 +250,10 @@ void interrupt_init(void) {
 
     // Load the IDT information into the IDTR of the cpu.
     struct idt_desc const desc = {
-        .base = IDT,
+        .base = to_phys(IDT),
         .limit = (IDT_SIZE * 8 - 1),
     };
+    LOG("IDTR = {.base = %p, .limit = %u}\n", desc.base, desc.limit);
     cpu_lidt(&desc);
 
     // Disabled the PIC, this avoid recieving interrupts from it that share
@@ -231,6 +265,14 @@ void interrupt_init(void) {
     // Zero the callback array. This has to be done before enabling interrupts
     // to avoid race conditions.
     memzero(GLOBAL_CALLBACKS, sizeof(GLOBAL_CALLBACKS));
+}
+
+void interrupt_fixup_idtr(void) {
+    struct idt_desc desc;
+    cpu_sidt(&desc);
+    desc.base = to_virt(desc.base);
+    LOG("Fixup IDTR = {.base = %p, .limit = %u}\n", desc.base, desc.limit);
+    cpu_lidt(&desc);
 }
 
 void ap_interrupt_init(void) {

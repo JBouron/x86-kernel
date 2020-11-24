@@ -6,6 +6,9 @@
 // Initialize the interrupts for the kernel.
 void interrupt_init(void);
 
+// Fixup the value of the IDTR register once paging has been enabled.
+void interrupt_fixup_idtr(void);
+
 // Initialize interrupts for an Application Processor.
 void ap_interrupt_init(void);
 

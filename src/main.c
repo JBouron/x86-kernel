@@ -118,8 +118,7 @@ void kernel_main(struct multiboot_info const * const multiboot_info) {
     // Initialize global kernel state.
     init_kernel_state();
 
-    // Initialize interrupts, LAPIC and IOAPIC.
-    interrupt_init();
+    // Initialize LAPIC and IOAPIC.
     init_lapic();
     init_ioapic();
 
