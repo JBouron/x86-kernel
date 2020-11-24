@@ -1,10 +1,7 @@
 #include <macro.h>
-.set ALIGN,    1 << 0             # align loaded modules on page boundaries
-.set MEMINFO,  1 << 1             # provide memory map
-.set VIDINFO,  1 << 2
-.set MEMMAP,   1 << 6  # Detailled map of available memory.
-.set MODFLAG,  1 << 3  # Get the list of loaded modules.
-.set FLAGS,    ALIGN | VIDINFO | MEMINFO | MEMMAP | MODFLAG
+.set ALIGN,    1 << 0             # Align loaded modules on page boundaries.
+.set MEMINFO,  1 << 1             # Provide memory map (bit 6 is deprecated).
+.set FLAGS,    ALIGN | MEMINFO
 .set MAGIC,    0x1BADB002       # 'magic num' lets bootloader find the header
 .set CHECKSUM, -(MAGIC + FLAGS) # checksum of above, to prove we are multiboot
 
