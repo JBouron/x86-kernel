@@ -212,6 +212,10 @@ static void create_temp_mapping_entry(struct page_dir * const page_dir) {
         PANIC("Cannot allocated temp mapping page table\n");
     }
 
+    // Zero out the page. This is important especially in baremetal since the
+    // page_table might contain garbage leading to PANIC when mapping into it.
+    memzero(to_virt(page_table), PAGE_SIZE);
+
     LOG("Temporary mapping page table at physical address %p\n", page_table);
 
     ASSERT(!page_dir->entry[TEMP_MAP_PDE_IDX].present);
@@ -238,6 +242,11 @@ static void preallocate_kernel_page_table(struct page_dir * const page_dir) {
             if (page_table == NO_FRAME) {
                 PANIC("Cannot pre-allocate kernel page tables");
             }
+
+            // Zero out the page. This is important especially in baremetal
+            // since the page_table might contain garbage leading to PANIC when
+            // mapping into it.
+            memzero(to_virt(page_table), PAGE_SIZE);
 
             union pde_t pde;
             // Try to be as inclusive as possible for the PDE. The PTEs will
