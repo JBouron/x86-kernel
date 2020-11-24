@@ -38,10 +38,21 @@ OBJ_FILES:=$(patsubst $(SRC_DIR)/%,$(BUILD_DIR)/%,$(_OBJ_FILES))
 all: debug
 
 release: CONT_RULE = release_in_cont
+release: OUTPUT=SERIAL
 release: build
 
 debug: CONT_RULE = debug_in_cont
+debug: OUTPUT=SERIAL
 debug: build
+
+baremetal_release: CONT_RULE = release_in_cont
+baremetal_release: OUTPUT = VGA
+baremetal_release: build create_iso
+
+baremetal_debug: CONT_RULE = debug_in_cont
+baremetal_debug: OUTPUT = VGA
+baremetal_debug: build create_iso
+
 # This is the main rule. This rule will start the builder docker container that
 # will build the kernel for us.
 build:
@@ -52,15 +63,25 @@ build:
 	@# The -r flag is of outmost importance: it turns out that not using -r
 	@# (i.e. using implicit rules) the build will fail on .test.S files as it
 	@# will not follow the .S rule below. This could be a `make` bug.
-	sudo docker run -v $(PWD):$(PWD) -t kernel_builder make -r -C $(PWD) -j $(NJOBS) $(CONT_RULE)
+	sudo docker run -v $(PWD):$(PWD) -t kernel_builder make -r -C $(PWD) -j $(NJOBS) OUTPUT=$(OUTPUT) $(CONT_RULE)
 	@# Since the user in the docker container is root, we need to change the
 	@# owner once the build is complete.
 	sudo chown $(USER):$(USER) $(BUILD_DIR) -R
 
-release_in_cont: KERNEL_CFLAGS += -O2
+create_iso: $(ISO_DIR) $(BUILD_DIR)/$(KERNEL_IMG_NAME)
+	@mkdir -p $(ISO_DIR)/boot/grub
+	@cp $(BUILD_DIR)/$(KERNEL_IMG_NAME) $(ISO_DIR)/boot/kernel.bin
+	@echo "menuentry \"mykernel\" { multiboot /boot/kernel.bin }" > $(ISO_DIR)/boot/grub/grub.cfg
+	@grub-mkrescue -o $(BUILD_DIR)/kernel.iso $(ISO_DIR)
+
+$(ISO_DIR): $(BUILD_DIR)
+	@mkdir -p $(ISO_DIR)
+
+
+release_in_cont: KERNEL_CFLAGS += -O2 -D$(OUTPUT)
 release_in_cont: build_in_cont
 
-debug_in_cont: KERNEL_CFLAGS += -O0 -g -DKMALLOC_DEBUG
+debug_in_cont: KERNEL_CFLAGS += -O0 -g -DKMALLOC_DEBUG -D$(OUTPUT)
 debug_in_cont: build_in_cont
 
 # This rule is to be used *within* the builder docker container. It performs the

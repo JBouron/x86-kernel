@@ -77,15 +77,24 @@ ASM_FUNC_DEF(_start_kernel):
     # Initialize serial output as soon as we can, that is once we can access
     # higher half logical addresses thanks to the GDT.
 
-    # Init serial output.
+    # Initialize output depending on the config.
+#ifdef VGA
+    call    vga_init
+    lea     VGA_STREAM, %eax
+#else
+#ifdef SERIAL
     call    serial_init
+    lea     SERIAL_STREAM, %eax
+#else
+#error No output medium specified at compilation time.
+#endif
+#endif
 
     # Init TTY.
-    lea     SERIAL_STREAM, %eax
     push    %eax
-    pushl   0x0
+    pushl   $0x0
     call    tty_init
-    add     0x8, %esp
+    add     $0x8, %esp
 
     # TODO: Init VGA.
 

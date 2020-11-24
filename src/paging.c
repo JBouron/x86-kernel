@@ -10,6 +10,7 @@
 #include <addr_space.h>
 #include <error.h>
 #include <segmentation.h>
+#include <interrupt.h>
 
 // Some helper constants to interact with page tables/dirs.
 #define PDES_PER_PAGE       1024
