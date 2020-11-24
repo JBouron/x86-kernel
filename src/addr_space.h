@@ -17,18 +17,10 @@ struct addr_space {
 // Get a pointer on the address space currently used by the cpu.
 // @return: A pointer on the struct addr_space associated with the address space
 // used by the cpu.
-// Note: This function can be used in the following scenarios:
-//  - Before paging is enabled, in which case the function returns the physical
-//  address of KERNEL_ADDR_SPACE.
-//  - After paging is enabled but before percpu is initialized, in this case the
-//  function returns the virtual address of KERNEL_ADDR_SPACE.
-//  - After paging is enabled and percpu initialized, in this case the function
-//  will return the struct addr_space of the address space of the cpu.
 struct addr_space *get_curr_addr_space(void);
 
 // Switch to a new address space on the current cpu.
 // @param addr_space: The address space to switch to.
-// Note: This function can be called before percpu is initialized.
 void switch_to_addr_space(struct addr_space * const addr_space);
 
 // Get the struct addr_space associated with the kernel address space.

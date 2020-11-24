@@ -196,7 +196,7 @@ static void create_recursive_entry(struct page_dir * const page_dir) {
     recursive_entry.cache_disable = 1;
     recursive_entry.user_accessible = 0;
     // This is why this function is not working with paging enabled. TODO :#:
-    recursive_entry.page_table_addr = ((uint32_t)page_dir) >> 12;
+    recursive_entry.page_table_addr = ((uint32_t)to_phys(page_dir)) >> 12;
     recursive_entry.present = 1;
 
     page_dir->entry[RECURSIVE_PDE_IDX] = recursive_entry;
@@ -210,6 +210,8 @@ static void create_temp_mapping_entry(struct page_dir * const page_dir) {
     if (page_table == NO_FRAME) {
         PANIC("Cannot allocated temp mapping page table\n");
     }
+
+    LOG("Temporary mapping page table at physical address %p\n", page_table);
 
     ASSERT(!page_dir->entry[TEMP_MAP_PDE_IDX].present);
 
@@ -308,9 +310,10 @@ static void *create_temp_mapping(void const * const phy_addr) {
 // table, effectively overwritting each other.
 static struct page_dir *get_page_dir(struct addr_space * const addr_space) {
     if (!cpu_paging_enabled()) {
-        // Paging is not yet enabled, we can use the physical address of the
-        // page directory as is.
-        return addr_space->page_dir_phy_addr;
+        // Paging is not yet enabled, but we are in higher half using the Boot
+        // GDT, we need to use the to_virt() function in order to be able to
+        // manipulate the physical frame.
+        return to_virt(addr_space->page_dir_phy_addr);
     } else if (get_curr_addr_space() == addr_space) {
         // Paging is enabled and the target address space is the address space
         // currently loaded on this cpu. Use the recursive entry.
@@ -343,10 +346,9 @@ static struct page_dir *get_page_dir(struct addr_space * const addr_space) {
 static struct page_table *get_page_table(struct page_dir * const page_dir,
                                          uint16_t const index) {
     if (!cpu_paging_enabled()) {
-        // Paging is not yet enabled, we can use the physical address of the
-        // page directory as is and walk the dir to find the physical address of
-        // the page table.
-        return (void*)(page_dir->entry[index].page_table_addr << 12);
+        // Paging is not yet enabled, we can use the to_virt() on the addres of
+        // the page table to manipulate it directly.
+        return to_virt((void*)(page_dir->entry[index].page_table_addr << 12));
     } else if ((void*)page_dir == (void*)0xFFFFF000) {
         // The page directory address is the recursive address. That means the
         // address space used in the caller is the current address space of the
@@ -558,7 +560,7 @@ static void create_identity_and_higher_half_mappings(struct page_dir * pd) {
 // @param esp: The stack pointer value right before calling this function. This
 // parameter is important as it allows us to fixup the return address pushed on
 // the stack as a _physical_ address.
-void init_paging(void const * const esp) {
+void init_paging(void) {
     // Initializing paging involves creating two mapping before enabling the PG
     // bit in CR0:
     //     * An identity mapping, which maps the low virtual memory to low
@@ -575,31 +577,43 @@ void init_paging(void const * const esp) {
     // page directory pointers).
     // After that, the identity mapping can be removed and the kernel will
     // used the higher-half mapping only.
+    
+    LOG("Initializing paging.\n");
 
-    // Allocate a page directory for the kernel itself.
-    struct page_dir * const page_dir = alloc_page_dir();
+    // Allocate a page directory for the kernel itself. Use the to_virt() macro
+    // so that we can manipulate the page directory directly.
+    struct page_dir * const page_dir = to_virt(alloc_page_dir());
     if (page_dir == NO_FRAME) {
         PANIC("Not enough physical memory to even initialize paging ??\n");
     }
+    LOG("Kernel's page directory allocated at physical address %p\n", page_dir);
 
     memzero(page_dir, PAGE_SIZE);
 
     // Initialize the kernel's struct addr_space with the frame we just
     // allocated for the page directory. This _must_ be done before calling any
     // mapping/unmapping function as those will use the struct addr_space.
-    init_kernel_addr_space(page_dir);
+    init_kernel_addr_space(to_phys(page_dir));
+
+    // Switch to the kernel's address space. Do this now so that the percpu var
+    // curr_addr_space is set and the code can call get_curr_addr_space().
+    LOG("Setting CR3 to kernel page directory.\n");
+    switch_to_addr_space(get_kernel_addr_space());
 
     // Create both mappings.
+    LOG("Creating ID and higher half mappings.\n");
     create_identity_and_higher_half_mappings(page_dir);
 
     // Set the last entry in the page directory to point to itself. This is to
     // implement recursive page tables which makes it easier to modify page
     // directories and page tables once paging is enabled.
+    LOG("Creating recursive entry in kernel page directory.\n");
     create_recursive_entry(page_dir);
 
     // Create a special page table that will be used by cpus to create temporary
     // mappings (ex: modifying other page directory, read/write in physical
     // memory).
+    LOG("Creating temporary mapping page table in kernel page directory.\n");
     create_temp_mapping_entry(page_dir);
 
     // Pre-allocate all the page tables used for kernel space. We are doing that
@@ -607,46 +621,23 @@ void init_paging(void const * const esp) {
     // when mapping to kernel memory. This is because doing so would required
     // some sort of sync between ALL page directories to make sure that they all
     // have the same PDEs.
+    LOG("Preallocating kernel space page tables.\n");
     preallocate_kernel_page_table(page_dir);
 
-    // Switch to the kernel's address space.
-    switch_to_addr_space(get_kernel_addr_space());
-
     // Enable the paging bit.
+    LOG("Enabling paging bit.\n");
     cpu_enable_paging();
 
-    // Paging has been enabled, EIP is using the higher half mapping but the
-    // stack pointer is still using the identity one, and so is the frame
-    // allocator.
-    // Hence, a few things need to be done before disabling the identity
-    // mapping:
-    //   _ Set the stack pointer to a virtual stack pointer.
-    //   _ Tell the frame allocator to switch to virtual addresses for its
-    //   internal state.
-    //   _ Do some fixes in the current GDT and GDTR (see segmentation.c).
-    //   _ Fixup the value of this_cpu_off percpu var to use a higher half
-    //   address.
-    //   _ The curr_addr_space percpu var contains the physical address of the
-    //   kernel struct addr_space, this needs to be fixed as well.
-    extern void fixup_esp_and_ebp_to_virt(void);
-    fixup_esp_and_ebp_to_virt();
-    fixup_frame_alloc_to_virt();
+    LOG("Paging enabled, EIP = %p.\n", cpu_read_eip());
+
+    // Since we are now implementing higher half mapping using paging, we can
+    // change the GDT entries of the Boot GDT to become flat segments.
     fixup_gdt_after_paging_enable();
 
-    this_cpu_var(this_cpu_off) = to_virt(this_cpu_var(this_cpu_off));
-
-    // Calling switch_to_addr_space() on the kernel address space will fixup the
-    // value of curr_addr_space.
-    switch_to_addr_space(get_kernel_addr_space());
-
     // We can now get rid of the identity mapping.
+    LOG("Getting rid of ID mapping.\n");
     remove_identity_mapping();
     cpu_invalidate_tlb();
-
-    // Fixup the return address of this function call. We access this address
-    // using the value of ESP given as arg.
-    uint32_t * const ret_addr = (uint32_t*)(to_virt(esp) - 8);
-    *ret_addr = (uint32_t)to_virt((void const*)*ret_addr);
 }
 
 // Check if a page table is empty, that is all of its entry have the present bit

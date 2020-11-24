@@ -44,7 +44,16 @@ void allocate_aps_percpu_areas(void) {
 
 void init_bsp_boot_percpu(void) {
     ASSERT(!cpu_paging_enabled());
-    void * const base = to_phys(SECTION_PERCPU_START_ADDR);
+    ASSERT(in_higher_half());
+
+    LOG("Initializing BSP percpu segment.\n");
+
+    // The base (and therefore this_cpu_off) here is the virtual address of the
+    // .percpu section. This is because the current GDT already maps the higher
+    // half addresses.
+    void * const base = SECTION_PERCPU_START_ADDR;
+    LOG("BSP's percpu segment located at logical address %p.\n", base);
+
     // In order to be able to use the this_cpu_var() macro, the `this_cpu_off`
     // variable must be set in the percpu segment of the current cpu.
     void ** const this_cpu_off_ptr = (void*)base + _VAR_OFFSET(this_cpu_off);

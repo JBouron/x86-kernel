@@ -93,13 +93,6 @@ static void resign_bsp(void) {
 
 // Initialize global kernel state.
 static void init_kernel_state(void) {
-    // Start by initializing logging as early as possible to be able to log
-    // anywhere.
-    vga_init();
-    serial_init();
-    tty_init(NULL, &SERIAL_STREAM);
-    
-    // Under this line, LOG can be called.
     LOG("CPU %d is the BSP\n", this_cpu_var(cpu_id));
 
     // Parse ACPI tables.

@@ -25,7 +25,7 @@ static bool paging_create_recursive_entry_test(void) {
     TEST_ASSERT(last.write_through == 1);
     TEST_ASSERT(last.cache_disable == 1);
     TEST_ASSERT(last.accessed == 0);
-    TEST_ASSERT(last.page_table_addr == ((uint32_t)&dir) >> 12);
+    TEST_ASSERT(last.page_table_addr == ((uint32_t)to_phys(&dir)) >> 12);
     return true;
 }
 

@@ -19,13 +19,7 @@ struct addr_space KERNEL_ADDR_SPACE = {
 DECLARE_PER_CPU(struct addr_space *, curr_addr_space);
 
 struct addr_space *get_curr_addr_space(void) {
-    if (!cpu_paging_enabled()) {
-        // We are very early in the boot process, return the physical address of
-        // KERNEL_ADDR_SPACE.
-        return to_phys(&KERNEL_ADDR_SPACE);
-    } else {
-        return this_cpu_var(curr_addr_space);
-    }
+    return this_cpu_var(curr_addr_space);
 }
 
 void switch_to_addr_space(struct addr_space * const addr_space) {
@@ -43,13 +37,7 @@ void switch_to_addr_space(struct addr_space * const addr_space) {
 }
 
 struct addr_space *get_kernel_addr_space(void) {
-    // This function can be used before and after paging is enabled. Hence be
-    // careful and return the pointer in the correct address space.
-    if (cpu_paging_enabled()) {
-        return &KERNEL_ADDR_SPACE;
-    } else {
-        return to_phys(&KERNEL_ADDR_SPACE);
-    }
+    return &KERNEL_ADDR_SPACE;
 }
 
 void const * get_kernel_page_dir_phy_addr(void) {

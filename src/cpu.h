@@ -192,7 +192,8 @@ void cpu_set_cr3(void const * const page_dir_addr);
 // @return: Value of CR3 for the current core.
 uint32_t cpu_read_cr3(void);
 
-// Enable paging on the current core.
+// Enable paging on the current core. This function assumes that the execution
+// is already in higher half using the Boot GDT.
 void cpu_enable_paging(void);
 
 // Flush/invalidate the TLB on the current core.
@@ -236,6 +237,9 @@ void cpu_ltr(union segment_selector_t const segment_sel);
 // executes the CPUID instruction.
 // @return: The APIC id of the cpu starting at 0.
 uint8_t cpu_id(void);
+
+// Return the value of the EIP register.
+void *cpu_read_eip(void);
 
 // Execute tests on CPU related functions.
 void cpu_test(void);

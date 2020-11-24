@@ -1,4 +1,5 @@
 #pragma once
+#include <cpu.h>
 
 // This file contains the memory locations of all the section of the kernel's
 // executable.
@@ -145,4 +146,10 @@ static inline bool is_kernel_addr(void const * const addr) {
 // 0x00000000 to KERNEL_PHY_OFFSET-1), false otherwise.
 static inline bool is_user_addr(void const * const addr) {
     return !is_kernel_addr(addr);
+}
+
+// Test if the current execution is in higher half addresses.
+// @return: true if EIP is > KERNEL_PHY_OFFSET, false otherwise.
+static inline bool in_higher_half(void) {
+    return cpu_read_eip() > (void*)KERNEL_PHY_OFFSET;
 }

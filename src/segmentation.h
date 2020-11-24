@@ -2,11 +2,12 @@
 #include <types.h>
 #include <smp.h>
 
-// Initialize the segmentation feature / GDT.
-// This kernel uses a flat model for segmentation in which there are 2 segments
-// per privilege level covering the entire linear address space (0 to 4GiB):
-// code and data.
-void init_segmentation(void);
+// Initialize the segmentation / GDT. This function will "jump" to higher half
+// logical addresses (where the kernel has been linked to). This function does
+// NOT RETURN, it jumps to the target which must be an higher half address.
+// @param target: The destination of the jump in the new higher half code
+// segment.
+void init_segmentation(void * const target);
 
 // Fixup the GDT after paging has been enabled. This function should be called
 // when paging is enabled and both the ID mapping and the higher half mapping

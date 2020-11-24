@@ -1,23 +1,19 @@
 #include <multiboot.h>
 #include <cpu.h>
 #include <kernel_map.h>
+#include <memory.h>
 #include <debug.h>
 #include <math.h>
 
 // Some helper functions to interact with the multiboot header.
 
-// This global hold the physical address of the mutliboot info structure in RAM.
+// This global hold the virtual address of the mutliboot info structure.
 // Defaults to NULL and is initialized in init_multiboot.
-static struct multiboot_info const * __MULTIBOOT_INFO = NULL;
-// Use a "generic" pointer that works with both physical and virtual addressing.
-#define MULTIBOOT_INFO (*(PTR(__MULTIBOOT_INFO)))
+static struct multiboot_info const * MULTIBOOT_INFO = NULL;
 
 // Physical pointer to the start of the initrd loaded to RAM by the bootloader.
-static void *__INIT_RD_START = NULL;
-#define INIT_RD_START (*(PTR(__INIT_RD_START)))
-
-static size_t __INIT_RD_SIZE = 0;
-#define INIT_RD_SIZE (*(PTR(__INIT_RD_SIZE)))
+static void *INIT_RD_START = NULL;
+static size_t INIT_RD_SIZE = 0;
 
 // This tables contain ranges of physical memory that is reserved. This is
 // required because the memory map given by the bootloader possesses some
@@ -45,16 +41,18 @@ static uint32_t __RESERVED_MEM[NUM_RESERVED_MEM][2];
 
 // Initialize the RESERVED_MEM table.
 static void init_reserved_memory_area(void) {
+    struct multiboot_info const * mb;
+    phy_read(to_phys(&MULTIBOOT_INFO), &mb, sizeof(mb));
+
     // The kernel.
     RESERVED_MEM[0][0] = (uint32_t)to_phys(KERNEL_START_ADDR);
     RESERVED_MEM[0][1] = (uint32_t)to_phys(KERNEL_END_ADDR);
 
     // The multiboot structure.
-    uint32_t const start_mb = min_u32((uint32_t)MULTIBOOT_INFO,
-        MULTIBOOT_INFO->mmap_addr);
-    uint32_t const end_mb = max_u32((uint32_t)MULTIBOOT_INFO +
-        sizeof(*MULTIBOOT_INFO) - 1, MULTIBOOT_INFO->mmap_addr +
-        MULTIBOOT_INFO->mmap_length);
+    uint32_t const start_mb = min_u32((uint32_t)mb, mb->mmap_addr);
+    uint32_t const end_mb = max_u32((uint32_t)mb +
+        sizeof(*mb) - 1, mb->mmap_addr +
+        mb->mmap_length);
     RESERVED_MEM[1][0] = start_mb;
     RESERVED_MEM[1][1] = end_mb;
 
@@ -68,29 +66,43 @@ static void init_reserved_memory_area(void) {
 // Parse initrd info from the multiboot header. Set the INIT_RD_START and
 // INIT_RD_SIZE global vars.
 static void init_initrd(void) {
-    if (MULTIBOOT_INFO->mods_count == 0) {
+    struct multiboot_info const * mb;
+    phy_read(to_phys(&MULTIBOOT_INFO), &mb, sizeof(mb));
+
+    if (mb->mods_count == 0) {
         PANIC("No initrd module in multiboot header.\n");
-    } else if (MULTIBOOT_INFO->mods_count > 1) {
+    } else if (mb->mods_count > 1) {
         PANIC("Unexpected number of modules in multiboot header.\n");
     }
 
     // Make sure we still have access to physical memory.
     ASSERT(!cpu_paging_enabled());
 
-    struct multiboot_mod_entry *entry = (void*)MULTIBOOT_INFO->mods_addr;
-    INIT_RD_START = (void*)entry->mod_start;
+    struct multiboot_mod_entry *entry = (void*)mb->mods_addr;
+    void * const initrd_start = (void*)entry->mod_start;
+    phy_write(to_phys(&INIT_RD_START), &initrd_start, sizeof(initrd_start));
 
     // There is little documentation about whether entry->mod_end points to the
     // last valid byte or the next. After some experiment is seems that it
     // points to the last valid byte.
-    INIT_RD_SIZE = entry->mod_end - entry->mod_start;
+    size_t const initrd_size = entry->mod_end - entry->mod_start;
+    phy_write(to_phys(&INIT_RD_SIZE), &initrd_size, sizeof(initrd_size));
 }
 
 void init_multiboot(struct multiboot_info const * const ptr) {
+    // NOTE: This function is called before setting up the Boot GDT and
+    // therefore this function and all functions called by this function cannot
+    // use higher half addresses yet (that is global variables need to be
+    // accessed using their physical addresses).
+
     ASSERT(!cpu_paging_enabled());
+    ASSERT(!in_higher_half());
+
     // Set the global variable containing the physical pointer to the multiboot
-    // info.
-    MULTIBOOT_INFO = ptr;
+    // info. This pointer will be a physical address. Do this now because
+    // init_reserved_memory_area() and init_initrd() below are using this
+    // pointer.
+    phy_write(to_phys(&MULTIBOOT_INFO), &ptr, sizeof(ptr));
 
     // Initialize the array containing the reserved physical memory areas.
     init_reserved_memory_area();
@@ -98,36 +110,26 @@ void init_multiboot(struct multiboot_info const * const ptr) {
     // Parse initrd info. It is better to do it now as we can access physical
     // RAM.
     init_initrd();
-}
 
-// Get a pointer on the multiboot structure in memory.
-// @return: A physical pointer if paging is not enabled, a virtual pointer
-// otherwise.
-static struct multiboot_info const * get_multiboot(void) {
-    if (cpu_paging_enabled()) {
-        // The global MULTIBOOT_INFO contains the physical address of the
-        // multiboot header. Translate it to a virtual address. This assumes
-        // that the lower 1MiB is mapped to KERNEL_PHY_OFFSET as well.
-        return to_virt(MULTIBOOT_INFO);
-    } else {
-        // Since paging is not yet enabled we need to use the physical address
-        // of the global variable.
-        return MULTIBOOT_INFO;
-    }
+    // Initialization is done, now change the MULTIBOOT_INFO pointer to an
+    // higher half virtual address so that it can be used once we jump to higher
+    // half.
+    struct multiboot_info const * const virt = to_virt(ptr);
+    phy_write(to_phys(&MULTIBOOT_INFO), &virt, sizeof(virt));
 }
 
 struct multiboot_info const *get_multiboot_info_struct(void) {
-    return get_multiboot();
+    return MULTIBOOT_INFO;
 }
 
 struct multiboot_mmap_entry const *get_mmap_entry_ptr(void) {
-    struct multiboot_info const * mi = get_multiboot();
+    struct multiboot_info const * mi = MULTIBOOT_INFO;
     ASSERT(mi->mmap_addr);
     return (struct multiboot_mmap_entry*)mi->mmap_addr;
 }
 
 uint32_t multiboot_mmap_entries_count(void) {
-    struct multiboot_info const * mi = get_multiboot();
+    struct multiboot_info const * mi = MULTIBOOT_INFO;
     ASSERT(mi->mmap_length % sizeof(struct multiboot_mmap_entry) == 0);
     return mi->mmap_length / sizeof(struct multiboot_mmap_entry);
 }
@@ -167,17 +169,19 @@ void *get_max_addr(void) {
     uint32_t const count = multiboot_mmap_entries_count();
 
     // Go through the mmap buffer and look for the last available range of RAM.
-    struct multiboot_mmap_entry const * entry = first;
+    struct multiboot_mmap_entry const * ptr = first;
     uint64_t curr_max_addr = 0;
-    while (entry < first + count) {
-        if (mmap_entry_is_available(entry) && mmap_entry_within_4GiB(entry)) {
+    while (ptr < first + count) {
+        struct multiboot_mmap_entry entry;
+        phy_read(ptr, &entry, sizeof(entry));
+        if (mmap_entry_is_available(&entry) && mmap_entry_within_4GiB(&entry)) {
             // Skip the entrie that are above 4GiB.
-            uint64_t const entry_max = get_max_offset_for_entry(entry);
+            uint64_t const entry_max = get_max_offset_for_entry(&entry);
             if (entry_max > curr_max_addr) {
                 curr_max_addr = entry_max;
             }
         }
-        ++entry;
+        ++ptr;
     }
 
     // It may happen that the entry starts at an address < 4GiB but is big
@@ -217,8 +221,8 @@ static bool contain_reserved_memory(
 
     // Check the RESERVED_MEM table for any conflict.
     for (uint32_t i = 0; i < NUM_RESERVED_MEM; ++i) {
-        uint64_t const reserved_start = RESERVED_MEM[i][0];
-        uint64_t const reserved_end = RESERVED_MEM[i][1];
+        uint64_t const reserved_start = __RESERVED_MEM[i][0];
+        uint64_t const reserved_end = __RESERVED_MEM[i][1];
         if (!((entry_start < reserved_start && entry_end < reserved_start) ||
             (reserved_end < entry_start && reserved_end < entry_end))) {
             // This entry conflict with the ith element of the reserved memory
@@ -257,8 +261,8 @@ static bool find_in_entry(struct multiboot_mmap_entry const * const entry,
 
         // Compute the start and end offsets of the reserved memory region as
         // well as the entry itself.
-        uint64_t const rstart = RESERVED_MEM[reserved_mem_index][0];
-        uint64_t const rend = RESERVED_MEM[reserved_mem_index][1];
+        uint64_t const rstart = __RESERVED_MEM[reserved_mem_index][0];
+        uint64_t const rend = __RESERVED_MEM[reserved_mem_index][1];
         uint64_t const estart = entry->base_addr;
         uint64_t const eend = get_max_offset_for_entry(entry);
 
@@ -329,16 +333,18 @@ void * find_contiguous_physical_frames(size_t const nframes) {
     struct multiboot_mmap_entry const * const first = get_mmap_entry_ptr();
     uint32_t const count = multiboot_mmap_entries_count();
 
-    struct multiboot_mmap_entry const * entry = first;
-    while (entry < first + count) {
-        if (mmap_entry_is_available(entry) &&
-            entry->length >= nframes * 0x1000) {
+    struct multiboot_mmap_entry const * ptr = first;
+    while (ptr < first + count) {
+        struct multiboot_mmap_entry entry;
+        phy_read(ptr, &entry, sizeof(entry));
+        if (mmap_entry_is_available(&entry) &&
+            entry.length >= nframes * 0x1000) {
             void * start = NULL;
-            if (find_in_entry(entry, nframes, &start)) {
+            if (find_in_entry(&entry, nframes, &start)) {
                 return start;
             }
         }
-        ++entry;
+        ++ptr;
     }
     PANIC("Not enough physical memory to contain %u contiguous frame", nframes);
     // Unreachable.

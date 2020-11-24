@@ -32,6 +32,10 @@ stack_bottom:
 .global stack_top
 stack_top:
 
+# The kernel will save the address of the multiboot header here.
+multiboot_header_addr:
+.long 0
+
 .section .text
 # The entry point of the kernel. We are live.
 ASM_FUNC_DEF(_start_kernel):
@@ -46,18 +50,47 @@ ASM_FUNC_DEF(_start_kernel):
     sub     $KERNEL_PHY_OFFSET, %esp
 
     # We can already enable the cache.
-    call cpu_enable_cache
+    call    cpu_enable_cache
 
-    # Note: %ebx contains the physical address of the multiboot header. We will
-    # need it later in the kernel_main thus save it into the stack
+    # EBX contains the physical address of the multiboot header. Save it into
+    # multiboot_header_addr during kernel initialization.
+    # NOTE: We need to use the physical address of multiboot_header_addr.
+    lea     multiboot_header_addr, %eax
+    sub     $KERNEL_PHY_OFFSET, %eax
+    mov     %ebx, (%eax)
+
+    # Initialize multiboot.
     push    %ebx
-
     call    init_multiboot
 
     # Even though the multiboot compliant bootloader has created flat segments
     # for us, it is recommended that the OS sets up its own GDT. Do that now
     # before entering the kernel.
+    push    $0f
     call    init_segmentation
+    # NOTE: init_segmentation does not return and will far jump into 0f in
+    # higher half.
+
+0:
+    # Reset the stack after doing the far jump to higher half linear address.
+    # This prevent any garbage.
+    mov     $stack_top, %esp
+    mov     %esp, %ebp
+
+    # Initialize serial output as soon as we can, that is once we can access
+    # higher half logical addresses thanks to the GDT.
+
+    # Init serial output.
+    call    serial_init
+
+    # Init TTY.
+    lea     SERIAL_STREAM, %eax
+    push    %eax
+    pushl   0x0
+    call    tty_init
+    add     0x8, %esp
+
+    # TODO: Init VGA.
 
     # Segments have been setup, including the percpu segment for the BSP. We can
     # now setup the BSP's percpu variables.
@@ -71,16 +104,12 @@ ASM_FUNC_DEF(_start_kernel):
     call    init_frame_alloc
 
     # We can now initialize paging.
-    push    %esp
     call    init_paging
-
-    # Get rid of the pushed ESP, the top of the stack now contains the old value
-    # of EBX which is the address of the multiboot header. This is required by
-    # the main.
-    add     $0x4, %esp
 
     # Enter the main of the kernel with the address of the multi boot header as
     # argument.
+    # Give the address of the multiboot header to the main.
+    push    multiboot_header_addr
     call    kernel_main
 
     # In case we return from the kernel just loop infinitely.

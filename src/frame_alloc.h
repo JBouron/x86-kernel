@@ -34,14 +34,6 @@ void free_frame(void const * const ptr);
 // @return: The number of frames currently allocated.
 uint32_t frames_allocated(void);
 
-// Indicate to the frame allocator that paging has been enabled and that it
-// should use virtual pointers to higher half memory internally, note that the
-// allocator will _still_ return physical addresses in alloc_frame.
-// Note: This is needed as the frame allocator is initialized before paging is
-// enabled, therefore, at first, it uses physical addresses internally (that is
-// within its data structure(s)).
-void fixup_frame_alloc_to_virt(void);
-
 // Set or Unset the Out Of Memory simulation.
 // @param enabled: If true OOM simulation will be enabled and any subsequent
 // call to frame_alloc() will return NO_FRAME. If false OOM is disabled and

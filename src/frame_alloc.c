@@ -9,6 +9,7 @@
 #include <multiboot.h>
 #include <spinlock.h>
 #include <error.h>
+#include <memory.h>
 
 // There is a single frame allocator for the whole system. Hence we need a lock
 // to avoid race conditions.
@@ -25,16 +26,12 @@ static uint32_t NUM_FRAMES_FOR_BITMAP = 0;
 // Out-Of-Memory simulation flag.
 static bool OOM_SIMULATION = false;
 
-// Get a pointer on the bitmap of the frame allocator.
-// @return: Either a physical or virtual pointer whether or not paging has been
-// enabled already.
-static struct bitmap *get_bitmap_addr(void) {
-    if (cpu_paging_enabled()) {
-        spinlock_lock(&FRAME_ALLOC_LOCK);
-        return &FRAME_BITMAP;
-    } else {
-        return to_phys(&FRAME_BITMAP);
-    }
+// Acquire the frame allocator lock and return a pointer on the frame
+// allocator's bitmap.
+// @return: The virtual address of the frame allocator's bitmap.
+static struct bitmap *get_bitmap_and_lock(void) {
+    spinlock_lock(&FRAME_ALLOC_LOCK);
+    return &FRAME_BITMAP;
 }
 
 // Compute the size of the bitmap required to keep track of all the physical
@@ -58,23 +55,23 @@ static uint32_t frame_index(void const * const ptr) {
 
 static void mark_memory_range(void const * const start,
                               void const * const end) {
-    struct bitmap * const bitmap = get_bitmap_addr();
     uint32_t const start_frame = frame_index(start);
     uint32_t const end_frame = frame_index(end);
+    LOG("  %p - %p (%u frames)\n", start, end, end_frame - start_frame + 1);
     for (uint32_t i = start_frame; i <= end_frame; ++i) {
-        ASSERT(!bitmap_get_bit(bitmap, i));
-        bitmap_set(bitmap, i);
+        ASSERT(!bitmap_get_bit(&FRAME_BITMAP, i));
+        bitmap_set(&FRAME_BITMAP, i);
     }
 }
 
 static void unmark_memory_range(void const * const start,
                                 void const * const end) {
-    struct bitmap * const bitmap = get_bitmap_addr();
     uint32_t const start_frame = frame_index(start);
     uint32_t const end_frame = frame_index(end);
+    LOG("  %p - %p (%u frames)\n", start, end, end_frame - start_frame + 1);
     for (uint32_t i = start_frame; i <= end_frame; ++i) {
-        ASSERT(bitmap_get_bit(bitmap, i));
-        bitmap_unset(bitmap, i);
+        ASSERT(bitmap_get_bit(&FRAME_BITMAP, i));
+        bitmap_unset(&FRAME_BITMAP, i);
     }
 }
 
@@ -98,11 +95,13 @@ static void unmark_avail_frames(void) {
     struct multiboot_mmap_entry const * const first = get_mmap_entry_ptr();
     uint32_t const count = multiboot_mmap_entries_count();
 
-    struct multiboot_mmap_entry const * entry = NULL;
-    for (entry = first; entry < first + count; ++entry) {
-        if (mmap_entry_is_available(entry) && mmap_entry_within_4GiB(entry)) {
-            void const * const start = (void*)(uint32_t)entry->base_addr;
-            void const * const end = get_max_addr_for_entry(entry);
+    struct multiboot_mmap_entry const * ptr;
+    for (ptr = first; ptr < first + count; ++ptr) {
+        struct multiboot_mmap_entry entry;
+        phy_read(ptr, &entry, sizeof(entry));
+        if (mmap_entry_is_available(&entry) && mmap_entry_within_4GiB(&entry)) {
+            void const * const start = (void*)(uint32_t)entry.base_addr;
+            void const * const end = get_max_addr_for_entry(&entry);
             unmark_memory_range(start, end);
         }
     }
@@ -111,7 +110,9 @@ static void unmark_avail_frames(void) {
 // Mark the frame(s) containing the multiboot structure as allocated in the
 // bitmap.
 static void mark_multiboot_info_struct(void) {
-    struct multiboot_info const * const mb_struct = get_multiboot_info_struct();
+    struct multiboot_info const * const mb_struct =
+        to_phys(get_multiboot_info_struct());
+
     void const * const mb_start = mb_struct;
     void const * const mb_end = mb_start + sizeof(*mb_struct) - 1;
     mark_memory_range(mb_start, mb_end);
@@ -128,45 +129,51 @@ static void mark_initrd_frames(void) {
 }
 
 void init_frame_alloc(void) {
-    // We expect this function to be called before paging is enabled. Note:
-    // Assert will probably not work here as the output might not be
-    // initialized.
+    LOG("Initializing Physical Frame Allocator (PFA).\n");
+
+    // We expect this function to be called before paging is enabled but after
+    // GDT is enabled and we made the initial jump to higher half using it.
     ASSERT(!cpu_paging_enabled());
+    ASSERT(in_higher_half());
 
     // Executing this function without acquiring the FRAME_ALLOC_LOCK is safe as
     // we are doing this very early in the BSP boot sequence, hence APs are not
     // woken up yet.
-    struct bitmap * const bitmap = get_bitmap_addr();
+
+    struct bitmap *const bitmap = &FRAME_BITMAP;
 
     // First compute the number of bits required to keep track of the state of
     // _all_ the frames in RAM.
     uint32_t const bitmap_size = compute_bitmap_size();
+    LOG("PFA will use a bitmap of %u bits to track frames.\n", bitmap_size);
 
     // We are going to store this potentially huge bitmap in RAM. Do do so, we
     // need to find a continuous memory range big enough to fit all the bits.
     // Because we will need to access this bitmap from the virtual address space
     // we use a page size granularity.
     uint32_t const num_frames = ceil_x_over_y_u32(bitmap_size, (8 * 0x1000));
+    LOG("PFA's bitmap will be stored on %u physical frames.\n", num_frames);
 
     // Save the number of frames allocated for the bitmap, this will be useful
     // for mapping the bitmap to virtual address space.
-    *((uint32_t*)to_phys(&NUM_FRAMES_FOR_BITMAP)) = num_frames;
+    NUM_FRAMES_FOR_BITMAP = num_frames;
 
     // Try to find `num_frames` contiguous availables physical frames in RAM by
     // looking at the memory map.
-    void * const start_frame = find_contiguous_physical_frames(num_frames);
-    ASSERT(is_4kib_aligned(start_frame));
+    void * const start_frame_phy = find_contiguous_physical_frames(num_frames);
+    ASSERT(is_4kib_aligned(start_frame_phy));
+    LOG("PFA's bitmap stored at physical address %p.\n", start_frame_phy);
 
-    // The following check is a regression test that the bitmap will not
-    // overwrite the multiboot struct.
-    void const * const mb = (void*)get_multiboot_info_struct();
-    ASSERT(start_frame > mb || (start_frame + (num_frames * 0x1000) - 1 < mb));
+    // We need to store the virtual address of the start frame in the bitmap in
+    // order to use it.
+    void * const start_frame = to_virt(start_frame_phy);
 
     // Initialize the bitmap. Mark _all_ the frames as allocated.
     bitmap_init(bitmap, bitmap_size, (uint32_t*)start_frame, true);
 
     // Now go over the memory map and mark all the frames that are available to
     // us as free.
+    LOG("Unmarking all available (per multiboot header) physical frames:\n");
     unmark_avail_frames();
 
     // Because unmark_avail_frames will also unmark frames that are currently
@@ -175,52 +182,33 @@ void init_frame_alloc(void) {
     // them as allocated so that the allocator doesn't hand them out.
 
     // Mark the pages used by the kernel as allocated.
+    LOG("Marking all frames used by kernel:\n");
     mark_kernel_frames();
 
     // Mark the frames used for the bitmap.
-    mark_bitmap_frames(start_frame, num_frames);
+    LOG("Marking all frames used to store the bitmap:\n");
+    mark_bitmap_frames(start_frame_phy, num_frames);
 
     // Mark any page used to store the multiboot info structure. That way we
     // don't end up over writing it.
+    LOG("Marking all frames used to store the multiboot header:\n");
     mark_multiboot_info_struct();
 
     // Mark the physical frames used by initrd.
+    LOG("Marking all frames used to store the initrd:\n");
     mark_initrd_frames();
 
     // The frame allocator is ready to roll.
-}
+    LOG("PFA initialized:\n");
+    LOG("  .size = %u\n", FRAME_BITMAP.size);
+    LOG("  .free = %u\n", FRAME_BITMAP.free);
+    LOG("  .data = %p\n", FRAME_BITMAP.data);
 
-void fixup_frame_alloc_to_virt(void) {
-    // Paging has been enabled, we can now use a virtual pointer for the `data`
-    // field of the bitmap.
-    struct bitmap * const bitmap = get_bitmap_addr();
-
-    // APs are still not woken up, no need to acquire FRAME_ALLOC_LOCK.
-
-    // Save the physical address of the bitmap data.
-    void const * const frame_addr = bitmap->data;
-    void * const virt_addr = to_virt(bitmap->data);
-
-    // It is important to create the mapping BEFORE setting the data pointer to
-    // the virtual address as paging_map will inevitably call to alloc_frame.
-    // This works because the identity mapping is still present therefore, while
-    // allocating for the mapping, the alloc_call will use the old physical
-    // pointer to the data.
-    if (virt_addr > (void*)KERNEL_PHY_OFFSET + 0x100000) {
-        // The 1MiB below the kernel has already been mapped to higher half,
-        // hence there is no need to map it again.
-        // This is actually unlikely since the bitmap will pretty much always
-        // fit in the available memory under 1MiB. Nevertheless, in case it
-        // doesn't, we need to be careful.
-        uint32_t const flags = VM_WRITE;
-        if (!paging_map(frame_addr, virt_addr, NUM_FRAMES_FOR_BITMAP, flags)) {
-            PANIC("Cannot map frame allocator's bitmap to virt memory\n");
-        }
-    }
-
-    // Use the virtual address of the bitmap for now on.
-    bitmap->data = virt_addr;
-    spinlock_unlock(&FRAME_ALLOC_LOCK);
+    // If the data of the frame allocator is above kernel addresses, then once
+    // we enable paging we will need to manually map those frames to virtual
+    // address space. For now, the bitmap always fit under the 1MiB limit which
+    // always gets mapped with the kernel in higher half.
+    ASSERT((void*)FRAME_BITMAP.data < (void*)KERNEL_START_ADDR);
 }
 
 // The maximum index for memory under 1MiB.
@@ -230,7 +218,7 @@ void fixup_frame_alloc_to_virt(void) {
 // @param low_mem: If true, this function will try to allocate a frame under the
 // 1MiB limit. Otherwise it will try anywhere in physical memory.
 static void *do_allocation(bool const low_mem) {
-    struct bitmap * const bitmap = get_bitmap_addr();
+    struct bitmap * const bitmap = get_bitmap_and_lock();
 
     if (OOM_SIMULATION) {
         spinlock_unlock(&FRAME_ALLOC_LOCK);
@@ -265,6 +253,7 @@ static void *do_allocation(bool const low_mem) {
         // A frame is available, its address is the bit position * PAGE_SIZE.
         frame_addr = (void*)(frame_idx * 0x1000);
     }
+
     spinlock_unlock(&FRAME_ALLOC_LOCK);
     return frame_addr;
 }
@@ -279,7 +268,7 @@ void *alloc_frame_low_mem(void) {
 
 void free_frame(void const * const ptr) {
     ASSERT(ptr != NO_FRAME);
-    struct bitmap * const bitmap = get_bitmap_addr();
+    struct bitmap * const bitmap = get_bitmap_and_lock();
 
     // The pointer is supposed to describe a physical frame and therefore should
     // be 4KiB aligned.
@@ -301,7 +290,7 @@ void free_frame(void const * const ptr) {
 }
 
 uint32_t frames_allocated(void) {
-    struct bitmap * const bitmap = get_bitmap_addr();
+    struct bitmap * const bitmap = get_bitmap_and_lock();
     uint32_t const n_allocs = bitmap->size - bitmap->free;
     spinlock_unlock(&FRAME_ALLOC_LOCK);
     return n_allocs;

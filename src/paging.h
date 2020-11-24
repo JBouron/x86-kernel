@@ -4,12 +4,8 @@
 
 #define PAGE_SIZE   0x1000
 
-// Initialize and enable paging. After calling this function the processor uses
-// the higher-half kernel (EIP, stack and GDTR point to the higher-half).
-// @param esp: The stack pointer value right before calling this function. This
-// parameter is important as it allows us to fixup the return address pushed on
-// the stack as a _physical_ address.
-void init_paging(void const * const esp);
+// Initialize and enable paging.
+void init_paging(void);
 
 // Allow writes on the page.
 #define VM_WRITE            (1 << 0)

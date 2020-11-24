@@ -182,9 +182,13 @@ STATIC_ASSERT(sizeof(struct tss_descriptor) == 8, "");
 
 // The Boot GDT is the GDT used by the BSP during boot/kernel initialization. It
 // contains the mininum amount of segments to perform initialization, that is:
-//  - Kernel flat data segment.
-//  - Kernel flat code segment.
+//  - Kernel data segment.
+//  - Kernel code segment.
 //  - Percpu segment for the BSP.
+// One important role of the Boot GDT is to provide an higher half mapping even
+// before enabling paging. This is possible by setting the base of the code and
+// data segments to -KERNEL_PHY_OFFSET. This way, virtual addresses (of global
+// variables for instance) will resolve to their physical addresses.
 // Later on, once paging is enabled and the number of cpus on the system is
 // known, the final GDT will be allocated and the BSP will switch to it.
 #define BOOT_GDT_KDATA_IDX  1
@@ -193,8 +197,10 @@ STATIC_ASSERT(sizeof(struct tss_descriptor) == 8, "");
 
 static union segment_descriptor_t BOOT_GDT[] __attribute__((aligned(8))) = {
     [0]                     = GDT_NULL_ENTRY(),
-    [BOOT_GDT_KDATA_IDX]    = GDT_ENTRY(0x00000000, PAGES, 0xFFFFF, DATA, 0),
-    [BOOT_GDT_KCODE_IDX]    = GDT_ENTRY(0x00000000, PAGES, 0xFFFFF, CODE, 0),
+    // FIXME: The -KERNEL_PHY_OFFSET is hardcoded here, this is because
+    // KERNEL_PHY_OFFSET is not known at load time.
+    [BOOT_GDT_KDATA_IDX]    = GDT_ENTRY(0x40000000, PAGES, 0xFFFFF, DATA, 0),
+    [BOOT_GDT_KCODE_IDX]    = GDT_ENTRY(0x40000000, PAGES, 0xFFFFF, CODE, 0),
     // The Percpu segment is initialized in init_segmentation() prior to loading
     // the boot GDT.
     [BOOT_GDT_BSP_PC_IDX]   = GDT_NULL_ENTRY(),
@@ -263,7 +269,27 @@ static void set_segment_regs(union segment_selector_t code_seg,
     cpu_set_gs(&pcpu_seg);
 }
 
-void init_segmentation(void) {
+// Use the BOOT_GDT to jump into higher half logical addresses. Once this
+// function returns, the EIP, ESP and EBP will point to higher half logical
+// addresses. Until paging is initialized and enabled, those higher half logical
+// addresses will resolve to the physical addresses where the kernel is located
+// in memory.
+// @param code_seg: The value to use as the code segment.
+// @param data_seg: The value to use as data segment. This segment will be
+// loaded for DS, ES, FS, and SS.
+// @param pcpu_seg: The value to load into GS.
+// @param target: The target of the far jump into the new code segment.
+// NOTE: This function does not return, it jumps to the target and resumes
+// execution there.
+extern void set_higher_half_segments(union segment_selector_t code_seg,
+                                     union segment_selector_t data_seg,
+                                     union segment_selector_t pcpu_seg,
+                                     void * const target);
+
+void init_segmentation(void * const target) {
+    // The target _MUST_ be an higher half kernel address.
+    ASSERT((uint32_t)target >= (uint32_t)KERNEL_PHY_OFFSET);
+
     // The segmentation is initialized very early during boot _before_ paging.
     // Therefore we need to fix up the pointer to global variables as they are
     // virtual. to_phys defined in boot.S does exactly this.
@@ -289,9 +315,12 @@ void init_segmentation(void) {
     union segment_selector_t const kdata = SEG_SEL(BOOT_GDT_KDATA_IDX, 0);
     union segment_selector_t const kcode = SEG_SEL(BOOT_GDT_KCODE_IDX, 0);
     union segment_selector_t const percpu = SEG_SEL(BOOT_GDT_BSP_PC_IDX, 0);
-    set_segment_regs(kcode, kdata, percpu);
+
+    set_higher_half_segments(kcode, kdata, percpu, target);
     // Note: percpu variables cannot be accessed until init_bsp_boot_percpu() is
     // called.
+
+    __UNREACHABLE__;
 }
 
 void fixup_gdt_after_paging_enable(void) {
@@ -303,16 +332,19 @@ void fixup_gdt_after_paging_enable(void) {
     cpu_sgdt(&gdtr);
     ASSERT(gdtr.base == to_phys(&BOOT_GDT));
 
+    // Remove higher half mapping from the GDT, this is now provided by paging.
+    BOOT_GDT[BOOT_GDT_KDATA_IDX] = GDT_ENTRY(0x0, PAGES, 0xFFFFF, DATA, 0);
+    BOOT_GDT[BOOT_GDT_KCODE_IDX] = GDT_ENTRY(0x0, PAGES, 0xFFFFF, CODE, 0);
+
     // Fixup the percpu segment.
     uint32_t const base = (uint32_t)SECTION_PERCPU_START_ADDR;
     uint16_t const limit = (uint16_t)SECTION_PERCPU_SIZE;
     BOOT_GDT[BOOT_GDT_BSP_PC_IDX] = GDT_ENTRY(base, BYTES, limit, DATA, 0);
-    // Reload the GS register to update the hidden copy.
-    union segment_selector_t const percpu = SEG_SEL(BOOT_GDT_BSP_PC_IDX, 0);
-    cpu_set_gs(&percpu);
 
-    // Other segment registers do not need to change since the code and data
-    // segments did not change (still from 0x0 to 0xFF..FF).
+    union segment_selector_t const kdata = SEG_SEL(BOOT_GDT_KDATA_IDX, 0);
+    union segment_selector_t const kcode = SEG_SEL(BOOT_GDT_KCODE_IDX, 0);
+    union segment_selector_t const percpu = SEG_SEL(BOOT_GDT_BSP_PC_IDX, 0);
+    set_segment_regs(kcode, kdata, percpu);
 
     // Use the higher half address of the Boot GDT in GDTR.
     load_gdt(BOOT_GDT, sizeof(BOOT_GDT));

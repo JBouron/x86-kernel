@@ -196,32 +196,13 @@ ASM_FUNC_DEF(cpu_set_cs):
     // We can already push EAX.
     push    %eax
 
-    // The target address will change depending on whether or not paging has
-    // been enabled already.
-    call    cpu_paging_enabled
-    cmp     $0x0, %eax
-    je      target_needs_fixup
-    
-    // Here paging has been enabled. No fixup is required for the target.
-    mov     $target, %ecx
-    jmp     do_long_jump
-
-target_needs_fixup:
-    // Paging has not been enabled hence we need to translate the virtual
-    // address of the target into a linear address. We use to_phys for that.
     push    $target
-    call    to_phys
-    add     $0x4, %esp
-    mov     %eax, %ecx
-
-do_long_jump:
-    // We can finally do the long jump, push the target first.
-    push    %ecx
     ljmp    *(%esp)
 
 target:
     add     $0x8, %esp
     ret
+
 
 // Macro for the cpu_set_{d, e, f, g, s}c().
 #define set_segment_register(reg)   ;\
@@ -358,11 +339,6 @@ ASM_FUNC_DEF(cpu_enable_paging):
     lea     paging_enable_target, %eax
     jmp     *%eax
 paging_enable_target:
-    # EIP is now in the higher-half mapping. However, the return address in the
-    # stack is still a physical address, we need to do some fixup on it before
-    # `ret`.
-    call    to_virt
-    mov     %eax, (%esp)
     ret
 
 //void cpu_invalidate_tlb(void);
@@ -434,4 +410,8 @@ ASM_FUNC_DEF(interrupts_enabled):
 ASM_FUNC_DEF(cpu_ltr):
     mov     0x4(%esp), %eax
     ltr     %ax
+    ret
+
+ASM_FUNC_DEF(cpu_read_eip):
+    mov     (%esp), %eax
     ret

@@ -3,7 +3,7 @@
 #define MB_INFO_TEST_SETUP()                                        \
     struct multiboot_info const * const __old_mi = MULTIBOOT_INFO;  \
     struct multiboot_info FAKE_MI;                                  \
-    MULTIBOOT_INFO = to_phys(&FAKE_MI);
+    MULTIBOOT_INFO = &FAKE_MI;
 
 #define MB_INFO_TEST_TEARDOWN() \
     MULTIBOOT_INFO = __old_mi;
@@ -29,7 +29,7 @@ static bool get_max_offset_for_entry_test(void) {
 static bool get_max_addr_simple_test(void) {
     MB_INFO_TEST_SETUP();
 
-    FAKE_MI.mmap_addr = (uint32_t)FAKE_ENTRIES;
+    FAKE_MI.mmap_addr = (uint32_t)to_phys(FAKE_ENTRIES);
     FAKE_MI.mmap_length = 3 * sizeof(struct multiboot_mmap_entry);
 
     struct multiboot_mmap_entry const ent0 = {
@@ -68,7 +68,7 @@ static bool get_max_addr_simple_test(void) {
 static bool get_max_addr_more_than_4GiB_test(void) {
     MB_INFO_TEST_SETUP();
 
-    FAKE_MI.mmap_addr = (uint32_t)FAKE_ENTRIES;
+    FAKE_MI.mmap_addr = (uint32_t)to_phys(FAKE_ENTRIES);
     FAKE_MI.mmap_length = 2 * sizeof(struct multiboot_mmap_entry);
 
     struct multiboot_mmap_entry const ent0 = {
@@ -100,7 +100,7 @@ static bool get_max_addr_more_than_4GiB_test(void) {
 static bool get_max_addr_more_than_4GiB_test_2(void) {
     MB_INFO_TEST_SETUP();
 
-    FAKE_MI.mmap_addr = (uint32_t)FAKE_ENTRIES;
+    FAKE_MI.mmap_addr = (uint32_t)to_phys(FAKE_ENTRIES);
     FAKE_MI.mmap_length = 2 * sizeof(struct multiboot_mmap_entry);
 
     // Since the entry 1 is fully above 4GiB, this entry is considered the last
@@ -130,7 +130,7 @@ static bool get_max_addr_more_than_4GiB_test_2(void) {
 static bool get_max_addr_more_than_4GiB_test_3(void) {
     MB_INFO_TEST_SETUP();
 
-    FAKE_MI.mmap_addr = (uint32_t)FAKE_ENTRIES;
+    FAKE_MI.mmap_addr = (uint32_t)to_phys(FAKE_ENTRIES);
     FAKE_MI.mmap_length = 2 * sizeof(struct multiboot_mmap_entry);
 
     struct multiboot_mmap_entry const ent0 = {
@@ -158,7 +158,7 @@ static bool get_max_addr_more_than_4GiB_test_3(void) {
 static bool get_max_addr_out_of_order_test(void) {
     MB_INFO_TEST_SETUP();
 
-    FAKE_MI.mmap_addr = (uint32_t)FAKE_ENTRIES;
+    FAKE_MI.mmap_addr = (uint32_t)to_phys(FAKE_ENTRIES);
     FAKE_MI.mmap_length = 3 * sizeof(struct multiboot_mmap_entry);
 
     struct multiboot_mmap_entry const ent0 = {

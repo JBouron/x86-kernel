@@ -67,7 +67,7 @@ static bool frame_allocator_frames_allocated_test(void) {
 }
 
 static bool frame_allocator_oom_simulation_test(void) {
-    struct bitmap * const bitmap = get_bitmap_addr();
+    struct bitmap * const bitmap = get_bitmap_and_lock();
     spinlock_unlock(&FRAME_ALLOC_LOCK);
 
     TEST_ASSERT(bitmap->free);

@@ -134,13 +134,12 @@ struct multiboot_mod_entry {
 void init_multiboot(struct multiboot_info const * const ptr);
 
 // Get a pointer to the multiboot structure.
-// @return: A virtual or physcial pointer to the multiboot structure in RAM,
-// depending on whether or not paging has been enabled already.
+// @return: A virtual pointer to the multiboot structure in RAM.
 struct multiboot_info const *get_multiboot_info_struct(void);
 
 // Get a pointer on the first entry of the mmap buffer in the multiboot info
 // structure.
-// @return: A pointer on the first entry of mmap.
+// @return: A physical pointer on the first entry of mmap.
 struct multiboot_mmap_entry const *get_mmap_entry_ptr(void);
 
 // Get the number of entries in the memory map buffer of the multiboot

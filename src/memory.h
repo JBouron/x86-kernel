@@ -38,5 +38,17 @@ bool memeq(void const * const s1, void const * const s2, size_t const size);
 // Note: This function uses the kernel's dynamic memory allocator.
 void *memdup(void const * const buf, size_t const len);
 
+// Read from physical memory.
+// @param addr: The physical address to read from.
+// @param dest: The buffer to read into.
+// @param size: The size of the buffer.
+void phy_read(void const * const addr, void * const dest, size_t const size);
+
+// Write to physical memory.
+// @param addr: The physical address to write to.
+// @param buf: The buffer to write.
+// @param size: The size of the buffer.
+void phy_write(void * const addr, void const * const buf, size_t const size);
+
 // Execute tests of the above functions.
 void mem_test(void);
