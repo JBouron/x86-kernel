@@ -203,6 +203,14 @@ void cpu_invalidate_tlb(void);
 // @return: The current value of the CR2 register.
 void *cpu_read_cr2(void);
 
+// Read the current value of CR0.
+// @return: Value of CR0 for the current core.
+uint32_t cpu_read_cr0(void);
+
+// Read the current value of CR4.
+// @return: Value of CR4 for the current core.
+uint32_t cpu_read_cr4(void);
+
 // Halt the cpu. This function does not enable interrupts!
 void cpu_halt(void);
 

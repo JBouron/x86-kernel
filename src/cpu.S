@@ -335,10 +335,8 @@ ASM_FUNC_DEF(cpu_enable_paging_bits):
 ASM_FUNC_DEF(cpu_enable_paging):
     # Enable the paging bits.
     call    cpu_enable_paging_bits
-    # Now perform an absolute jump.
-    lea     paging_enable_target, %eax
-    jmp     *%eax
-paging_enable_target:
+    # Since we are already in higher half logical addresses thanks to the Boot
+    # GDT, there is no need to do a far jump.
     ret
 
 //void cpu_invalidate_tlb(void);
@@ -350,6 +348,12 @@ ASM_FUNC_DEF(cpu_invalidate_tlb):
 //void *cpu_read_cr2(void);
 ASM_FUNC_DEF(cpu_read_cr2):
     mov     %cr2, %eax
+    ret
+ASM_FUNC_DEF(cpu_read_cr0):
+    mov     %cr0, %eax
+    ret
+ASM_FUNC_DEF(cpu_read_cr4):
+    mov     %cr4, %eax
     ret
 
 //void cpu_halt(void);
