@@ -441,7 +441,14 @@ static void process_madt_local_apic_entry(
     // Consider a one-to-one between the cpus on the system and the
     // PROC_LOCAL_APIC entries. FIXME: Ideally here we would want to check that
     // the acpi proc id is not a duplicate. This might be overkill.
-    NCPUS ++;
+
+    // Some ACPI tables (especially in baremetal) report more CPUs than there
+    // actually are on the system. The additional cpus will have their flag set
+    // to 0. Hence only count the cpus that are currently enabled (bit 0 set in
+    // flags) or online capable (bit 1 set).
+    if (entry->flags) {
+        NCPUS ++;
+    }
 }
 
 static void process_madt_ioapic_entry(
