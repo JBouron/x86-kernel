@@ -26,6 +26,9 @@
 //
 // All checksum fields on the following structure is a uint8_t such that adding
 // the bytes of the header (or table in certain cases) adds up to 0 mod 256.
+//
+// In ACPI v2, the RSDT is replaced with the XSDT. Both are the same except that
+// the XSDT contains 64-bit pointers to SDTs.
 
 // Forward decl of the RSDT to be able to reference to it in the RSDP struct.
 struct rsdt;
@@ -43,6 +46,15 @@ struct rsdp_desc {
     uint8_t const revision;
     // The physical address of the RSDT.
     struct rsdt const * const rsdt_addr;
+
+    // Fields under this line are reserved for ACPI v2.
+    // Length of the table in bytes.
+    uint32_t const length;
+    // A 64-bit physical pointer pointing to the XSDT.
+    uint64_t const xsdt_addr;
+    // Checksum of the ACPI v2 fields.
+    uint8_t const extended_checksum; 
+    uint8_t const reserved[3];
 } __attribute__ ((packed));
 
 // All System Description Table start with a header as follows:
@@ -72,6 +84,15 @@ struct rsdt {
     // has a variable length.
     struct sdt_header const * const tables[0];
 } __attribute__((packed));
+
+// The layout of the eXtended System Description Table (RSDT). This is used with
+// ACPI revision v2.
+struct xsdt {
+    // The header of the XSDT just like every other table.
+    struct sdt_header const header;
+    // 64-bit physical pointers to the SDTs. Variable length.
+    uint64_t const tables[0];
+};
 
 // APIC SDT:
 // The APIC SDT (also called MADT for Multiple APIC Description Table) contains
@@ -170,10 +191,24 @@ static bool verify_checksum_raw(uint8_t const * const ptr, size_t const len) {
 // @param rsdp: The RSDP to verify the checksum for.
 // @return: true if the checksum of the RSDP is valid, false otherwise.
 static bool verify_rsdp_desc_checksum(struct rsdp_desc const * const rsdp) {
-    uint8_t const * const bytes = (uint8_t const*) rsdp;
-    // The checksm of an RSDP is computed by summing all the byte of the
-    // rsdp_desc_t structure.
-    return verify_checksum_raw(bytes, sizeof(*rsdp));
+    // Verify the checksum for the part of the struct used by ACPI v1.
+    void * const ptr_v1 = (void*)rsdp;
+    size_t const size_v1 = (void*)&rsdp->length - (void*)rsdp;
+    if (!verify_checksum_raw(ptr_v1, size_v1)) {
+        return false;
+    }
+
+    if (rsdp->revision) {
+        // This is an ACPI v2 RSDP, verify the checksum for the second part of
+        // the RSDP.
+        void * const ptr_v2 = (void*)&rsdp->length;
+        size_t const size_v2 = sizeof(*rsdp) - size_v1;
+        if (!verify_checksum_raw(ptr_v2, size_v2)) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 // Compute and verify the checksum of an SDT.
@@ -231,6 +266,18 @@ static uint32_t number_of_tables_for_rsdt(struct rsdt const * const rsdt) {
     return (rsdt->header.length - sizeof(rsdt->header)) / 4;
 }
 
+// Compute the number of tables references by an XSDT, that is the number of
+// physical pointers following the header of the XSDT.
+// @param xsdt: The XSDT.
+// @return: The number of pointer following XSDT's header.
+static uint32_t number_of_tables_for_xsdt(struct xsdt const * const xsdt) {
+    // After the SDT header, the XSDT contains N pointers to other SDTs. Since
+    // we know the size of an SDT header and the total size of the XSDT, the
+    // number of pointer can be computed as follows:
+    // NOTE: Unlike with an RSDT, each pointer is 64-bit/8 bytes.
+    return (xsdt->header.length - sizeof(xsdt->header)) / 8;
+}
+
 static void map_table(struct sdt_header const * const table) {
     // The goal here is to id map the table, however to this end we need to know
     // its length first. Therefore with first map the header bytes, read the
@@ -248,31 +295,53 @@ static void unmap_table(struct sdt_header const * const table) {
 // A callback to be called when parsing the ACPI information.
 typedef void (*parser_callback)(struct sdt_header const * const);
 
-// Parse the ACPI info and invoke a callback for every SDT found.
-// @param callback: A function pointer to be called for every SDT. This function
-// is expected to take a callback as argument.
-static void parse_acpi_info(parser_callback const callback) {
-    // Find the RSDP in memory.
-    struct rsdp_desc const * const rsdp = find_rsdp_desc();
-    if (!rsdp) {
-        PANIC("Could not find RSDP");
+// Parse ACPI v2 info contained in a XSDT.
+// @param callback: The callback to call for each SDT found.
+// @param XSDT: The XSDT to walk.
+static void parse_acpi_v2_info(parser_callback const callback,
+                               struct xsdt const * const xsdt) {
+    // The pointer above is a physical pointer and therefore needs to be mapped
+    // before parsing.
+    map_table(&xsdt->header);
+
+    // Compute the number of tables referenced by the SDT.
+    uint32_t const n_tables = number_of_tables_for_xsdt(xsdt);
+    LOG("XSDT contains %u pointers\n", n_tables);
+
+    // Iterate over the array of pointers to SDTs. Call the callback for each
+    // SDT.
+    for (uint32_t i = 0; i < n_tables; ++i) {
+        uint64_t const sdt_off = xsdt->tables[i];
+        if (sdt_off >> 32) {
+            PANIC("SDT above the 4GiB limit.");
+        }
+        struct sdt_header const * const sdt = (void*)(uint32_t)sdt_off;
+        // ID map the SDT to virtual memory.
+        map_table(sdt);
+
+        if (verify_sdt_checksum(sdt)) {
+            // We only call the callback if the checksum matches.
+            callback(sdt);
+        } else {
+            LOG("SDT at %p has an invalid checksum\n", sdt);
+        }
+
+        // Remove the mapping for the SDT.
+        unmap_table(sdt);
+
+        // FIXME: Since some SDT can be on the same page as the XSDT, the
+        // unmap_table(sdt) might unmap the XSDT, leading to pagefault. Make
+        // sure this does not happen by re-mapping the XSDT.
+        map_table(&xsdt->header);
     }
+    unmap_table(&xsdt->header);
+}
 
-    // Before proceeding verify the checksum and the version of the RSDP.
-    if (!verify_rsdp_desc_checksum(rsdp)) {
-        // The checksum is not valid, something went clearly wrong here.
-        PANIC("RSDP checksum is invalid.");
-    }
-    if (rsdp->revision) {
-        // This kernel/parser only support ACPI v1.
-        PANIC("RSDP is ACPI v2.");
-    }
-
-    LOG("RSDP found at %p\n", rsdp);
-
-    // Get a pointer to the Root System Description Table from the RSDP.
-    struct rsdt const * const rsdt = rsdp->rsdt_addr;
-
+// Parse ACPI v1 info contained in a RSDT.
+// @param callback: The callback to call for each SDT found.
+// @param RSDT: The RSDT to walk.
+static void parse_acpi_v1_info(parser_callback const callback,
+                               struct rsdt const * const rsdt) {
     // The pointer above is a physical pointer and therefore needs to be mapped
     // before parsing.
     map_table(&rsdt->header);
@@ -304,6 +373,41 @@ static void parse_acpi_info(parser_callback const callback) {
         map_table(&rsdt->header);
     }
     unmap_table(&rsdt->header);
+}
+
+// Parse the ACPI info and invoke a callback for every SDT found.
+// @param callback: A function pointer to be called for every SDT. This function
+// is expected to take a callback as argument.
+static void parse_acpi_info(parser_callback const callback) {
+    // Find the RSDP in memory.
+    struct rsdp_desc const * const rsdp = find_rsdp_desc();
+    if (!rsdp) {
+        PANIC("Could not find RSDP");
+    }
+
+    LOG("RSDP found at %p\n", rsdp);
+    LOG("ACPI is revision v%u\n", rsdp->revision ? 2 : 1);
+
+    // Before proceeding verify the checksum and the version of the RSDP.
+    if (!verify_rsdp_desc_checksum(rsdp)) {
+        // The checksum is not valid, something went clearly wrong here.
+        PANIC("RSDP checksum is invalid.");
+    }
+
+    if (rsdp->revision) {
+        // Revision 2, use the XDST pointer.
+        uint64_t const xsdt_off = rsdp->xsdt_addr;
+        if (xsdt_off >> 32) {
+            PANIC("The XSDT is above the 4GiB limit, cannot reach in PM\n");
+        }
+        struct xsdt const * const xsdt = (void*)(uint32_t)xsdt_off;
+        parse_acpi_v2_info(callback, xsdt);
+    } else {
+        // Revision 1, use the RDST pointer.
+        // Get a pointer to the Root System Description Table from the RSDP.
+        struct rsdt const * const rsdt = rsdp->rsdt_addr;
+        parse_acpi_v1_info(callback, rsdt);
+    }
 }
 
 // Get the string representation of an MADT entry type.
