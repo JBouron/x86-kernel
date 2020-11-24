@@ -122,8 +122,13 @@ static void mark_multiboot_info_struct(void) {
 // available.
 static void mark_initrd_frames(void) {
     // Mark all the frames used by the data coming from the initrd.
-    void const * const initrd_start = multiboot_get_initrd_start();
     size_t const initrd_size = multiboot_get_initrd_size();
+    if (!initrd_size) {
+        LOG("No initrd found.\n");
+        return;
+    }
+
+    void const * const initrd_start = multiboot_get_initrd_start();
     void const * const initrd_end = initrd_start + initrd_size - 1;
     mark_memory_range(initrd_start, initrd_end);
 }

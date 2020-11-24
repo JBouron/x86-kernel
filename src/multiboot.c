@@ -69,10 +69,10 @@ static void init_initrd(void) {
     struct multiboot_info const * mb;
     phy_read(to_phys(&MULTIBOOT_INFO), &mb, sizeof(mb));
 
-    if (mb->mods_count == 0) {
-        PANIC("No initrd module in multiboot header.\n");
-    } else if (mb->mods_count > 1) {
-        PANIC("Unexpected number of modules in multiboot header.\n");
+    // The max amount of mod supported is one, and this is assumed to be an
+    // initrd FIXME.
+    if (!mb->mods_count || mb->mods_count > 1) {
+        return;
     }
 
     // Make sure we still have access to physical memory.
