@@ -223,12 +223,13 @@ static void write_redirection(uint8_t const index,
     ASSERT(redirection_entry_is_valid(entry));
     uint8_t const reg = IOREDTBL(index);
 
-    // According to the specification, to modify a field of a register, one must
-    // read the entire register, change the field and write it back. Since the
-    // redirection entries have reserved fields, we need to proceed in this
-    // manner.
+    // Even though according to the specification, to modify a field of a
+    // register, one must read the entire register, change the field and write
+    // it back to avoid overwritting reserved fields, in practice this does not
+    // work. When running in baremetal the reserved fields must be set to zero
+    // otherwise they won't work.
     struct redirection_entry curr_entry;
-    read_redirection(index, &curr_entry);
+    memzero(&curr_entry, sizeof(curr_entry));
 
     // Mutate the fields of the current entry.
     curr_entry.vector = entry->vector;
