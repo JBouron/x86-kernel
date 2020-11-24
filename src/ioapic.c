@@ -97,7 +97,7 @@ struct redirection_entry {
             // of the entry.
             uint32_t low : 32;
             uint32_t high : 32;
-        };
+        } __attribute__((packed));
         // This struct is the real format of an entry.
         struct {
             // The vector to redirect the interrupt to. That is, if this entry
@@ -126,9 +126,9 @@ struct redirection_entry {
                 uint8_t dest : 4;
                 // Reserved.
                 uint8_t : 4;
-            };
-        };
-    };
+            } __attribute__((packed));
+        } __attribute__((packed));
+    } __attribute__((packed));
 } __attribute__((packed));
 STATIC_ASSERT(sizeof(struct redirection_entry) == 8, "");
 
@@ -240,9 +240,9 @@ static void write_redirection(uint8_t const index,
     curr_entry.waiting_for_apic = 0;
     curr_entry.dest = entry->dest;
 
-    // Write back the entry.
-    write_register(reg, curr_entry.low);
+    // Write back the entry, high word first.
     write_register(reg + 1, curr_entry.high);
+    write_register(reg, curr_entry.low);
 }
 
 // Get the APIC ID of the processor that should receive interrupts of a given
