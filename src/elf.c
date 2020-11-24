@@ -332,7 +332,7 @@ static bool process_program_header(struct file * const file,
     // requires the memory after the initialized segment data to be zeroed.
     ASSERT(prog_hdr->memsz >= prog_hdr->filesz);
     if (prog_hdr->filesz != prog_hdr->memsz) {
-        memzero(write_map + written, prog_hdr->memsz - len);
+        memzero(dest + written, prog_hdr->memsz - len);
     }
 
     // Clean up the mapping used for copying.

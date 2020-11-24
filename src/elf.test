@@ -274,29 +274,27 @@ static bool load_elf_binary_test(void) {
     struct proc * const proc = create_proc();
     load_elf_binary(&ELF_FILE, proc);
 
-    bool res = true;
-
     switch_to_addr_space(proc->addr_space);
 
     // Check that the two segments are correctly mapped to the process' address
     // space.
 
     // Segment1 : offset 0x0 in file, mapped to 0x08048000, size of 0x00158.
-    res &= memeq(ELF_FILE_DATA, (void*)0x08048000, 0x00158);
+    TEST_ASSERT(memeq(ELF_FILE_DATA, (void*)0x08048000, 0x00158));
 
     // Segment2 : offset 0x158 in file, mapped to 0x08049158, size of 0x00088.
     // Note: Range 0x08049158 - 0x0804915B (4 bytes) contains data,
     //       Range 0x0804915C - <end> is zeroed.
-    res &= memeq(ELF_FILE_DATA + 0x158, (void*)0x08049158, 4);
+    TEST_ASSERT(memeq(ELF_FILE_DATA + 0x158, (void*)0x08049158, 4));
     uint8_t *zero = kmalloc(0x88 - 4);
-    res &= memeq((void*)0x0804915C, zero, 0x88 - 4);
+    TEST_ASSERT(memeq((void*)0x0804915C, zero, 0x88 - 4));
     kfree(zero);
 
-    res &= proc->saved_registers->eip == (reg_t)0x8048074;
+    TEST_ASSERT(proc->saved_registers->eip == (reg_t)0x8048074);
 
     switch_to_addr_space(get_kernel_addr_space());
     delete_proc(proc);
-    return res;
+    return true;
 }
 
 static bool load_elf_binary_oom_test(void) {
