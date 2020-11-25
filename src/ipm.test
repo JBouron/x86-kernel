@@ -95,7 +95,11 @@ static void overload_test_wait_and_send_messages(void * arg) {
 
 static uint32_t *num_received_msg_per_core = NULL;
 static void overload_test_message_callback(struct ipm_message const * msg) {
+    // Need to disable interrupt here as the increment is not atomic and we
+    // might receive another message in the middle of it.
+    cpu_set_interrupt_flag(false);
     num_received_msg_per_core[msg->sender_id] ++;
+    cpu_set_interrupt_flag(true);
 }
 
 static bool overload_test_all_messages_received(void) {

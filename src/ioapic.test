@@ -10,12 +10,13 @@
 #define IOAPIC_TEST_TEARDOWN() \
     IO_APIC = __old;
 
-// Simple test that the apic version returned by the IOAPICVER register is 0x11.
+// Simple test that the apic version returned by the IOAPICVER register is 0x11
+// or 0x20 (some actual hardware have the version set to 0x20).
 static bool ioapic_ioapicver_test(void) {
     struct ioapicver const ioapicver = {
         .raw = read_register(IOAPICVER),
     };
-    return ioapicver.apic_version == 0x11;
+    return ioapicver.apic_version == 0x11 || ioapicver.apic_version == 0x20;
 }
 
 // Test the read_register function.
