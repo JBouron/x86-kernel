@@ -60,7 +60,12 @@ void __run_single_test(test_function const func, char const * const name) {
     bool const res = func();
 
     SUCCESS_COUNT += res ? 1 : 0;
+#ifdef SERIAL
+    // Serial output allows us to send color codes.
     char const * const str = res?"\033[32m OK \033[39m":"\033[31mFAIL\033[39m";
+#else
+    char const * const str = res ? " OK " : "FAIL";
+#endif
     LOG("[%s] %s\n", str, name);
     detect_memory_leaks(name, allocated_frames_before, kmalloc_tot_before);
 }
@@ -69,7 +74,11 @@ void print_test_summary(void) {
     ASSERT(TESTS_COUNT >= SUCCESS_COUNT);
     LOG("=== Tests summary ===\n");
     if (TESTS_COUNT == SUCCESS_COUNT) {
+#ifdef SERIAL
         LOG("\033[32mAll %u tests passed\033[39m\n", TESTS_COUNT);
+#else
+        LOG("All %u tests passed\n", TESTS_COUNT);
+#endif
     } else {
         LOG("%u / %u tests failed\n", TESTS_COUNT - SUCCESS_COUNT, TESTS_COUNT);
     }
