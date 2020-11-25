@@ -196,6 +196,7 @@ static void create_recursive_entry(struct page_dir * const page_dir) {
     recursive_entry.write_through = 1;
     recursive_entry.cache_disable = 1;
     recursive_entry.user_accessible = 0;
+    recursive_entry.accessed = 0;
     // This is why this function is not working with paging enabled. TODO :#:
     recursive_entry.page_table_addr = ((uint32_t)to_phys(page_dir)) >> 12;
     recursive_entry.present = 1;
