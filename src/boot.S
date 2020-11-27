@@ -29,10 +29,6 @@ stack_bottom:
 .global stack_top
 stack_top:
 
-# The kernel will save the address of the multiboot header here.
-multiboot_header_addr:
-.long 0
-
 .section .text
 # The entry point of the kernel. We are live.
 ASM_FUNC_DEF(_start_kernel):
@@ -49,14 +45,8 @@ ASM_FUNC_DEF(_start_kernel):
     # We can already enable the cache.
     call    cpu_enable_cache
 
-    # EBX contains the physical address of the multiboot header. Save it into
-    # multiboot_header_addr during kernel initialization.
-    # NOTE: We need to use the physical address of multiboot_header_addr.
-    lea     multiboot_header_addr, %eax
-    sub     $KERNEL_PHY_OFFSET, %eax
-    mov     %ebx, (%eax)
-
     # Initialize multiboot.
+    # EBX contains the physical address of the multiboot header.
     push    %ebx
     call    init_multiboot
 
@@ -65,8 +55,10 @@ ASM_FUNC_DEF(_start_kernel):
     # before entering the kernel.
     push    $0f
     call    init_segmentation
+
     # NOTE: init_segmentation does not return and will far jump into 0f in
     # higher half.
+    int3
 
 0:
     # Reset the stack after doing the far jump to higher half linear address.
@@ -96,8 +88,6 @@ ASM_FUNC_DEF(_start_kernel):
     call    tty_init
     add     $0x8, %esp
 
-    # TODO: Init VGA.
-
     # Segments have been setup, including the percpu segment for the BSP. We can
     # now setup the BSP's percpu variables.
     call    init_bsp_boot_percpu
@@ -114,10 +104,7 @@ ASM_FUNC_DEF(_start_kernel):
     # We can now initialize paging.
     call    init_paging
 
-    # Enter the main of the kernel with the address of the multi boot header as
-    # argument.
-    # Give the address of the multiboot header to the main.
-    push    multiboot_header_addr
+    # Call the kernel's main function.
     call    kernel_main
 
     # In case we return from the kernel just loop infinitely.

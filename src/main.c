@@ -91,9 +91,10 @@ static void resign_bsp(void) {
     write_msr(IA32_APIC_BASE_MSR, msr & (~(1 << 8)));
 }
 
-// Initialize global kernel state.
-static void init_kernel_state(void) {
-    LOG("CPU %d is the BSP\n", this_cpu_var(cpu_id));
+void kernel_main(void) {
+    // At this point paging is enabled, we are in higher half addresses,
+    // interrupts are initialized, percpu variables of the current cpu are
+    // initialized and usable. Other cpus are still sleeping.
 
     // Parse ACPI tables.
     acpi_init();
@@ -110,13 +111,6 @@ static void init_kernel_state(void) {
     extern uint8_t stack_top;
     this_cpu_var(kernel_stack) = &stack_top;
     setup_tss();
-}
-
-void kernel_main(struct multiboot_info const * const multiboot_info) {
-    ASSERT(multiboot_info);
-
-    // Initialize global kernel state.
-    init_kernel_state();
 
     // Initialize LAPIC and IOAPIC.
     init_lapic();
