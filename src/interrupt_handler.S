@@ -1,106 +1,226 @@
 #include <macro.h>
 
-#define interrupt_handler_no_err_code(vector)   ;\
-    .global interrupt_handler_ ## vector        ;\
-    interrupt_handler_ ## vector :              ;\
-        pushl   $0x0                            ;\
-        pushl   $ ## vector                     ;\
-        jmp     _interrupt_handler_common
+// This file contains all the interrupt handlers for all vectors from 0 to 255.
+// Each individual interrupt handler is very small and only "jumps" to a common
+// interrupt handling routine (interrupt_entry).
+//
+// interrupt_entry expects the stack to have the following:
+//       :           _:__
+//       |    SS      |  \__ Optional, only if there as been
+//       |    ESP    _|__/   a privilege change due to the interrupt.
+//       |  EFLAGS    |
+//       |    CS      |
+//       |    EIP    _|_
+//       | Error Code_|_}--- For interrupt that do not generate a code, put 0.
+// EIP ->|   Vector   |
+//
+// There are two things to perform in order to get a stack as described above
+// and being able to jump to the interrupt_entry routine:
+//
+//  1 - Not all interrupts generate an error code, for those who do not, we need
+//  to insert a 0 instead. The rationale is that we always want an error code
+//  (real or 0) so that all interrupt are consistent before the iret (it is the
+//  programmer's responsibility to remove the error before the iret).
+//
+//  2 - We need to figure out the vector of the interrupt and push it on the
+//  stack.
+//
+// For #2 we use the following trick:
+//  - Every interrupt handler (0-255) is a simple call to a function, that is a
+//  near 32-bit `call` instruction, such an instruction is 5 bytes long.
+//  - When this function is called the vector can be computed from the return
+//  address stored onto the stack (by the call instruction in the handler) as
+//  follows:
+//          vector = (ret_addr - &interrupt_handler_0 - 5) / 5.
+//          Note: The -5 comes from the fact that the return address will point
+//          to the instruction after the call executed by the interrupt handler.
+//  this assumes that all interrupt handlers are contiguous in memory and there
+//  is no space in between them (in between the call instructions).
+//
+// Here are all the important piece of the interrupt handling logic:
+// * interrupt_entry: Common entry point for all interrupts. Expects a precise
+//   state on the stack (error code and vector).
+// * _prepare_stack_for_interrupt_entry: This is the function that interrupt
+//   handlers will call to. This function will figure out the vector of the
+//   interrupt using the return address as described above and will jump to the
+//   interrupt_entry routine.
+// * _prepare_stack_for_interrupt_entry_no_error_code: Special function similar
+//   to _prepare_stack_for_interrupt_entry but that insert a 0 for the error
+//   code. This is the function that interrupt handler will call for interrupt
+//   without error codes.
 
-#define interrupt_handler_err_code(vector)   ;\
-    .global interrupt_handler_ ## vector     ;\
-    interrupt_handler_ ## vector :           ;\
-        pushl   $ ## vector                  ;\
-        jmp     _interrupt_handler_common
+_prepare_stack_for_interrupt_entry_no_error_code:
+    // We just entered an interrupt handler that called this routine. At this
+    // point, the stack looks as follow (high addresses at the top):
+    //  |       EFLAGS          |
+    //  |         CS            |
+    //  |        EIP            |
+    //  |    Caller Ret Addr    | <- EIP
+    // We need to insert a dummy error code (0) before preparing the stack for
+    // the entry point.
+    // Once the error code is pushed we need to trick
+    // _prepare_stack_for_interrupt_entry as if it was called directly.
 
-// This is not exactly a function. Interrupt handlers push their vector onto the
-// stack and jump to this routine.
-// This routine saves the registers, calls the generic interrupt handler, and
-// later restore the registers before iret.
-_interrupt_handler_common:
+    // Push the return address to the top of the stack. This will trick
+    // _prepare_stack_for_interrupt_entry.
+    push    (%esp)
+
+    // Overwrite the old return address with the dummy error code.
+    movl    $0x0, 0x4(%esp)
+
+    // No jump to _prepare_stack_for_interrupt_entry, just fall-through.
+_prepare_stack_for_interrupt_entry:
+    // We just entered an interrupt handler that called this routine. At this
+    // point, the stack looks as follow (high addresses at the top):
+    //  |    EFLAGS       |
+    //  |      CS         |
+    //  |      EIP        |
+    //  |   Error Code    |
+    //  | Caller Ret Addr | <- EIP
+
+    // We need to replace the return address by the actual vector number.
+
+    // Save all the registers used in the vector computation. Those are the
+    // registers of the interrupted context!
+    push    %eax
+    push    %ebx
+    push    %edx
+    
+    // vector = (ret_addr - &interrupt_handler_0 - 5) / 5.
+    mov     0xC(%esp), %eax
+    sub     $interrupt_handler_0, %eax
+    mov     $0x5, %ebx
+    sub     %ebx, %eax
+    cdq
+    // EAX = vector number
+    div     %ebx
+
+    // Overwrite the return address with the vector, we don't need it anymore.
+    mov     %eax, 0xC(%esp)
+
+    // Restore the registers.
+    pop     %edx
+    pop     %ebx
+    pop     %eax
+
+    // No jump to interrupt_entry required, simply fall-through.
+
+interrupt_entry:
+    // The stack now looks as follows:
+    //  |    EFLAGS      |
+    //  |      CS        |
+    //  |      EIP       |
+    //  |   Error Code   |
+    //  |     Vector     | <- EIP
+
+    // Check if the vector has an associated error code. Note: We need to save
     // Save registers onto the stack in reverse order as they appear in struct
     // register_save_area. We cannot use general purpose registers (except ESP)
     // until the pusha.
-    // Depending on the processor, pushing the segment registers might not zero
-    // the top 16 bits of the dword on the stack which means we can end up with
-    // garbage values. To avoid that, precede all segment reg push with a pushl
-    // 0; add 4, %esp so that we are sure the top 16-bits will always be 0.
-    pushl   $0
-    add     $0x4, %esp
-    push    %es
+
+    // Note: Depending on the processor, pushing the segment registers might not
+    // zero the top 16 bits of the dword on the stack which means we can end up
+    // with garbage values. To avoid that, precede all segment reg push with a
+    // pushl 0; add 4, %esp so that we are sure the top 16-bits will always be
+    // 0.
+#define save_seg_reg(reg)   ;\
+    pushl   $0              ;\
+    add     $0x4, %esp      ;\
+    push    reg
+
+    // Save ES.
+    save_seg_reg(%es)
+
     // CS is already on the stack. Since we pushed %ES, the value on CS on the
-    // stack is at offset 0xC.
+    // stack is at offset 0x10 at this point.
     push    0x10(%esp)
+
     // The current value of %SS might not be the original value of SS when the
     // processor got interrupted if a task in ring 3 was running. We will patch
     // it up later.
-    pushl   $0
-    add     $0x4, %esp
-    push    %ss
-    pushl   $0
-    add     $0x4, %esp
-    push    %ds
-    pushl   $0
-    add     $0x4, %esp
-    push    %fs
-    pushl   $0
-    add     $0x4, %esp
-    push    %gs
-    // Push the EIP, it was pused on the interrupt frame.
+    save_seg_reg(%ss)
+
+    save_seg_reg(%ds)
+    save_seg_reg(%fs)
+    save_seg_reg(%gs)
+
+    // Push the EIP, it was pushed on the interrupt frame.
     push    0x20(%esp)
+
     // Push EFLAGS, it was pushed on the interrupt frame as well.
     push    0x2C(%esp)
-    // Now push all general purpose registers.
+
+    // Now push all general purpose registers at once.
     pusha
+
+    // We are finally free to use any register. Set EBP to point to the stack
+    // frame containing the original information pushed by the interrupt.
+    mov     %esp, %ebp
+    // 16 registers saved, one vector pushed, 6 elements in the original int
+    // frame.
+    add     $(16 * 4 + 1 * 4 + 6 * 4 - 4), %ebp
+    // For future reference, the elements in the original interrupt frame and
+    // the saved registers can be accessed using EBP as follows:
+    // EBP ->|     SS     | (if applicable)
+    // -0x04 |    ESP     | (if applicable)
+    // -0x08 |   EFLAGS   |
+    // -0x0C |     CS     |
+    // -0x10 |    EIP     |
+    // -0x14 | Error Code |
+    // -0x18 |___Vector___|________ Below this line are saved registers ________
+    // -0x1C |     ES     |
+    // -0x20 |     CS     | (same as -0x0C(%ebp))
+    // -0x24 |     SS     | (/!\ See fixup) 
+    // -0x28 |     DS     |
+    // -0x2C |     FS     |
+    // -0x30 |     GS     |
+    // -0x34 |    EIP     | (same as -0x10(%ebp)) 
+    // -0x38 |   EFLAGS   | (same as -0x08(%ebp)) 
+    // -0x3C |    EAX     |
+    // -0x40 |    ECX     |
+    // -0x44 |    EDX     |
+    // -0x48 |    EBX     |
+    // -0x4C |    ESP     | (/!\ See fixup)
+    // -0x50 |    EBP     |
+    // -0x54 |    ESI     |
+    // -0x58 |    EDI     |
+
 
     // In case a privilege change happened, the saved values for the stack
     // segment register and ESP are wrong since those are the SS and ESP used by
-    // the interrupt handler, _not_ the original process.
+    // the interrupt handler, _not_ the interrupted context.
     // If that is the case, then those values can be found at the top of the
     // handler's stack frame. We therefore need the fixup the registers in the
     // save area.
+
     // EAX = privilege level of current code segment.
     mov     %cs, %eax
     and     $0x3, %eax
     // EBX = privilege level of interrupted context's code segment.
-    mov     56(%esp), %ebx
+    mov     -0xC(%ebp), %ebx
     and     $0x3, %ebx
 
     cmp     %eax, %ebx
     jne     do_fixup_priv_change
+
     // There was no privilege change then the saved SS is correct. However the
     // saved ESP is still incorrect as we pushed some values on the stack before
-    // the pusha. We need to fix this. The actual value _before_ the interrupt
-    // should be the current value of ESP + 88:
-    //                                         v To point to the top before int.
-    //                64 + (2 * 4) + (3 * 4) + 4 = 88 bytes.
-    //       reg. save^   vec+err^     ^- eip, cs, eflags.
-    //    Note: The error code is optional as it is not available with all
-    //    vectors.
-    mov     %esp, %ebx
-    add     $84, %ebx
-    push    64(%esp)
-    call    interrupt_vector_has_error_code
-    add     $4, %esp
-    cmp     $1, %eax
-    je      add_4
-    jmp     add_4_cont
-add_4:
-    add     $4, %ebx
-add_4_cont:
-    mov     %ebx, 0xC(%esp)
-
+    // the pusha. We need to fix this.
+    // Since there was no privilege change, the interrupt frame started at EBP
+    // - 0x8 and therefore the value of ESP before the interrupt was EBP - 0x4
+    // (pointing to the word before the EFLAGS).
+    lea     -0x4(%ebp), %eax
+    mov     %eax, -0x4C(%ebp)
     jmp     do_fixup_priv_change_end
 
 do_fixup_priv_change:
-    // The original SS from the process was pushed on the stack and can be found
-    // at ESP + 88, its saved location is ESP + 52.
-    // The original ESP from the process can be found at ESP + 84 and saved at
-    // ESP + 12.
-    mov     88(%esp), %ecx
-    mov     %ecx, 52(%esp)
-    mov     84(%esp), %ecx
-    mov     %ecx, 12(%esp)
+    // Fixup the saved SS.
+    mov     0x00(%ebp), %eax
+    mov     %eax, -0x24(%ebp)
+
+    // Fixup the saved ESP.
+    mov     -0x04(%ebp), %eax
+    mov     %eax, -0x4C(%ebp) 
 
     // Because the interrupted context was not the kernel, the current segment
     // registers (except CS and SS) are not kernel segment. In particular GS is
@@ -109,72 +229,70 @@ do_fixup_priv_change:
     call    set_segment_registers_for_kernel
 
 do_fixup_priv_change_end:
-    // Construct the struct interrupt_frame_t for the generic interrupt handler.
-    // Push pointer to the struct register_save_area containing the snapshot of
-    // registers created above.
+    // Construct the struct interrupt_frame_t for the generic interrupt handler,
+    // onto the stack.
+
+    // Pointer on saved registers.
     push    %esp
-    // EAX = initial ESP after the interrupt occured, pointing to the error
-    // code.
-    lea     68(%esp), %eax
-    // Push the vector.
-    pushl   (%eax)
-    // Push the error code.
-    pushl   0x4(%eax)
-    // Push the EIP.
-    pushl   0x8(%eax)
-    // Push CS.
-    pushl   0xC(%eax)
-    // Push EFLAGS.
-    pushl   0x10(%eax)
-    // Now push the address of the struct on the stack for the argument of the
-    // generic interrupt handler.
-    push    %esp
+    // Vector.
+    pushl   -0x18(%ebp)
+    // Error code.
+    pushl   -0x14(%ebp)
+    // EIP.
+    pushl   -0x10(%ebp)
+    // CS.
+    pushl   -0x0C(%ebp)
+    // EFLAGS.
+    pushl   -0x08(%ebp)
+
     // Call the generic_interrupt_handler.
+    push    %esp
     call generic_interrupt_handler
+    add     $0x1C, %esp
 
     // The interrupt has been dealt with. We can now restore the registers and
     // return from the interrupt.
 
-    // Get rid of the struct interrupt_frame and the pointer in the stack.
-    add     $0x18, %esp
-    // Get rid of pointer on struct register_save_area.
-    add     $0x4, %esp
+    // Restore DS, ES, FS, and GS. SS and CS are special cases and will be
+    // handled separately.
+    mov     -0x28(%ebp), %ds
+    mov     -0x1C(%ebp), %es
+    mov     -0x2C(%ebp), %fs
+    mov     -0x30(%ebp), %gs
 
-    // Compare the CS of the interrupted context to know if it was the kernel
-    // that was interrupted. If user space was interrupted, we need to restore
-    // the correct segments before returning.
-    // EAX = privilege level of current code segment.
-    mov     %cs, %ax
-    // EBX = privilege level of interrupted context's code segment.
-    mov     56(%esp), %bx
+    // SS does not need to be restore because:
+    // - If a priv change occured, the SS will be restored by the IRET.
+    // - If no priv change occured, then the SS has to be the same as the
+    // kernel's SS otherwise this interrupt handler would not even work.
 
-    cmp     %ax, %bx
-    je      skip_segment_reg_restore
-
-    // Restore the segment registers. The code and stack segment register will
-    // be restored by the iret since there has been a privilege change.
-    mov     60(%esp), %ax
-    mov     %ax, %es
-    mov     48(%esp), %ax
-    mov     %ax, %ds
-    mov     44(%esp), %ax
-    mov     %ax, %fs
-    mov     40(%esp), %ax
-    mov     %ax, %gs
-
-skip_segment_reg_restore:
-    // Restore the GP registers.
+    // Restore GP registers.
     popa
-    // Get rid of the saved registers values, they are useless since there is no
-    // context switch.
-    add     $32, %esp
-    // Now get rid of the vector AND the error code. As described in the Intel
-    // manual chapter 6.13 ERROR CODE, the error code is pushed onto the stack
-    // when the interrupt is triggered but it is the responsibility of the
-    // handler to pop it.
+    // Skip the saved segment registers.
+    add     $0x20, %esp
+    // Get rid of vector and error code.
     add     $0x8, %esp
-    // Stack is clear, registers are restored we can now iret.
+    
+    // ESP points to interrupt frame, we're ready to go.
     iret
+
+
+// Define one interrupt handler for every vector (0 through 255). Each handler
+// is a call instruction to the following routine:
+//      * _prepare_stack_for_interrupt_entry, for handler for which the
+//      interrupt generates an error code.
+//      * _prepare_stack_for_interrupt_entry_no_error_code, for handlers for
+//      which the interrupt does not produce an error code and one should be
+//      added before jumping to the interrupt_entry routine.
+
+#define interrupt_handler_no_err_code(vector)                       ;\
+    .global interrupt_handler_ ## vector                            ;\
+    interrupt_handler_ ## vector :                                  ;\
+        call    _prepare_stack_for_interrupt_entry_no_error_code
+ 
+#define interrupt_handler_err_code(vector)          ;\
+    .global interrupt_handler_ ## vector            ;\
+    interrupt_handler_ ## vector :                  ;\
+        call    _prepare_stack_for_interrupt_entry
 
 interrupt_handler_no_err_code(0)
 interrupt_handler_no_err_code(1)
@@ -211,52 +329,224 @@ interrupt_handler_no_err_code(31)
 interrupt_handler_no_err_code(32)
 interrupt_handler_no_err_code(33)
 interrupt_handler_no_err_code(34)
+interrupt_handler_no_err_code(35)
+interrupt_handler_no_err_code(36)
+interrupt_handler_no_err_code(37)
+interrupt_handler_no_err_code(38)
+interrupt_handler_no_err_code(39)
+interrupt_handler_no_err_code(40)
+interrupt_handler_no_err_code(41)
+interrupt_handler_no_err_code(42)
+interrupt_handler_no_err_code(43)
+interrupt_handler_no_err_code(44)
+interrupt_handler_no_err_code(45)
+interrupt_handler_no_err_code(46)
+interrupt_handler_no_err_code(47)
+interrupt_handler_no_err_code(48)
+interrupt_handler_no_err_code(49)
+interrupt_handler_no_err_code(50)
+interrupt_handler_no_err_code(51)
+interrupt_handler_no_err_code(52)
+interrupt_handler_no_err_code(53)
+interrupt_handler_no_err_code(54)
+interrupt_handler_no_err_code(55)
+interrupt_handler_no_err_code(56)
+interrupt_handler_no_err_code(57)
+interrupt_handler_no_err_code(58)
+interrupt_handler_no_err_code(59)
+interrupt_handler_no_err_code(60)
+interrupt_handler_no_err_code(61)
+interrupt_handler_no_err_code(62)
+interrupt_handler_no_err_code(63)
+interrupt_handler_no_err_code(64)
+interrupt_handler_no_err_code(65)
+interrupt_handler_no_err_code(66)
+interrupt_handler_no_err_code(67)
+interrupt_handler_no_err_code(68)
+interrupt_handler_no_err_code(69)
+interrupt_handler_no_err_code(70)
+interrupt_handler_no_err_code(71)
+interrupt_handler_no_err_code(72)
+interrupt_handler_no_err_code(73)
+interrupt_handler_no_err_code(74)
+interrupt_handler_no_err_code(75)
+interrupt_handler_no_err_code(76)
+interrupt_handler_no_err_code(77)
+interrupt_handler_no_err_code(78)
+interrupt_handler_no_err_code(79)
+interrupt_handler_no_err_code(80)
+interrupt_handler_no_err_code(81)
+interrupt_handler_no_err_code(82)
+interrupt_handler_no_err_code(83)
+interrupt_handler_no_err_code(84)
+interrupt_handler_no_err_code(85)
+interrupt_handler_no_err_code(86)
+interrupt_handler_no_err_code(87)
+interrupt_handler_no_err_code(88)
+interrupt_handler_no_err_code(89)
+interrupt_handler_no_err_code(90)
+interrupt_handler_no_err_code(91)
+interrupt_handler_no_err_code(92)
+interrupt_handler_no_err_code(93)
+interrupt_handler_no_err_code(94)
+interrupt_handler_no_err_code(95)
+interrupt_handler_no_err_code(96)
+interrupt_handler_no_err_code(97)
+interrupt_handler_no_err_code(98)
+interrupt_handler_no_err_code(99)
+interrupt_handler_no_err_code(100)
+interrupt_handler_no_err_code(101)
+interrupt_handler_no_err_code(102)
+interrupt_handler_no_err_code(103)
+interrupt_handler_no_err_code(104)
+interrupt_handler_no_err_code(105)
+interrupt_handler_no_err_code(106)
+interrupt_handler_no_err_code(107)
+interrupt_handler_no_err_code(108)
+interrupt_handler_no_err_code(109)
+interrupt_handler_no_err_code(110)
+interrupt_handler_no_err_code(111)
+interrupt_handler_no_err_code(112)
+interrupt_handler_no_err_code(113)
+interrupt_handler_no_err_code(114)
+interrupt_handler_no_err_code(115)
+interrupt_handler_no_err_code(116)
+interrupt_handler_no_err_code(117)
+interrupt_handler_no_err_code(118)
+interrupt_handler_no_err_code(119)
+interrupt_handler_no_err_code(120)
+interrupt_handler_no_err_code(121)
+interrupt_handler_no_err_code(122)
+interrupt_handler_no_err_code(123)
+interrupt_handler_no_err_code(124)
+interrupt_handler_no_err_code(125)
+interrupt_handler_no_err_code(126)
+interrupt_handler_no_err_code(127)
 interrupt_handler_no_err_code(128)
-
-#define cond_ret_handler(vector)                                    ;\
-    cmp     $ ## vector, %eax                                       ;\
-    jne     not_eq_ ## vector                                       ;\
-    mov     $interrupt_handler_ ## vector, %eax   ;\
-    ret                                                             ;\
-not_eq_ ## vector :
-
-ASM_FUNC_DEF(get_interrupt_handler):
-    mov     0x4(%esp), %eax
-    cond_ret_handler(0)
-    cond_ret_handler(1)
-    cond_ret_handler(2)
-    cond_ret_handler(3)
-    cond_ret_handler(4)
-    cond_ret_handler(5)
-    cond_ret_handler(6)
-    cond_ret_handler(7)
-    cond_ret_handler(8)
-    cond_ret_handler(9)
-    cond_ret_handler(10)
-    cond_ret_handler(11)
-    cond_ret_handler(12)
-    cond_ret_handler(13)
-    cond_ret_handler(14)
-    cond_ret_handler(15)
-    cond_ret_handler(16)
-    cond_ret_handler(17)
-    cond_ret_handler(18)
-    cond_ret_handler(19)
-    cond_ret_handler(20)
-    cond_ret_handler(21)
-    cond_ret_handler(22)
-    cond_ret_handler(23)
-    cond_ret_handler(24)
-    cond_ret_handler(25)
-    cond_ret_handler(26)
-    cond_ret_handler(27)
-    cond_ret_handler(28)
-    cond_ret_handler(29)
-    cond_ret_handler(30)
-    cond_ret_handler(31)
-    cond_ret_handler(32)
-    cond_ret_handler(33)
-    cond_ret_handler(34)
-    cond_ret_handler(128)
-    mov     $0x0, %eax
-    ret
+interrupt_handler_no_err_code(129)
+interrupt_handler_no_err_code(130)
+interrupt_handler_no_err_code(131)
+interrupt_handler_no_err_code(132)
+interrupt_handler_no_err_code(133)
+interrupt_handler_no_err_code(134)
+interrupt_handler_no_err_code(135)
+interrupt_handler_no_err_code(136)
+interrupt_handler_no_err_code(137)
+interrupt_handler_no_err_code(138)
+interrupt_handler_no_err_code(139)
+interrupt_handler_no_err_code(140)
+interrupt_handler_no_err_code(141)
+interrupt_handler_no_err_code(142)
+interrupt_handler_no_err_code(143)
+interrupt_handler_no_err_code(144)
+interrupt_handler_no_err_code(145)
+interrupt_handler_no_err_code(146)
+interrupt_handler_no_err_code(147)
+interrupt_handler_no_err_code(148)
+interrupt_handler_no_err_code(149)
+interrupt_handler_no_err_code(150)
+interrupt_handler_no_err_code(151)
+interrupt_handler_no_err_code(152)
+interrupt_handler_no_err_code(153)
+interrupt_handler_no_err_code(154)
+interrupt_handler_no_err_code(155)
+interrupt_handler_no_err_code(156)
+interrupt_handler_no_err_code(157)
+interrupt_handler_no_err_code(158)
+interrupt_handler_no_err_code(159)
+interrupt_handler_no_err_code(160)
+interrupt_handler_no_err_code(161)
+interrupt_handler_no_err_code(162)
+interrupt_handler_no_err_code(163)
+interrupt_handler_no_err_code(164)
+interrupt_handler_no_err_code(165)
+interrupt_handler_no_err_code(166)
+interrupt_handler_no_err_code(167)
+interrupt_handler_no_err_code(168)
+interrupt_handler_no_err_code(169)
+interrupt_handler_no_err_code(170)
+interrupt_handler_no_err_code(171)
+interrupt_handler_no_err_code(172)
+interrupt_handler_no_err_code(173)
+interrupt_handler_no_err_code(174)
+interrupt_handler_no_err_code(175)
+interrupt_handler_no_err_code(176)
+interrupt_handler_no_err_code(177)
+interrupt_handler_no_err_code(178)
+interrupt_handler_no_err_code(179)
+interrupt_handler_no_err_code(180)
+interrupt_handler_no_err_code(181)
+interrupt_handler_no_err_code(182)
+interrupt_handler_no_err_code(183)
+interrupt_handler_no_err_code(184)
+interrupt_handler_no_err_code(185)
+interrupt_handler_no_err_code(186)
+interrupt_handler_no_err_code(187)
+interrupt_handler_no_err_code(188)
+interrupt_handler_no_err_code(189)
+interrupt_handler_no_err_code(190)
+interrupt_handler_no_err_code(191)
+interrupt_handler_no_err_code(192)
+interrupt_handler_no_err_code(193)
+interrupt_handler_no_err_code(194)
+interrupt_handler_no_err_code(195)
+interrupt_handler_no_err_code(196)
+interrupt_handler_no_err_code(197)
+interrupt_handler_no_err_code(198)
+interrupt_handler_no_err_code(199)
+interrupt_handler_no_err_code(200)
+interrupt_handler_no_err_code(201)
+interrupt_handler_no_err_code(202)
+interrupt_handler_no_err_code(203)
+interrupt_handler_no_err_code(204)
+interrupt_handler_no_err_code(205)
+interrupt_handler_no_err_code(206)
+interrupt_handler_no_err_code(207)
+interrupt_handler_no_err_code(208)
+interrupt_handler_no_err_code(209)
+interrupt_handler_no_err_code(210)
+interrupt_handler_no_err_code(211)
+interrupt_handler_no_err_code(212)
+interrupt_handler_no_err_code(213)
+interrupt_handler_no_err_code(214)
+interrupt_handler_no_err_code(215)
+interrupt_handler_no_err_code(216)
+interrupt_handler_no_err_code(217)
+interrupt_handler_no_err_code(218)
+interrupt_handler_no_err_code(219)
+interrupt_handler_no_err_code(220)
+interrupt_handler_no_err_code(221)
+interrupt_handler_no_err_code(222)
+interrupt_handler_no_err_code(223)
+interrupt_handler_no_err_code(224)
+interrupt_handler_no_err_code(225)
+interrupt_handler_no_err_code(226)
+interrupt_handler_no_err_code(227)
+interrupt_handler_no_err_code(228)
+interrupt_handler_no_err_code(229)
+interrupt_handler_no_err_code(230)
+interrupt_handler_no_err_code(231)
+interrupt_handler_no_err_code(232)
+interrupt_handler_no_err_code(233)
+interrupt_handler_no_err_code(234)
+interrupt_handler_no_err_code(235)
+interrupt_handler_no_err_code(236)
+interrupt_handler_no_err_code(237)
+interrupt_handler_no_err_code(238)
+interrupt_handler_no_err_code(239)
+interrupt_handler_no_err_code(240)
+interrupt_handler_no_err_code(241)
+interrupt_handler_no_err_code(242)
+interrupt_handler_no_err_code(243)
+interrupt_handler_no_err_code(244)
+interrupt_handler_no_err_code(245)
+interrupt_handler_no_err_code(246)
+interrupt_handler_no_err_code(247)
+interrupt_handler_no_err_code(248)
+interrupt_handler_no_err_code(249)
+interrupt_handler_no_err_code(250)
+interrupt_handler_no_err_code(251)
+interrupt_handler_no_err_code(252)
+interrupt_handler_no_err_code(253)
+interrupt_handler_no_err_code(254)
+interrupt_handler_no_err_code(255)

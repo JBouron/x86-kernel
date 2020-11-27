@@ -63,9 +63,10 @@ static void init_desc(union interrupt_descriptor_t * const desc,
     desc->present = 1;
 }
 
-// This is the IDT. For now it only contains the architectural
-// exception/interrupt handlers.
-#define IDT_SIZE 129
+// The IDT contains an entry for every vector. Each handler is only 5 bytes long
+// (a single call instruction) hence this is ok to have them even if not all of
+// them are used.
+#define IDT_SIZE 256
 union interrupt_descriptor_t IDT[IDT_SIZE] __attribute__((aligned (8)));
 
 // Array of global callback per vector.
@@ -76,7 +77,12 @@ DECLARE_SPINLOCK(GLOBAL_CALLBACKS_LOCK);
 DECLARE_PER_CPU(int_callback_t, local_callbacks[IDT_SIZE]);
 
 // Get the address/offset of the interrupt handler for a given vector.
-extern uint32_t get_interrupt_handler(uint8_t const vector);
+// @param vector: The vector of the handler to get.
+// @return: The virtual offset of the handler for vector `vector`.
+static uint32_t get_interrupt_handler(uint8_t const vector) {
+    extern uint8_t interrupt_handler_0;
+    return ((uint32_t)&interrupt_handler_0) + vector * 5;
+}
 
 // Save the register values of a process.
 // @param proc: The process for which the register values should be saved.
@@ -158,7 +164,6 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
     // the current one.
 
     uint8_t const vector = frame->vector;
-    ASSERT(vector < IDT_SIZE);
 
     // Check for local callback first.
     int_callback_t callback = this_cpu_var(local_callbacks)[vector];
@@ -234,10 +239,7 @@ void interrupt_init(void) {
     memzero(IDT, sizeof(IDT));
 
     // Fill each entry in the IDT with the corresponding interrupt_handler.
-    // FIXME: The value 33 is hardcoded. What we want here is to initialize all
-    // entry for which there is an handler available (for now this is up until
-    // 34 and 128 for syscalls).
-    for (uint8_t vector = 0; vector < 35; ++vector) {
+    for (uint16_t vector = 0; vector < IDT_SIZE; ++vector) {
         uint32_t const handler_offset = get_interrupt_handler(vector);
         ASSERT(handler_offset);
         init_desc(IDT + vector, handler_offset, kernel_code_selector(), 0);
@@ -294,8 +296,6 @@ void ap_interrupt_init(void) {
 static void register_callback(uint8_t const vector,
                               int_callback_t const callback,
                               bool const global) {
-    ASSERT(vector < IDT_SIZE);
-
     int_callback_t * const callbacks = global ?
         GLOBAL_CALLBACKS : this_cpu_var(local_callbacks);
 
