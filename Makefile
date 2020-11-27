@@ -35,6 +35,12 @@ _OBJ_FILES:=$(SOURCE_FILES:.c=.o) $(ASM_GCC_FILES:.S=.o)
 OBJ_FILES:=$(patsubst $(SRC_DIR)/%,$(BUILD_DIR)/%,$(_OBJ_FILES))
 
 .PHONY: clean build release debug
+
+# Get rid of builtin rules. For some reasons, when compiling for baremetal, make
+# tries to outsmart us with its builtin rules and tries to compile a .test.S
+# file only to fail spectacularly.
+.SUFFIXES:
+
 all: debug
 
 release: CONT_RULE = release_in_cont
