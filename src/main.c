@@ -108,8 +108,6 @@ void kernel_main(void) {
     init_final_gdt();
 
     // Setup the BSP's TSS.
-    extern uint8_t stack_top;
-    this_cpu_var(kernel_stack) = &stack_top;
     setup_tss();
 
     // Initialize LAPIC and IOAPIC.

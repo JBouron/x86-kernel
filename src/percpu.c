@@ -61,6 +61,9 @@ void init_bsp_boot_percpu(void) {
 
     // We can now use this_cpu_var().
     this_cpu_var(cpu_id) = cpu_apic_id();
+
+    extern uint8_t stack_top;
+    this_cpu_var(kernel_stack) = &stack_top;
 }
 
 #include <percpu.test>
