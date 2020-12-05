@@ -34,8 +34,7 @@ ASM_FUNC_DEF(read_eflags):
     ret
 
 ASM_FUNC_DEF(write_eflags):
-    mov     eax, [esp + 0x4]
-    push    eax
+    push    [esp + 0x4]
     popf
     ret
 
@@ -45,7 +44,7 @@ ASM_FUNC_DEF(lock_up):
     hlt
     // In case we ever wake up from the halt, jump to the beginning and go back
     // to locked up mode.
-    jmp     OFFSET FLAT : 0b
+    jmp     0b
 
 ASM_FUNC_DEF(has_cpuid):
     // From IA-32 manual:
@@ -56,7 +55,7 @@ ASM_FUNC_DEF(has_cpuid):
     // Invert the value of the ID bit in EFLAGS.
     xor     DWORD PTR [esp], 0x200000
     // Save value of EFLAGS with inverted ID bit.
-    mov     eax, [esp]
+    mov     edx, [esp]
     // Reset EFLAGS with the new value having the inverted ID bit.
     popf
     // Re-read EFLAGS.
@@ -64,15 +63,11 @@ ASM_FUNC_DEF(has_cpuid):
     // Compare with the saved value in %eax, if CPUID is supported then the
     // inversion of the ID bit is successful and the value of EFLAGS just read
     // is the same as the saved value in %eax.
-    cmp     eax, DWORD PTR [esp]
-    jne     different
-    // %eax and EFLAGS are the same, inversion was sucessful.
-    mov     eax, 0x1
-    jmp     end
-different:
-    // %eax and EFLAGS are different, inversion was not sucessful, return false.
-    mov     eax, 0x0
-end:
+    xor     eax, eax
+    mov     ecx, 1
+    cmp     edx, DWORD PTR [esp]
+    cmove   eax, ecx
+
     // Discard value in top of stack.
     add     esp, 0x4
     ret 
@@ -121,7 +116,8 @@ skip_null:
     // And we are done.
     // Restore EBX.
     pop     ebx
-    pop     ebp
+
+    leave
     ret
 
 //void cpuid(uint32_t i_eax, uint32_t *o_eax, uint32_t *o_ebx, uint32_t *o_ecx,
@@ -306,7 +302,7 @@ ASM_FUNC_DEF(cpu_set_cr3):
     jz      addr_is_aligned
     # The address passed as arg is not 4KiB aligned. Panic.
     # TODO: PANIC here.
-    int     3
+    int3
 addr_is_aligned:
     # Load the 20 MSb of the addr in the 20 MSb of CR3.
     mov     ecx, 0x00000FFF

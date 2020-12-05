@@ -48,29 +48,17 @@ ASM_FUNC_DEF(_save_registers):
     mov     ebx, eax
     add     ebx, [GS_OFF]
 
-    mov     ecx, gs
-    mov     [ebx], ecx
+#define save_seg_reg(reg)   ;\
+    mov     ecx, reg        ;\
+    mov     [ebx], reg      ;\
     add     ebx, 4
 
-    mov     ecx, fs
-    mov     [ebx], ecx
-    add     ebx, 4
-
-    mov     ecx, ds
-    mov     [ebx], ecx
-    add     ebx, 4
-
-    mov     ecx, ss
-    mov     [ebx], ecx
-    add     ebx, 4
-
-    mov     ecx, cs
-    mov     [ebx], ecx
-    add     ebx, 4
-
-    mov     ecx, es
-    mov     [ebx], ecx
-    add     ebx, 4
+    save_seg_reg(gs)
+    save_seg_reg(fs)
+    save_seg_reg(ds)
+    save_seg_reg(ss)
+    save_seg_reg(cs)
+    save_seg_reg(es)
 
     add     esp, 0x4
     popa

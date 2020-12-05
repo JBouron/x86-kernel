@@ -32,7 +32,7 @@ test:
 
     // CMPXCHG:
     // The lock is free, try to acquire it. 
-    mov     al, 0
+    xor     al, al
     mov     cl, 1
     lock cmpxchg    [edx], cl
     jnz     backoff

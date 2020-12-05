@@ -11,7 +11,7 @@ assert_bounds:
     jb      in_range
     # Index is outside of range. 
     # TODO: Call kernel panic from ASM.
-    int     3
+    int3
     # Not reachable
 in_range:
     ret
@@ -217,12 +217,10 @@ ASM_FUNC_DEF(bitmap_get_bit):
 
 //bool bitmap_is_full(struct bitmap const * const bitmap);
 ASM_FUNC_DEF(bitmap_is_full):
-    mov     eax, [esp + 0x4]
-    cmp     DWORD PTR [eax + 0x4], 0x0
-    je      full
-    mov     eax, 0x0
-    ret
-full:
-    mov     eax, 0x1
+    mov     edx, [esp + 0x4]
+    xor     eax, eax
+    mov     ecx, 1
+    cmp     DWORD PTR [edx + 0x4], 0x0
+    cmove   eax, ecx
     ret
 

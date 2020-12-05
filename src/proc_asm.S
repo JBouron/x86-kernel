@@ -40,8 +40,11 @@ ASM_FUNC_DEF(initial_ret_to_proc):
 
     test    dl, 1
     jz      prepare_iret_frame
-    // This is a kernel process, set the current ESP to the process' ESP so that
-    // we can build the iret frame in the process stack.
+
+    // This is a kernel process, therefore there won't be a change of stack when
+    // executing the IRET. We thus need to build the IRET frame directly on the
+    // process' stack. Set the current ESP to the process' ESP so that we can
+    // build the iret frame in the process stack.
     mov     ecx, ebx
     add     ecx, [ESP_OFF]
     mov     esp, [ecx]
@@ -55,13 +58,13 @@ prepare_iret_frame:
     //      EFLAGS
     //      CS
     //      EIP
-    // This part will be skipped for kernel procs.
     mov     ecx, ebx
     add     ecx, [SS_OFF]
     push    [ecx]
     mov     ecx, ebx
     add     ecx, [ESP_OFF]
     push    [ecx]
+
 prepare_iret_frame_skip_ss_esp:
     mov     ecx, ebx
     add     ecx, [EFLAGS_OFF]

@@ -43,7 +43,7 @@ ASM_FUNC_DEF(_start_kernel):
 
     # We setup an early boot stack pointer in physical addressing mode before
     # enabling paging.
-    mov     esp, OFFSET FLAT : stack_top
+    lea     esp, [stack_top]
     sub     esp, OFFSET FLAT : KERNEL_PHY_OFFSET
 
     # We can already enable the cache.
@@ -67,7 +67,7 @@ ASM_FUNC_DEF(_start_kernel):
 0:
     # Reset the stack after doing the far jump to higher half linear address.
     # This prevent any garbage.
-    mov     esp, OFFSET FLAT : stack_top
+    lea     esp, [stack_top]
     mov     ebp, esp
 
     # Initialize serial output as soon as we can, that is once we can access

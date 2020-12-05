@@ -18,9 +18,10 @@ ASM_FUNC_DEF(atomic_fetch_and_add):
 
 //bool atomic_dec_and_test(atomic_t * const atomic);
 ASM_FUNC_DEF(atomic_dec_and_test):
-    mov     eax, [esp + 4]
-    lock dec    DWORD PTR [eax]
-    mov     eax, 0
+    mov     edx, [esp + 4]
+    xor     eax, eax
     mov     ecx, 1
+
+    lock dec    DWORD PTR [edx]
     cmovz   eax, ecx
     ret
