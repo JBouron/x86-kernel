@@ -1,4 +1,8 @@
 #include <macro.h>
+
+# Intel syntax >> AT&T syntax. Fight me.
+.intel_syntax   noprefix
+
 .set ALIGN,    1 << 0             # Align loaded modules on page boundaries.
 .set MEMINFO,  1 << 1             # Provide memory map (bit 6 is deprecated).
 .set FLAGS,    ALIGN | MEMINFO
@@ -39,21 +43,21 @@ ASM_FUNC_DEF(_start_kernel):
 
     # We setup an early boot stack pointer in physical addressing mode before
     # enabling paging.
-    mov     $(stack_top), %esp
-    sub     $KERNEL_PHY_OFFSET, %esp
+    mov     esp, OFFSET FLAT : stack_top
+    sub     esp, OFFSET FLAT : KERNEL_PHY_OFFSET
 
     # We can already enable the cache.
     call    cpu_enable_cache
 
     # Initialize multiboot.
     # EBX contains the physical address of the multiboot header.
-    push    %ebx
+    push    ebx
     call    init_multiboot
 
     # Even though the multiboot compliant bootloader has created flat segments
     # for us, it is recommended that the OS sets up its own GDT. Do that now
     # before entering the kernel.
-    push    $0f
+    push    OFFSET FLAT : 0f
     call    init_segmentation
 
     # NOTE: init_segmentation does not return and will far jump into 0f in
@@ -63,8 +67,8 @@ ASM_FUNC_DEF(_start_kernel):
 0:
     # Reset the stack after doing the far jump to higher half linear address.
     # This prevent any garbage.
-    mov     $stack_top, %esp
-    mov     %esp, %ebp
+    mov     esp, OFFSET FLAT : stack_top
+    mov     ebp, esp
 
     # Initialize serial output as soon as we can, that is once we can access
     # higher half logical addresses thanks to the GDT.
@@ -72,21 +76,21 @@ ASM_FUNC_DEF(_start_kernel):
     # Initialize output depending on the config.
 #ifdef VGA
     call    vga_init
-    lea     VGA_STREAM, %eax
+    lea     eax, [VGA_STREAM]
 #else
 #ifdef SERIAL
     call    serial_init
-    lea     SERIAL_STREAM, %eax
+    lea     eax, [SERIAL_STREAM]
 #else
 #error No output medium specified at compilation time.
 #endif
 #endif
 
     # Init TTY.
-    push    %eax
-    pushl   $0x0
+    push    eax
+    push    0x0
     call    tty_init
-    add     $0x8, %esp
+    add     esp, 0x8
 
     # Segments have been setup, including the percpu segment for the BSP. We can
     # now setup the BSP's percpu variables.
@@ -116,7 +120,6 @@ ASM_FUNC_DEF(_start_kernel):
     jmp     1b
 
 
-.intel_syntax noprefix
 .code16
 # The align 4KiB is not necessary here, as this code is going to be copied to a
 # physical frame under 1MiB anyway. However, it makes debugging much more easier

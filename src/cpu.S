@@ -1,9 +1,10 @@
 #include <macro.h>
+.intel_syntax   noprefix
 
 // uint64_t read_msr(uint8_t const msr_num);
 ASM_FUNC_DEF(read_msr):
     // rdmsr gets the MSR number from %ecx and returns the content in %edx:%eax.
-    mov     0x4(%esp), %ecx
+    mov     ecx, [esp + 0x4] 
     rdmsr
     // Since %edx:%eax already contain the MSR value, no need to do anything.
     ret
@@ -15,9 +16,9 @@ ASM_FUNC_DEF(write_msr):
     //  |   val low    | + 0x8
     //  |   msr_num    | + 0x4
     //  |   ret addr   | <- esp
-    mov     0x4(%esp), %ecx
-    mov     0xC(%esp), %edx
-    mov     0x8(%esp), %eax
+    mov     ecx, [esp + 0x4]
+    mov     edx, [esp + 0xC]
+    mov     eax, [esp + 0x8]
     // WRMSR writes %edx:%eax into MSR %ecx.
     wrmsr
     ret
@@ -29,12 +30,12 @@ ASM_FUNC_DEF(read_tsc):
 
 ASM_FUNC_DEF(read_eflags):
     pushf
-    pop     %eax
+    pop     eax
     ret
 
 ASM_FUNC_DEF(write_eflags):
-    mov     0x4(%esp), %eax
-    push    %eax
+    mov     eax, [esp + 0x4]
+    push    eax
     popf
     ret
 
@@ -44,83 +45,83 @@ ASM_FUNC_DEF(lock_up):
     hlt
     // In case we ever wake up from the halt, jump to the beginning and go back
     // to locked up mode.
-    jmp     0b
+    jmp     OFFSET FLAT : 0b
 
 ASM_FUNC_DEF(has_cpuid):
     // From IA-32 manual:
     // "The ID flag (bit 21) in the EFLAGS register indicates support for the
     // CPUID instruction. If a software procedure can set and clear this flag,
     // the processor executing the procedure supports the CPUID instruction."
-    pushfl
+    pushf
     // Invert the value of the ID bit in EFLAGS.
-    xorl      $0x200000, (%esp)
+    xor     DWORD PTR [esp], 0x200000
     // Save value of EFLAGS with inverted ID bit.
-    mov     (%esp), %eax
+    mov     eax, [esp]
     // Reset EFLAGS with the new value having the inverted ID bit.
-    popfl
+    popf
     // Re-read EFLAGS.
-    pushfl
+    pushf
     // Compare with the saved value in %eax, if CPUID is supported then the
     // inversion of the ID bit is successful and the value of EFLAGS just read
     // is the same as the saved value in %eax.
-    cmp     (%esp), %eax
+    cmp     eax, DWORD PTR [esp]
     jne     different
     // %eax and EFLAGS are the same, inversion was sucessful.
-    mov     $1, %eax
+    mov     eax, 0x1
     jmp     end
 different:
     // %eax and EFLAGS are different, inversion was not sucessful, return false.
-    mov     $0, %eax
+    mov     eax, 0x0
 end:
     // Discard value in top of stack.
-    add     $0x4, %esp
+    add     esp, 0x4
     ret 
 
 // void cpuid_ecx(uint32_t i_eax, uint32_t i_ecx,
 //                uint32_t *o_eax, uint32_t *o_ebx, uint32_t *o_ecx,
 //                uint32_t *o_edx);
 ASM_FUNC_DEF(cpuid_ecx):
-    push    %ebp
-    mov     %esp, %ebp
+    push    ebp
+    mov     ebp, esp
     
     // Write the value of EAX and ECX.
-    mov     0x8(%esp), %eax
-    mov     0xC(%esp), %ecx
+    mov     eax, [esp + 0x8]
+    mov     ecx, [esp + 0xC]
 
     // Exectute CPUID. Save %ebx into the stack before hand.
-    push    %ebx 
+    push    ebx 
     cpuid
 
     // Push the output of CPUID onto the stack.
-    push    %eax
-    push    %ebx
-    push    %ecx
-    push    %edx
+    push    eax
+    push    ebx
+    push    ecx
+    push    edx
 
     // For any non null destination write the value of the corresponding
     // register.
     // Make %eax point onto the last argument of the function ie. o_edx.
-    lea     28(%ebp), %eax
+    lea     eax, [ebp + 28]
 loop_start:
-    mov     (%eax), %ecx
-    cmp     $0, %ecx
+    mov     ecx, [eax]
+    cmp     ecx, 0x0
     je      skip_null
     // The pointer is non null, store the value.
-    mov     (%esp), %edx
-    mov     %edx, (%ecx)
+    mov     edx, [esp]
+    mov     [ecx], edx
 skip_null:
     // Remove output value from the stack.
-    add     $0x4, %esp
+    add     esp, 0x4
     // Go to next address in the argument list.
-    sub     $0x4, %eax
-    lea     0xC(%ebp), %ecx
-    cmp     %eax, %ecx
+    sub     eax, 0x4
+    lea     ecx, [ebp + 0xC]
+    cmp     ecx, eax
     jne     loop_start
 
     // And we are done.
     // Restore EBX.
-    pop     %ebx
-    pop     %ebp
+    pop     ebx
+    pop     ebp
     ret
 
 //void cpuid(uint32_t i_eax, uint32_t *o_eax, uint32_t *o_ebx, uint32_t *o_ecx,
@@ -130,58 +131,58 @@ ASM_FUNC_DEF(cpuid):
     // cpuid_ecx.
     // Make %eax point to the last argument, that is the higher argument in the
     // stack. There are 5 args in cpuid(), hence this is %esp + 4 * 5.
-    lea     20(%esp), %eax
+    lea     eax, [esp + 0x14]
     // Now push all the arguments necessary to call cpuid_eax(). Starting will
     // the four output addresses.
-    pushl   (%eax)
-    pushl   -0x4(%eax)
-    pushl   -0x8(%eax)
-    pushl   -0xC(%eax)
+    push    [eax]
+    push    [eax - 0x4]
+    push    [eax - 0x8]
+    push    [eax - 0xC]
     // The value to be used for ECX, 0 in this case since it is not given.
-    pushl   $0 
+    push    0 
     // And the value of EAX.
-    push    -0x10(%eax)
+    push    [eax - 0x10]
     // All arguments are pushed, we can call cpuid_eax.
     call    cpuid_ecx
-    add     $24, %esp
+    add     esp, 0x18
     ret
 
 //void cpu_outb(uint16_t const port, uint8_t const byte);
 ASM_FUNC_DEF(cpu_outb):
     // Output port must be in DX, while the value in AL.
-    mov     0x4(%esp), %dx
-    mov     0x8(%esp), %al
-    outb    %al, %dx
+    mov     dx, [esp + 0x4]
+    mov     al, [esp + 0x8]
+    out     dx, al
     ret
 
 //void cpu_outw(uint16_t const port, uint16_t const byte);
 ASM_FUNC_DEF(cpu_outw):
     // Output port must be in DX, while the value in AX.
-    mov     0x4(%esp), %dx
-    mov     0x8(%esp), %ax
-    outw    %ax, %dx
+    mov     dx, [esp + 0x4]
+    mov     ax, [esp + 0x8]
+    out     dx, ax
     ret
 
 //uint8_t cpu_inb(uint16_t const port);
 ASM_FUNC_DEF(cpu_inb):
     // Port addr must be in DX.
-    mov     0x4(%esp), %dx
-    inb     %dx, %al
+    mov     dx, [esp + 0x4]
+    in      al, dx
     ret
 
 //void cpu_lgdt(struct gdt_desc const * const table_desc);
 ASM_FUNC_DEF(cpu_lgdt):
-    mov     0x4(%esp), %eax
+    mov     eax, [esp + 0x4]
     // The following is not really clear. LGDT should take a memory address as
     // operand, but we need to dereference this address (otherwise AS
     // complains).
-    lgdt    (%eax)
+    lgdt    [eax]
     ret
 
 //void cpu_sgdt(struct gdt_desc * const dest);
 ASM_FUNC_DEF(cpu_sgdt):
-    mov     0x4(%esp), %eax
-    sgdt    (%eax)
+    mov     eax, [esp + 0x4]
+    sgdt    [eax]
     ret
 
 //void cpu_set_cs(union segment_selector_t const * const sel);
@@ -191,24 +192,24 @@ ASM_FUNC_DEF(cpu_set_cs):
     // Let EAX be the code segment and ECX the target.
 
     // Read the value of the segment selector into EAX.
-    mov     0x4(%esp), %eax
-    mov     (%eax), %ax
+    mov     eax, [esp + 0x4]
+    mov     ax, [eax]
     // We can already push EAX.
-    push    %eax
+    push    eax
 
-    push    $target
-    ljmp    *(%esp)
+    push    OFFSET FLAT : target
+    jmp     FAR PTR [esp]
 
 target:
-    add     $0x8, %esp
+    add     esp, 0x8
     ret
 
 
 // Macro for the cpu_set_{d, e, f, g, s}c().
 #define set_segment_register(reg)   ;\
-    mov     0x4(%esp), %eax         ;\
-    mov     (%eax), %ax             ;\
-    mov     %ax, reg                ;\
+    mov     eax, [esp + 0x4]        ;\
+    mov     ax, [eax]               ;\
+    mov     reg, ax                 ;\
     ret
 
 //void cpu_set_ds(union segment_selector_t const * const sel);
@@ -232,7 +233,7 @@ ASM_FUNC_DEF(cpu_set_ss):
     set_segment_register(%ss)
 
 #define read_segment_register(reg) ;\
-    mov reg, %eax                  ;\
+    mov     eax, reg                  ;\
     ret
 
 //uint16_t __cpu_read_cs(void);
@@ -261,8 +262,8 @@ ASM_FUNC_DEF(__cpu_read_ss):
 
 //void cpu_set_interrupt_flag(bool const enable);
 ASM_FUNC_DEF(cpu_set_interrupt_flag):
-    mov     0x4(%esp), %eax
-    cmp     $0x1, %eax
+    mov     eax, [esp + 0x4]
+    cmp     eax, 1
     jne     disable
     sti
     ret
@@ -272,17 +273,17 @@ disable:
 
 //void cpu_lidt(struct idt_desc const * const idt_desc);
 ASM_FUNC_DEF(cpu_lidt):
-    mov     0x4(%esp), %eax
+    mov     eax, [esp + 0x4]
     // The following is not really clear. LIDT should take a memory address as
     // operand, but we need to dereference this address (otherwise AS
     // complains).
-    lidt    (%eax)
+    lidt    [eax]
     ret
 
 //void cpu_sidt(struct idt_desc * const dest);
 ASM_FUNC_DEF(cpu_sidt):
-    mov     0x4(%esp), %eax
-    sidt    (%eax)
+    mov     eax, [esp + 0x4]
+    sidt    [eax]
     ret
 
 // void cpu_mfence(void);
@@ -293,31 +294,31 @@ ASM_FUNC_DEF(cpu_mfence):
 //bool cpu_paging_enabled(void);
 ASM_FUNC_DEF(cpu_paging_enabled):
     # PG bit (bit 31) of CR0 indicates whether or not paging is enabled.
-    mov     %cr0, %eax
-    shr     $31, %eax
+    mov     eax, cr0
+    shr     eax, 31
     ret
 
 //void cpu_set_cr3(void const * const page_dir_addr);
 ASM_FUNC_DEF(cpu_set_cr3):
-    mov     0x4(%esp), %eax
-    mov     %eax, %ecx
-    shl     $20, %ecx
+    mov     eax, [esp + 0x4]
+    mov     ecx, eax
+    shl     ecx, 20
     jz      addr_is_aligned
     # The address passed as arg is not 4KiB aligned. Panic.
     # TODO: PANIC here.
-    int     $3
+    int     3
 addr_is_aligned:
     # Load the 20 MSb of the addr in the 20 MSb of CR3.
-    mov     $0x00000FFF, %ecx
-    mov     %cr3, %edx
-    and     %edx, %ecx
-    or      %ecx, %eax
-    mov     %eax, %cr3
+    mov     ecx, 0x00000FFF
+    mov     edx, cr3
+    and     ecx, edx
+    or      eax, ecx
+    mov     cr3, eax
     ret
 
 //uint32_t cpu_read_cr3(void);
 ASM_FUNC_DEF(cpu_read_cr3):
-    mov     %cr3, %eax
+    mov     eax, cr3
     ret
 
 // Helper routine writting the correct bits in the correct control registers to
@@ -325,10 +326,10 @@ ASM_FUNC_DEF(cpu_read_cr3):
 // mapped kernel, this is left to the callee.
 ASM_FUNC_DEF(cpu_enable_paging_bits):
     # Enable PG and WP bits.
-    mov     $0x80010000, %eax
-    mov     %cr0, %ecx
-    or      %ecx, %eax
-    mov     %eax, %cr0
+    mov     eax, 0x80010000
+    mov     ecx, cr0
+    or      eax, ecx
+    mov     cr0, eax
     ret
 
 //void cpu_enable_paging(void);
@@ -341,19 +342,19 @@ ASM_FUNC_DEF(cpu_enable_paging):
 
 //void cpu_invalidate_tlb(void);
 ASM_FUNC_DEF(cpu_invalidate_tlb):
-    mov     %cr3, %eax
-    mov     %eax, %cr3
+    mov     eax, cr3
+    mov     cr3, eax
     ret
 
 //void *cpu_read_cr2(void);
 ASM_FUNC_DEF(cpu_read_cr2):
-    mov     %cr2, %eax
+    mov     eax, cr2
     ret
 ASM_FUNC_DEF(cpu_read_cr0):
-    mov     %cr0, %eax
+    mov     eax, cr0
     ret
 ASM_FUNC_DEF(cpu_read_cr4):
-    mov     %cr4, %eax
+    mov     eax, cr4
     ret
 
 //void cpu_halt(void);
@@ -371,10 +372,10 @@ ASM_FUNC_DEF(cpu_set_interrupt_flag_and_halt):
 ASM_FUNC_DEF(cpu_enable_cache):
     // Cache is enabled by clearing the CD (bit 30) and NW (bit 29) of the CR0
     // register.
-    mov     %cr0, %eax
-    and     $~(1 << 29), %eax
-    and     $~(1 << 30), %eax
-    mov     %eax, %cr0
+    mov     eax, cr0
+    and     eax, ~(1 << 29)
+    and     eax, ~(1 << 30)
+    mov     cr0, eax
     ret
 
 //void cpu_pause(void);
@@ -386,36 +387,36 @@ ASM_FUNC_DEF(cpu_pause):
 ASM_FUNC_DEF(cpu_read_esp):
     # This function returns the ESP at the time of the call, hence skip the
     # return value in the stack.
-    lea     0x4(%esp), %eax
+    lea     eax, [esp + 0x4]
     ret
 
 //uint8_t cpu_apic_id(void);
 ASM_FUNC_DEF(cpu_apic_id):
-    push    %ebx
-    mov     $0x1, %eax
+    push    ebx
+    mov     eax, 1
     # Getting the APIC ID is perfomed by executing cpuid with EAX = 1. The
     # result is encoded in the bits 31:24 of EBX.
     cpuid
-    shr     $24, %ebx
-    mov     %ebx, %eax
-    pop     %ebx
+    shr     ebx, 24
+    mov     eax, ebx
+    pop     ebx
     ret
 
 
 //bool interrupts_enabled(void);
 ASM_FUNC_DEF(interrupts_enabled):
     pushf
-    pop     %eax
-    and     $(1 << 9), %eax
-    shr     $9, %eax
+    pop     eax
+    and     eax, (1 << 9)
+    shr     eax, 9
     ret
 
 //void cpu_ltr(union segment_selector_t const segment_sel);
 ASM_FUNC_DEF(cpu_ltr):
-    mov     0x4(%esp), %eax
-    ltr     %ax
+    mov     eax, [esp + 0x4]
+    ltr     ax
     ret
 
 ASM_FUNC_DEF(cpu_read_eip):
-    mov     (%esp), %eax
+    mov     eax, [esp]
     ret

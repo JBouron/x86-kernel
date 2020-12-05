@@ -1,4 +1,5 @@
 #include <macro.h>
+.intel_syntax   noprefix
 
 //void initial_ret_to_proc(struct proc * const proc);
 ASM_FUNC_DEF(initial_ret_to_proc):
@@ -24,26 +25,26 @@ ASM_FUNC_DEF(initial_ret_to_proc):
     // kernel segments which are already loaded on the cpu at this point.
 
     // EAX = pointer to the struct proc.
-    mov     0x4(%esp), %eax
+    mov     eax, [esp + 0x4]
 
     // EBX = pointer to struct register_save_area.
-    mov     %eax, %ebx
-    add     REGISTERS_SAVE_OFFSET, %ebx
-    mov     (%ebx), %ebx
+    mov     ebx, eax
+    add     ebx, [REGISTERS_SAVE_OFFSET]
+    mov     ebx, [ebx]
 
     // Check if this is a kernel process.
     // DL == proc->is_kernel_proc.
-    mov     %eax, %edx
-    add     IS_KPROC_OFFSET, %edx 
-    mov     (%edx), %dl
+    mov     edx, eax
+    add     edx, [IS_KPROC_OFFSET]
+    mov     dl, [edx]
 
-    test    $1, %dl
+    test    dl, 1
     jz      prepare_iret_frame
     // This is a kernel process, set the current ESP to the process' ESP so that
     // we can build the iret frame in the process stack.
-    mov     %ebx, %ecx
-    add     ESP_OFF, %ecx
-    mov     (%ecx), %esp
+    mov     ecx, ebx
+    add     ecx, [ESP_OFF]
+    mov     esp, [ecx]
     jmp     prepare_iret_frame_skip_ss_esp
 
 prepare_iret_frame:
@@ -55,77 +56,77 @@ prepare_iret_frame:
     //      CS
     //      EIP
     // This part will be skipped for kernel procs.
-    mov     %ebx, %ecx
-    add     SS_OFF, %ecx
-    pushl   (%ecx)
-    mov     %ebx, %ecx
-    add     ESP_OFF, %ecx
-    pushl   (%ecx)
+    mov     ecx, ebx
+    add     ecx, [SS_OFF]
+    push    [ecx]
+    mov     ecx, ebx
+    add     ecx, [ESP_OFF]
+    push    [ecx]
 prepare_iret_frame_skip_ss_esp:
-    mov     %ebx, %ecx
-    add     EFLAGS_OFF, %ecx
-    pushl   (%ecx)
-    mov     %ebx, %ecx
-    add     CS_OFF, %ecx
-    pushl   (%ecx)
-    mov     %ebx, %ecx
-    add     EIP_OFF, %ecx
-    pushl   (%ecx)
+    mov     ecx, ebx
+    add     ecx, [EFLAGS_OFF]
+    push    [ecx]
+    mov     ecx, ebx
+    add     ecx, [CS_OFF]
+    push    [ecx]
+    mov     ecx, ebx
+    add     ecx, [EIP_OFF]
+    push    [ecx]
 
-    test    $1, %dl
+    test    dl, 1
     // Skip restore of segment registers for kernel procs.
     jnz     restore_general_purpose_regs
 
     // We can now restore the register values.
     // Start with the segment registers. CS and SS are taken care of by the
     // iret. DS needs to be changed last to avoid a #GP.
-    mov     %ebx, %ecx
-    add     GS_OFF, %ecx
-    mov     (%ecx), %ecx
-    mov     %cx, %gs
+    mov     ecx, ebx
+    add     ecx, [GS_OFF]
+    mov     ecx, [ecx]
+    mov     gs, cx
     // No access to percpu variables under this line.
 
-    mov     %ebx, %ecx
-    add     FS_OFF, %ecx
-    mov     (%ecx), %ecx
-    mov     %cx, %fs
+    mov     ecx, ebx
+    add     ecx, [FS_OFF]
+    mov     ecx, [ecx]
+    mov     fs, cx
 
-    mov     %ebx, %ecx
-    add     ES_OFF, %ecx
-    mov     (%ecx), %ecx
-    mov     %cx, %es
+    mov     ecx, ebx
+    add     ecx, [ES_OFF]
+    mov     ecx, [ecx]
+    mov     es, cx
 
 restore_general_purpose_regs:
     // Copy the saved general purpose register values onto the stack so that we
     // can use a popa to restore them all at once.
     // The general purpose registers are in the first 32 bytes of the struct
     // register_save_area.
-    mov     $0x20, %ecx
+    mov     ecx, 0x20
     // We need to copy in reverse to make sure the order stays the same in the
     // stack.
     std
     // Make space on the stack to contain the saved registers.
-    sub     %ecx, %esp
+    sub     esp, ecx
     // ESI = Source for copy, since we are doing decrement, ESI should point to
     // the end of the struct proc_regs.
-    mov     %ebx, %esi
-    add     %ecx, %esi
-    sub     $4, %esi
+    mov     esi, ebx
+    add     esi, ecx
+    sub     esi, 4
     // EDI = Destination for copy, because we are doing decrements EDI should
     // point to the top of the area that will contain the data.
-    mov     %esp, %edi
-    add     %ecx, %edi
-    sub     $4, %edi
+    mov     edi, esp
+    add     edi, ecx
+    sub     edi, 4
 
-    mov     $8, %ecx
-    rep     movsl
+    mov     ecx, 8
+    rep     movsd
 
     // The top of the stack now contains the general purpose reg values. We are
     // not going to use DS anymore we can now restore it.
-    mov     %ebx, %ecx
-    add     DS_OFF, %ecx
-    mov     (%ecx), %ecx
-    mov     %cx, %ds
+    mov     ecx, ebx
+    add     ecx, [DS_OFF]
+    mov     ecx, [ecx]
+    mov     ds, cx
     // No access to DS under this line.
 
     // Restore general purpose reg and iret to user-space.

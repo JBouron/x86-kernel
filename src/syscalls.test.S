@@ -1,33 +1,34 @@
 #include <macro.h>
+.intel_syntax   noprefix
 
 //void simple_syscall_test_code(void * unused);
 ASM_FUNC_DEF(simple_syscall_test_code):
 .global simple_syscall_test_code_start
 simple_syscall_test_code_start:
     rdtsc
-    mov     %eax, %ebx
+    mov     ebx, eax
 
     rdtsc
-    mov     %eax, %ecx
+    mov     ecx, eax
 
     rdtsc
-    mov     %eax, %edx
+    mov     edx, eax
 
     rdtsc
-    mov     %eax, %esi
+    mov     esi, eax
 
     rdtsc
-    mov     %eax, %edi
+    mov     edi, eax
 
     rdtsc
-    mov     %eax, %ebp
+    mov     ebp, eax
 
-    mov     $0x0, %eax 
-    int     $0x80
+    mov     eax, 0
+    int     0x80
 
-    mov     %eax, %ebx
-    mov     $0x0, %eax
-    int     $0x80
+    mov     ebx, eax
+    mov     eax, 0
+    int     0x80
 dead:
     jmp     dead
 .global simple_syscall_test_code_end
@@ -49,21 +50,21 @@ Lsecond:
 // on the stack like a regular function.
 // This function returns the file descriptor.
 Lcall_open:
-    mov     0x4(%esp), %ebx
-    mov     $0x2, %eax
-    int     $0x80
+    mov     ebx, [esp + 0x4]
+    mov     eax, 0x2
+    int     0x80
     // EAX already contains the file descriptor.
     ret
 
 Lstart:
     // Open first file.
-    mov     $Lfirst, %eax
-    push    %eax
+    mov     eax, OFFSET FLAT : Lfirst
+    push    eax
     call    Lcall_open
 
     // Open second file.
-    mov     $Lsecond, %eax
-    push    %eax
+    mov     eax, OFFSET FLAT : Lsecond
+    push    eax
     call    Lcall_open
 
 Ldead:
@@ -89,39 +90,39 @@ rstc_filename:
 // on the stack like a regular function.
 // This function returns the file descriptor.
 rstc_call_open:
-    mov     0x4(%esp), %ebx
-    mov     $0x2, %eax
-    int     $0x80
+    mov     ebx, [esp + 0x4]
+    mov     eax, 0x2
+    int     0x80
     // EAX already contains the file descriptor.
     ret
 
 rstc_call_read:
-    mov     0x4(%esp), %ebx
-    mov     0x8(%esp), %ecx
-    mov     0xC(%esp), %edx
-    mov     $0x3, %eax
-    int     $0x80
+    mov     ebx, [esp + 0x4]
+    mov     ecx, [esp + 0x8]
+    mov     edx, [esp + 0xC]
+    mov     eax, 0x3
+    int     0x80
     ret
 
 rstc_start:
     // Open file.
-    mov     $rstc_filename, %eax
-    push    %eax
+    mov     eax, OFFSET FLAT : rstc_filename
+    push    eax
     call    rstc_call_open
     // EAX = fd
 
     // Make space on the stack to read into.
-    sub     $BUF_SIZE, %esp
+    sub     esp, BUF_SIZE
     // ECX = pointer to buffer.
-    mov     %esp, %ecx
+    mov     ecx, esp
 
     // Read from the file until we cannot read anymore.
-    pushl   $BUF_SIZE
-    push    %ecx
-    push    %eax
+    push    BUF_SIZE
+    push    ecx
+    push    eax
 rstc_read_loop:
     call    rstc_call_read
-    test    %eax, %eax
+    test    eax, eax
     jnz     rstc_read_loop
 
 rstc_dead:
@@ -166,37 +167,37 @@ wstc_buffer_end:
 // on the stack like a regular function.
 // This function returns the file descriptor.
 wstc_call_open:
-    mov     0x4(%esp), %ebx
-    mov     $0x2, %eax
-    int     $0x80
+    mov     ebx, [esp + 0x4]
+    mov     eax, 0x2
+    int     0x80
     // EAX already contains the file descriptor.
     ret
 
 wstc_call_write:
-    mov     0x4(%esp), %ebx
-    mov     0x8(%esp), %ecx
-    mov     0xC(%esp), %edx
-    mov     $0x5, %eax
-    int     $0x80
+    mov     ebx, [esp + 0x4]
+    mov     ecx, [esp + 0x8]
+    mov     edx, [esp + 0xC]
+    mov     eax, 0x5
+    int     0x80
     ret
 
 wstc_start:
     // Open file.
-    mov     $wstc_filename, %eax
-    push    %eax
+    mov     eax, OFFSET FLAT : wstc_filename
+    push    eax
     call    wstc_call_open
     // EAX = fd
     // ECX = buffer size
-    mov     $wstc_buffer_end, %ecx
-    sub     $wstc_buffer, %ecx
+    mov     ecx, OFFSET FLAT : wstc_buffer_end
+    sub     ecx, OFFSET FLAT : wstc_buffer
 
     // Write to the file until we cannot write anymore.
-    push    %ecx
-    pushl   $wstc_buffer
-    push    %eax
+    push    ecx
+    push    OFFSET FLAT : wstc_buffer
+    push    eax
 wstc_write_loop:
     call    wstc_call_write
-    test    %eax, %eax
+    test    eax, eax
     jnz     wstc_write_loop
 
 wstc_dead:
@@ -209,8 +210,8 @@ write_syscall_test_code_end:
 ASM_FUNC_DEF(getpid_syscall_test_code):
 .global getpid_syscall_test_code_start
 getpid_syscall_test_code_start:
-    mov     $0x4, %eax
-    int     $0x80
+    mov     eax, 0x4
+    int     0x80
 gpst_dead:
     jmp     gpst_dead
 .global getpid_syscall_test_code_end

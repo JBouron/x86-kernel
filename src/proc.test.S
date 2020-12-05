@@ -1,4 +1,5 @@
 #include <macro.h>
+.intel_syntax   noprefix
 
 ASM_FUNC_DEF(privileged_instr_in_ring3_code):
 .global privileged_instr_in_ring3_code_start
@@ -14,115 +15,115 @@ register_saving_ring3_int_code_start:
     // Make space on the stack to contain the expected register values twice:
     //  - Once for the values before the interrupt.
     //  - Second one for the values after the interrupt.
-    mov     $64, %ecx
-    shl     $1, %ecx
-    sub     %ecx, %esp
+    mov     ecx, 64
+    shl     ecx, 1
+    sub     esp, ecx
 
     // Zero out the allocated space.
-    mov     %esp, %edi
+    mov     edi, esp
     cld
-    mov     $0x0, %al
+    mov     al, 0
     rep     stosb
 
     rdtsc
-    mov     %eax, %ecx
+    mov     ecx, eax
 
     rdtsc
-    mov     %eax, %esi
+    mov     esi, eax
 
     rdtsc
-    mov     %eax, %edi
+    mov     edi, eax
 
     rdtsc
-    mov     %eax, %edx
+    mov     edx, eax
 
-    mov     $0xAAAAAAAA, %eax
-    mov     $0xBBBBBBBB, %ebx
+    mov     eax, 0xAAAAAAAA
+    mov     ebx, 0xBBBBBBBB
 
-    mov     %esp, %eax
-    add     $64, %eax
-    movl    %edi, (%eax)
-    movl    %esi, 0x4(%eax)
-    movl    %ebp, 0x8(%eax) 
-    movl    %ebx, 0x10(%eax) 
-    movl    %edx, 0x14(%eax) 
-    movl    %ecx, 0x18(%eax) 
-    movl    $0xAAAAAAAA, 0x1C(%eax) 
+    mov     eax, esp
+    add     eax, 64
+    mov     [eax + 0x00], edi
+    mov     [eax + 0x04], esi
+    mov     [eax + 0x08], ebp
+    mov     [eax + 0x10], ebx
+    mov     [eax + 0x14], edx
+    mov     [eax + 0x18], ecx
+    mov     DWORD PTR [eax + 0x1C], 0xAAAAAAAA
     pushf
-    movl    (%esp), %ebx
-    movl    %ebx, 0x20(%eax)
-    movl    %esp, 0xC(%eax) 
-    movl    $exp_eip, 0x24(%eax)
-    movl    %gs, %ebx
-    movl    %ebx, 0x28(%eax)
-    movl    %fs, %ebx
-    movl    %ebx, 0x2C(%eax)
-    movl    %ds, %ebx
-    movl    %ebx, 0x30(%eax)
-    movl    %ss, %ebx
-    movl    %ebx, 0x34(%eax)
-    movl    %cs, %ebx
-    movl    %ebx, 0x38(%eax)
-    movl    %es, %ebx
-    movl    %ebx, 0x3C(%eax)
+    mov     ebx, [esp]
+    mov     [eax + 0x20], ebx
+    mov     [eax + 0x0C], esp
+    mov     DWORD PTR [eax + 0x24], OFFSET FLAT : exp_eip
+    mov     ebx, gs
+    mov     [eax + 0x28], ebx
+    mov     ebx, fs
+    mov     [eax + 0x2C], ebx
+    mov     ebx, ds
+    mov     [eax + 0x30], ebx
+    mov     ebx, ss
+    mov     [eax + 0x34], ebx
+    mov     ebx, cs
+    mov     [eax + 0x38], ebx
+    mov     ebx, es
+    mov     [eax + 0x3C], ebx
     
     // Reset EAX and EBX were modified while writting the values to the stack.
     // Reset them to their expected value.
-    mov     $0xAAAAAAAA, %eax
-    mov     $0xBBBBBBBB, %ebx
+    mov     eax, 0xAAAAAAAA
+    mov     ebx, 0xBBBBBBBB
 
     // We can now raise a soft interrupt.
-    int     $0x80
+    int     0x80
 exp_eip:
     // Store current values of registers onto the second area on the stack.
-    movl    %eax, 0x20(%esp) 
-    movl    %ebx, 0x14(%esp) 
-    movl    %esp, 0x10(%esp) 
-    mov     %esp, %eax
+    mov     [esp + 0x20], eax
+    mov     [esp + 0x14], ebx
+    mov     [esp + 0x10], esp
+    mov     eax, esp
 
     pushf
-    movl    (%esp), %ebx
+    mov     ebx, [esp]
 
-    add     $4, %eax
+    add     eax, 4
 
-    movl    %ebx, 0x20(%eax)
+    mov     [eax + 0x20], ebx
 
-    movl    %edi, (%eax)
-    movl    %esi, 0x4(%eax)
-    movl    %ebp, 0x8(%eax) 
-    movl    %edx, 0x14(%eax) 
-    movl    %ecx, 0x18(%eax) 
+    mov     [eax + 0x00], edi
+    mov     [eax + 0x04], esi
+    mov     [eax + 0x08], ebp
+    mov     [eax + 0x14], edx
+    mov     [eax + 0x18], ecx
     // Can't compare the EIP. Use placeholder value.
-    movl    $exp_eip, 0x24(%eax)
-    movl    %gs, %ebx
-    movl    %ebx, 0x28(%eax)
-    movl    %fs, %ebx
-    movl    %ebx, 0x2C(%eax)
-    movl    %ds, %ebx
-    movl    %ebx, 0x30(%eax)
-    movl    %ss, %ebx
-    movl    %ebx, 0x34(%eax)
-    movl    %cs, %ebx
-    movl    %ebx, 0x38(%eax)
-    movl    %es, %ebx
-    movl    %ebx, 0x3C(%eax)
+    mov     DWORD PTR [eax + 0x24], OFFSET FLAT : exp_eip
+    mov     ebx, gs
+    mov     [eax + 0x28], ebx
+    mov     ebx, fs
+    mov     [eax + 0x2C], ebx
+    mov     ebx, ds
+    mov     [eax + 0x30], ebx
+    mov     ebx, ss
+    mov     [eax + 0x34], ebx
+    mov     ebx, cs
+    mov     [eax + 0x38], ebx
+    mov     ebx, es
+    mov     [eax + 0x3C], ebx
 
-    add     $0x8, %esp
+    add     esp, 0x8
 
     // Compare the two snapshot of registers at (%esp) and 0x40(%esp).
     cld
-    lea     (%esp), %esi
-    lea     0x40(%esp), %edi
-    mov     $0x40, %ecx
+    lea     esi, [esp]
+    lea     edi, [esp + 0x40]
+    mov     ecx, 0x40
     rep     cmpsb
     je      same
 not_same:
-    mov     $0, %eax
+    mov     eax, 0
     jmp     do_int
 same:
-    mov     $1, %eax
+    mov     eax, 1
 do_int:
-    int     $0x80
+    int     0x80
 
 .global register_saving_ring3_int_code_end
 register_saving_ring3_int_code_end:
@@ -133,7 +134,7 @@ ASM_FUNC_DEF(kernel_access_from_ring3_code):
 kernel_access_from_ring3_code_start:
 
 kernel_access_from_ring3_expected_offset:
-    movl    $0xBEEFBABE, kernel_access_from_ring3_kernel_var
+    mov     DWORD PTR [kernel_access_from_ring3_kernel_var], 0xBEEFBABE
 
 .global kernel_access_from_ring3_code_end
 kernel_access_from_ring3_code_end:

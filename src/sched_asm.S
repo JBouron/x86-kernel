@@ -1,4 +1,5 @@
 #include <macro.h>
+.intel_syntax   noprefix
 
 // void _save_registers(struct register_save_area * const dest).
 // NOTE: ARGUMENT IS PASSED IN EAX, __NOT__ THE STACK.
@@ -13,65 +14,65 @@ ASM_FUNC_DEF(_save_registers):
     pushf
 
     // Copy GP registers.
-    lea     0x4(%esp), %esi
-    mov     %eax, %edi
-    mov     $0x8, %ecx
+    lea     esi, [esp + 0x4]
+    mov     edi, eax
+    mov     ecx, 0x8
     cld
-    rep movsl
+    rep movsd
 
     // EAX = pointer onto dest per calling convention.
 
     // Fixup the values of ESP. This is because calling this function pushed the
     // return address onto the stack.
-    mov     %eax, %ebx
-    add     ESP_OFF, %ebx
-    mov     %esp, %ecx
-    add     $0x28, %ecx
-    mov     %ecx, (%ebx)
+    mov     ebx, eax
+    add     ebx, [ESP_OFF]
+    mov     ecx, esp
+    add     ecx, 0x28
+    mov     [ebx], ecx
 
     // Copy EFLAGS.
-    mov     %eax, %ebx
-    add     EFLAGS_OFF, %ebx
-    mov     (%esp), %ecx
-    mov     %ecx, (%ebx)
+    mov     ebx, eax
+    add     ebx, [EFLAGS_OFF]
+    mov     ecx, [esp]
+    mov     [ebx], ecx
 
     // Copy EIP.
-    mov     %eax, %ebx
-    add     EIP_OFF, %ebx
-    mov     0x24(%esp), %ecx
-    mov     %ecx, (%ebx)
+    mov     ebx, eax
+    add     ebx, [EIP_OFF]
+    mov     ecx, [esp + 0x24]
+    mov     [ebx], ecx
 
     // Copy segment registers. This is not strictly required since all processes
     // use the same segments while in the kernel. We are doing it for
     // completness.
-    mov     %eax, %ebx
-    add     GS_OFF, %ebx
+    mov     ebx, eax
+    add     ebx, [GS_OFF]
 
-    mov     %gs, %ecx
-    mov     %ecx, (%ebx)
-    add     $0x4, %ebx
+    mov     ecx, gs
+    mov     [ebx], ecx
+    add     ebx, 4
 
-    mov     %fs, %ecx
-    mov     %ecx, (%ebx)
-    add     $0x4, %ebx
+    mov     ecx, fs
+    mov     [ebx], ecx
+    add     ebx, 4
 
-    mov     %ds, %ecx
-    mov     %ecx, (%ebx)
-    add     $0x4, %ebx
+    mov     ecx, ds
+    mov     [ebx], ecx
+    add     ebx, 4
 
-    mov     %ss, %ecx
-    mov     %ecx, (%ebx)
-    add     $0x4, %ebx
+    mov     ecx, ss
+    mov     [ebx], ecx
+    add     ebx, 4
 
-    mov     %cs, %ecx
-    mov     %ecx, (%ebx)
-    add     $0x4, %ebx
+    mov     ecx, cs
+    mov     [ebx], ecx
+    add     ebx, 4
 
-    mov     %es, %ecx
-    mov     %ecx, (%ebx)
-    add     $0x4, %ebx
+    mov     ecx, es
+    mov     [ebx], ecx
+    add     ebx, 4
 
-    add     $0x4, %esp
+    add     esp, 0x4
     popa
     ret
 
@@ -79,18 +80,18 @@ ASM_FUNC_DEF(_save_registers):
 // Note: This function will restore general purpose registers ONLY. ESP will be
 // unchanged (just like with popa).
 ASM_FUNC_DEF(_restore_registers):
-    mov     0x4(%esp), %esi
-    sub     $0x20, %esp
-    mov     %esp, %edi
-    mov     $0x8, %ecx
+    mov     esi, [esp + 0x4]
+    sub     esp, 0x20
+    mov     edi, esp
+    mov     ecx, 0x8
     cld
-    rep movsl
+    rep movsd
     
-    sub     $0x4, %esp
-    mov     EFLAGS_OFF, %eax
-    add     0x28(%esp), %eax
-    mov     (%eax), %eax
-    mov     %eax, (%esp)
+    sub     esp, 0x4
+    mov     eax, [EFLAGS_OFF]
+    add     eax, [esp + 0x28]
+    mov     eax, [eax]
+    mov     [esp], eax
     popf
     popa
     ret
@@ -100,13 +101,13 @@ ASM_FUNC_DEF(_restore_registers):
 ASM_FUNC_DEF(_schedule):
     // Having prev == NULL means that this is the very first process to be
     // executed. Hence there is no need to save the registers.
-    mov     0x4(%esp), %eax
-    test    %eax, %eax
+    mov     eax, [esp + 0x4]
+    test    eax, eax
     jz      .Lswitch_stack
 
     // Save all the registers. EAX contains the pointer where to save the
     // registers.
-    add     KERNEL_REG_SAVE_OFFSET, %eax
+    add     eax, [KERNEL_REG_SAVE_OFFSET]
     // =========================================================================
     // ESP MUST NOT BE MODIFIED BETWEEN THE CALL TO _save_registers AND THE
     // STACK SWITCH.
@@ -117,34 +118,34 @@ ASM_FUNC_DEF(_schedule):
 
 .Lswitch_stack:
     // Change ESP to use the next proc's stack.
-    mov     0x8(%esp), %eax
-    add     KERNEL_REG_SAVE_OFFSET, %eax
-    add     ESP_OFF, %eax
-    mov     (%eax), %esp
+    mov     eax, [esp + 0x8]
+    add     eax, [KERNEL_REG_SAVE_OFFSET]
+    add     eax, [ESP_OFF]
+    mov     esp, [eax]
     // We are now in the next proc.
 
     // We need to reload 0x4(%esp) here. This is because we changed stack. In
     // the current stack the struct proc* can be found at 0x4(%esp), this is
     // because the call to _schedule() that trigger the context switch from next
     // to something else, had next in the first arg.
-    mov     0x4(%esp), %ebx
+    mov     ebx, [esp + 0x4]
 
     // Change the TSS to use the next proc's kernel stack so that interrupts in
     // ring 3 will end up on the correct kernel stack.
-    mov     %ebx, %eax
-    add     KERNEL_STACK_BOTTOM_OFFSET, %eax 
-    push    (%eax)
+    mov     eax, ebx
+    add     eax, [KERNEL_STACK_BOTTOM_OFFSET]
+    push    [eax]
     call    change_tss_esp0
-    add     $0x4, %esp
+    add     esp, 0x4
 
     // Restore the general purpose registers. Segment registers are untouched,
     // this is because all processes are using the same segments while in the
     // kernel.
-    mov     %ebx, %eax
-    add     KERNEL_REG_SAVE_OFFSET, %eax
-    push    %eax
+    mov     eax, ebx
+    add     eax, [KERNEL_REG_SAVE_OFFSET]
+    push    eax
     call    _restore_registers
-    add     $0x4, %esp
+    add     esp, 0x4
 
     // _schedule is declared with the stdcall attribute, meaning that it is the
     // responsibility of this function to pop off the arguments from the stack.
@@ -152,4 +153,4 @@ ASM_FUNC_DEF(_schedule):
     // the first time we need to fake a _schedule() stack frame on its kernel
     // stack. Since this is a fake call, the function it will return to will not
     // pop out the arguments from the stack. Hence do it here.
-    ret     $0x8
+    ret     0x8

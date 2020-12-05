@@ -1,27 +1,28 @@
 #include <macro.h>
+.intel_syntax   noprefix
 
 ASM_FUNC_DEF(set_higher_half_segments):
     // Load the segment descriptors.
-    mov     0x4(%esp), %eax
-    mov     0x8(%esp), %cx
-    mov     0xC(%esp), %dx
+    mov     eax, [esp + 0x4]
+    mov     cx, [esp + 0x8]
+    mov     dx, [esp + 0xC]
 
     // Update the segment registers.
-    mov     %cx, %ds
-    mov     %cx, %es
-    mov     %cx, %fs
-    mov     %cx, %ss
-    mov     %dx, %gs
+    mov     ds, cx
+    mov     es, cx
+    mov     fs, cx
+    mov     ss, cx
+    mov     gs, dx
 
     // Fixup the ESP and EBP.
-    add     $0xC0000000, %esp
-    add     $0xC0000000, %ebp
+    add     esp, 0xC0000000
+    add     ebp, 0xC0000000
 
     // We can now use the stack again. Prepare the far jump to the target in the
     // new code segment.
-    mov     0x10(%esp), %ecx
-    push    %eax
-    push    %ecx
+    mov     ecx, [esp + 0x10]
+    push    eax
+    push    ecx
 
     // Do the far jump
-    ljmp    *(%esp)
+    jmp    FAR PTR [esp]

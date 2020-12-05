@@ -1,4 +1,5 @@
 #include <macro.h>
+.intel_syntax   noprefix
 
 // This file contains all the interrupt handlers for all vectors from 0 to 255.
 // Each individual interrupt handler is very small and only "jumps" to a common
@@ -63,10 +64,10 @@ _prepare_stack_for_interrupt_entry_no_error_code:
 
     // Push the return address to the top of the stack. This will trick
     // _prepare_stack_for_interrupt_entry.
-    push    (%esp)
+    push    [%esp]
 
     // Overwrite the old return address with the dummy error code.
-    movl    $0x0, 0x4(%esp)
+    mov     DWORD PTR [esp + 0x4], 0x0
 
     // No jump to _prepare_stack_for_interrupt_entry, just fall-through.
 _prepare_stack_for_interrupt_entry:
@@ -82,26 +83,26 @@ _prepare_stack_for_interrupt_entry:
 
     // Save all the registers used in the vector computation. Those are the
     // registers of the interrupted context!
-    push    %eax
-    push    %ebx
-    push    %edx
+    push    eax
+    push    ebx
+    push    edx
     
     // vector = (ret_addr - &interrupt_handler_0 - 5) / 5.
-    mov     0xC(%esp), %eax
-    sub     $interrupt_handler_0, %eax
-    mov     $0x5, %ebx
-    sub     %ebx, %eax
+    mov     eax, [esp + 0xC]
+    sub     eax, OFFSET FLAT : interrupt_handler_0
+    mov     ebx, 0x5
+    sub     eax, ebx
     cdq
     // EAX = vector number
-    div     %ebx
+    div     ebx
 
     // Overwrite the return address with the vector, we don't need it anymore.
-    mov     %eax, 0xC(%esp)
+    mov     [esp + 0xC], eax
 
     // Restore the registers.
-    pop     %edx
-    pop     %ebx
-    pop     %eax
+    pop     edx
+    pop     ebx
+    pop     eax
 
     // No jump to interrupt_entry required, simply fall-through.
 
@@ -121,44 +122,44 @@ interrupt_entry:
     // Note: Depending on the processor, pushing the segment registers might not
     // zero the top 16 bits of the dword on the stack which means we can end up
     // with garbage values. To avoid that, precede all segment reg push with a
-    // pushl 0; add 4, %esp so that we are sure the top 16-bits will always be
+    // push 0; add 4, %esp so that we are sure the top 16-bits will always be
     // 0.
 #define save_seg_reg(reg)   ;\
-    pushl   $0              ;\
-    add     $0x4, %esp      ;\
+    push    0               ;\
+    add     esp, 0x4        ;\
     push    reg
 
     // Save ES.
-    save_seg_reg(%es)
+    save_seg_reg(es)
 
     // CS is already on the stack. Since we pushed %ES, the value on CS on the
     // stack is at offset 0x10 at this point.
-    push    0x10(%esp)
+    push    [esp + 0x10]
 
     // The current value of %SS might not be the original value of SS when the
     // processor got interrupted if a task in ring 3 was running. We will patch
     // it up later.
-    save_seg_reg(%ss)
+    save_seg_reg(ss)
 
-    save_seg_reg(%ds)
-    save_seg_reg(%fs)
-    save_seg_reg(%gs)
+    save_seg_reg(ds)
+    save_seg_reg(fs)
+    save_seg_reg(gs)
 
     // Push the EIP, it was pushed on the interrupt frame.
-    push    0x20(%esp)
+    push    [esp + 0x20]
 
     // Push EFLAGS, it was pushed on the interrupt frame as well.
-    push    0x2C(%esp)
+    push    [esp + 0x2C]
 
     // Now push all general purpose registers at once.
     pusha
 
     // We are finally free to use any register. Set EBP to point to the stack
     // frame containing the original information pushed by the interrupt.
-    mov     %esp, %ebp
+    mov     ebp, esp
     // 16 registers saved, one vector pushed, 6 elements in the original int
     // frame.
-    add     $(16 * 4 + 1 * 4 + 6 * 4 - 4), %ebp
+    add     ebp, 16 * 4 + 1 * 4 + 6 * 4 - 4
     // For future reference, the elements in the original interrupt frame and
     // the saved registers can be accessed using EBP as follows:
     // EBP ->|     SS     | (if applicable)
@@ -194,13 +195,13 @@ interrupt_entry:
     // save area.
 
     // EAX = privilege level of current code segment.
-    mov     %cs, %eax
-    and     $0x3, %eax
+    mov     eax, cs
+    and     eax, 0x3
     // EBX = privilege level of interrupted context's code segment.
-    mov     -0xC(%ebp), %ebx
-    and     $0x3, %ebx
+    mov     ebx, [ebp - 0xC]
+    and     ebx, 0x3
 
-    cmp     %eax, %ebx
+    cmp     ebx, eax
     jne     do_fixup_priv_change
 
     // There was no privilege change then the saved SS is correct. However the
@@ -209,18 +210,18 @@ interrupt_entry:
     // Since there was no privilege change, the interrupt frame started at EBP
     // - 0x8 and therefore the value of ESP before the interrupt was EBP - 0x4
     // (pointing to the word before the EFLAGS).
-    lea     -0x4(%ebp), %eax
-    mov     %eax, -0x4C(%ebp)
+    lea     eax, [ebp - 0x4]
+    mov     [ebp - 0x4C], eax
     jmp     do_fixup_priv_change_end
 
 do_fixup_priv_change:
     // Fixup the saved SS.
-    mov     0x00(%ebp), %eax
-    mov     %eax, -0x24(%ebp)
+    mov     eax, [ebp + 0x00]
+    mov     [ebp - 0x24], eax
 
     // Fixup the saved ESP.
-    mov     -0x04(%ebp), %eax
-    mov     %eax, -0x4C(%ebp) 
+    mov     eax, [ebp - 0x4]
+    mov     [ebp - 0x4C], eax
 
     // Because the interrupted context was not the kernel, the current segment
     // registers (except CS and SS) are not kernel segment. In particular GS is
@@ -233,32 +234,32 @@ do_fixup_priv_change_end:
     // onto the stack.
 
     // Pointer on saved registers.
-    push    %esp
+    push    esp
     // Vector.
-    pushl   -0x18(%ebp)
+    push    [ebp - 0x18]
     // Error code.
-    pushl   -0x14(%ebp)
+    push    [ebp - 0x14]
     // EIP.
-    pushl   -0x10(%ebp)
+    push    [ebp - 0x10]
     // CS.
-    pushl   -0x0C(%ebp)
+    push    [ebp - 0x0C]
     // EFLAGS.
-    pushl   -0x08(%ebp)
+    push    [ebp - 0x08]
 
     // Call the generic_interrupt_handler.
-    push    %esp
+    push    esp
     call generic_interrupt_handler
-    add     $0x1C, %esp
+    add     esp, 0x1C
 
     // The interrupt has been dealt with. We can now restore the registers and
     // return from the interrupt.
 
     // Restore DS, ES, FS, and GS. SS and CS are special cases and will be
     // handled separately.
-    mov     -0x28(%ebp), %ds
-    mov     -0x1C(%ebp), %es
-    mov     -0x2C(%ebp), %fs
-    mov     -0x30(%ebp), %gs
+    mov     ds, [ebp - 0x28]
+    mov     es, [ebp - 0x1C]
+    mov     fs, [ebp - 0x2C]
+    mov     gs, [ebp - 0x30]
 
     // SS does not need to be restore because:
     // - If a priv change occured, the SS will be restored by the IRET.
@@ -268,9 +269,9 @@ do_fixup_priv_change_end:
     // Restore GP registers.
     popa
     // Skip the saved segment registers.
-    add     $0x20, %esp
+    add     esp, 0x20
     // Get rid of vector and error code.
-    add     $0x8, %esp
+    add     esp, 0x8
     
     // ESP points to interrupt frame, we're ready to go.
     iret

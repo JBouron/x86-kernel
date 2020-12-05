@@ -1,12 +1,13 @@
 #include <macro.h>
+.intel_syntax   noprefix
 
 //void spinlock_lock(spinlock_t * const lock, bool const irq_enabled);
 ASM_FUNC_DEF(_spinlock_lock):
-    push    %ebx
+    push    ebx
     // EDX = lock.
-    mov     0x8(%esp), %edx
+    mov     edx, [esp + 0x8]
     // EBX = irq_enabled.
-    mov     0xC(%esp), %ebx
+    mov     ebx, [esp + 0xC]
 
     // Quick and dirty implementation of test and cmpxchg. If requested
     // interrupts will be enabled between two tries while executing the pause
@@ -15,7 +16,7 @@ ASM_FUNC_DEF(_spinlock_lock):
 
 backoff:
     // Enable interrupts (if requested) and PAUSE until next try.
-    test    %ebx, %ebx
+    test    ebx, ebx
     jz      no_sti
     sti
 no_sti:
@@ -26,21 +27,21 @@ test:
     // TEST:
     // The lock value is the first element of the spinlock struct so we can
     // dereference edx directly.
-    cmpb    $0x0, (%edx)
+    cmp     BYTE PTR [edx], 0
     jnz     backoff
 
     // CMPXCHG:
     // The lock is free, try to acquire it. 
-    mov     $0x0, %al
-    mov     $0x1, %cl
-    lock cmpxchg    %cl, (%edx)
+    mov     al, 0
+    mov     cl, 1
+    lock cmpxchg    [edx], cl
     jnz     backoff
     // The lock has been acquired.
-    pop     %ebx
+    pop     ebx
     ret
 
 //void spinlock_unlock(spinlock_t * const lock);
 ASM_FUNC_DEF(_spinlock_unlock):
-    mov     0x4(%esp), %edx
-    movb    $0x0, (%edx)
+    mov     edx, [esp + 0x4]
+    mov     BYTE PTR [edx], 0
     ret
