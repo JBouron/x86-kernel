@@ -16,12 +16,3 @@
     .global name ;\
     .type name, @function ;\
     name
-
-// Call a routine in the higher half from protected mode.
-// This function must use an absolute call as the caller is in protected mode
-// and therefore not in the higer half kernel.
-// EAX is used for the absolute call and therefore is not saved.
-#define CALL_FROM_PROTECTED_MODE(func_name) ;\
-    mov     $ ## func_name, %eax ;\
-    sub     $0xC0000000, %eax ;\
-    call    *%eax

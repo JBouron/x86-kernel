@@ -47,18 +47,11 @@
 // All of this information is passed through a "data frame" that resides <1MiB
 // so that it is accessible from real-mode.
 //
-// Stack: For normal operation, APs expect a stack under the 1MiB boundary. The
-// data frame contains at least 1 stack. Depending on the number of processors
-// in the system and the available memory, the data frame might contain up to
-// one stack per AP. This is the optimal amount. In case the current
-// configuration does not allow this amount, the data frame can contain less
-// stack, but some APs will have to share a stack with others. Each stack in the
-// data frame is protected by a lock such that only one processor can use a
-// given stack at a time.
-// Stacks are stored in the stack_segments field of the data frame. Note that
-// this array contains the stack segments, and not the stack addresses. There
-// are `num_stacks` total in this array and processor are indexing this array
-// with their APIC ID % num_stacks.
+// Stack: APs need to know the address of their higher-half stack. They cannot
+// allocate it themselves as they cannot call functions. The BSP will allocate
+// the kernel stacks and pass their virtual address in the data frame. Once
+// paging is enabled on APs they will lookup their kernel stack address stored
+// in an array indexed by their APIC ID.
 //
 // GDT: The GDT used by the BSP is located above 1MiB in physical memory because
 // of the relocation. Therefore, it is not possible for the AP to use it.

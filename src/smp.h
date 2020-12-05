@@ -24,8 +24,8 @@ struct ap_boot_data_frame {
     // The function the APs should call once they are fully initialized.
     void (*wake_up_target)(void);
 
-    // The kernel stack for the APs. One kernel stack per AP indexed by the APIC
-    // ID.
+    // The higher-half kernel stacks for the APs. One kernel stack per AP
+    // indexed by the APIC ID.
     void *kernel_stacks[0];
 } __attribute__((packed));
 
