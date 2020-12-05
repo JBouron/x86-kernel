@@ -36,6 +36,8 @@ void allocate_aps_percpu_areas(void) {
             // Initialize basic vars.
             cpu_var(this_cpu_off, i) = cpu_var_area;
             cpu_var(cpu_id, i) = i;
+            // NOTE: The kernel_stack variable will be set when allocating
+            // kernel stacks for APs in smp.c
 
             LOG("Per cpu data for cpu %u @ %p\n", i, cpu_var_area);
         }

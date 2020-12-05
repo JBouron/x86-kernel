@@ -22,26 +22,6 @@ static bool check_data_frame(struct ap_boot_data_frame * const data_frame) {
     TEST_ASSERT(data_frame->gdt[1] == data_seg);
     TEST_ASSERT(data_frame->gdt[2] == code_seg);
     TEST_ASSERT(data_frame->page_dir_addr == get_kernel_page_dir_phy_addr());
-    TEST_ASSERT(data_frame->stack_size == AP_WAKEUP_STACK_SIZE);
-
-    // There should be at least 1 stack.
-    TEST_ASSERT(data_frame->num_stacks > 0);
-
-    // Check that stacks are under 1MiB.
-    void const * last_stack = NULL;
-    for (uint32_t i = 0; i < data_frame->num_stacks; ++i) {
-        void const * const stack = (void*)(data_frame->stack_segments[i] << 4);
-        TEST_ASSERT(stack);
-        TEST_ASSERT(is_under_1mib(stack));
-        if (i) {
-            // Check that stacks do not overlap. In practice, since the APs will
-            // run in real-mode they could still overlap ... But at least this
-            // test makes sure that this overlap does not come from a mishap in
-            // the data frame generation.
-            TEST_ASSERT(stack - last_stack >= AP_WAKEUP_STACK_SIZE);
-            last_stack = stack;
-        }
-    }
     return true;
 }
 
@@ -57,15 +37,6 @@ static bool create_data_frame_test(void) {
     TEST_ASSERT(data_frame->wake_up_target == &_dummy);
     bool const valid = check_data_frame(data_frame);
     // Clean up.
-    uint32_t const stack_per_frame = PAGE_SIZE / AP_WAKEUP_STACK_SIZE;
-    for (uint32_t i = 0; i < data_frame->num_stacks; ++i) {
-        void const * const stack = (void*)(data_frame->stack_segments[i] << 4);
-        if (!(i % stack_per_frame)) {
-            TEST_ASSERT(is_4kib_aligned(stack));
-            paging_unmap(stack, PAGE_SIZE);
-            free_frame(stack);
-        }
-    }
     paging_unmap(data_frame, PAGE_SIZE);
     free_frame(data_frame);
     return valid;

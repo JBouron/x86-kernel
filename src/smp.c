@@ -103,15 +103,6 @@ static bool is_under_1mib(void const * const addr) {
     return (uint32_t)addr < (1 << 20);
 }
 
-// Allocate a physical frame under 1MiB.
-// @return: The physical address of the allocated frame, NO_FRAME if no frame is
-// free under 1MiB.
-static void * alloc_low_mem_stack_frame(void) {
-    void * const frame = alloc_frame_low_mem();
-    LOG("Stack frame @ %p\n", frame);
-    return frame;
-}
-
 // Get the real-mode segment for a given address. Note: Addresses in real-mode
 // are not unique eg. two different pairs of segment:offset could correspond to
 // the same address. This function returns the segment for which the offset
@@ -130,6 +121,40 @@ void ap_finalize_start_up(void);
 // The maximum number of stacks to allocate for the woken APs. This is currently
 // used for testing to stress test the stack locks and contention.
 static uint32_t AP_WAKEUP_ROUTINE_MAX_STACKS = 256;
+
+// This is kind of a hacky way to do compute the size of the kernel stack: Use
+// the same as the BSP's.
+extern uint8_t stack_top;
+extern uint8_t stack_bottom;
+#define KERNEL_STACK_SIZE   ((size_t)(&stack_top - &stack_bottom))
+
+// Allocate a kernel stack for an AP. The kernel will be allocated in kernel
+// address space.
+// @return: The virtual addres of the stack allocated.
+static void *allocate_ap_kernel_stack(void) {
+    // Find a big enough hole in the virtual address space to fit the kernel
+    // stack.
+    size_t const size = ceil_x_over_y_u32(KERNEL_STACK_SIZE, PAGE_SIZE);
+    void * const vaddr = paging_find_contiguous_non_mapped_pages(
+        KERNEL_PHY_OFFSET, size);
+    if (vaddr == NO_REGION) {
+        PANIC("Kernel Stack for AP doesnt fit in vaddr space\n");
+    }
+    LOG("Kernel stack @ %p\n", vaddr);
+
+    // Allocate physical frames for the stack and map them to the higher half
+    // kernel.
+    for (uint32_t i = 0; i < size; ++i) {
+        void * const frame = alloc_frame();
+        if (frame == NO_FRAME) {
+            PANIC("Not enough mem to allocate kernel stack\n");
+        }
+        if (!paging_map(frame, vaddr + i * PAGE_SIZE, PAGE_SIZE, VM_WRITE)) {
+            PANIC("Cannot map kernel stack to virt mem\n");
+        }
+    }
+    return vaddr;
+}
 
 // Create a data frame containing all data structures required by the APs to
 // boot.
@@ -156,6 +181,7 @@ static void * create_data_frame(void (*target)(void)) {
     // The data frame has its layout defined by the ap_boot_data_frame_t
     // structure.
     struct ap_boot_data_frame * const data_frame = phy_frame;
+    ASSERT(sizeof(*data_frame) <= PAGE_SIZE);
 
     // Initialize the flat code and data segments in the temporary GDT located
     // in the data frame that will be used by the APs when switching to
@@ -168,87 +194,29 @@ static void * create_data_frame(void (*target)(void)) {
 
     data_frame->wake_up_target = target;
 
-    // ACPI tables gives us the number of cpus present in the system.
     uint16_t const ncpus = acpi_get_number_cpus();
-    // Since the BSP is also listed in the ACPI tables this is the number of
-    // expected APs:
-    uint16_t const naps = ncpus - 1;
 
-    // APs do not need a big stack during boot/initialization. Since we are
-    // limited in the number of available physical frames under 1MiB, allocate
-    // multiple stacks per frame.
-    uint32_t const stack_size = AP_WAKEUP_STACK_SIZE;
-    ASSERT(!(PAGE_SIZE % stack_size));
-    data_frame->stack_size = stack_size;
-    uint8_t const stacks_per_frame = PAGE_SIZE / stack_size;
-
-    LOG("%u cpus on system.\n", ncpus);
-
-    // Compute the number of physical frames required for the optimal number of
-    // stacks. Note: In reality, depending on the amount of available physical
-    // frames under 1MiB, we might not be able to allocate that many frames. If
-    // this is the case, APs will have to share stacks.
-    uint32_t const nframes = ceil_x_over_y_u32(naps * stack_size, PAGE_SIZE);
-    LOG("Using %u stack frames for APs\n", nframes);
-
-    data_frame->num_stacks = 0;
-
-    // Try to allocate `nframes` physical frames. Stop before in case we reached
-    // the maximum number of stacks allowed (testing only).
-    for (uint32_t i = 0;
-         i < nframes && data_frame->num_stacks < AP_WAKEUP_ROUTINE_MAX_STACKS;
-         ++i) {
-        // Try to allocate a new stack frame under 1MiB.
-        void * const frame = alloc_low_mem_stack_frame();
-
-        if (frame == NO_FRAME) {
-            // There are no physical frame left under the 1MiB limit. Some cpus
-            // will have to share a stack frame. This is ok since each stack
-            // frame has a lock specifically added for this case.
-            break;
-        }
-
-        // Map the frame for two reasons:
-        //  1. We want to initialize the stack (eg. the lock).
-        //  2. When APs will enable paging, they will need their stack mapped to
-        //  virtual memory.
-        if (!paging_map(frame, frame, PAGE_SIZE, VM_WRITE)) {
-            // We cannot map anymore frame, prob OOM, try to proceed but it is
-            // likely that we will fail soon.
-            break;
-        }
-
-        // Initialize the stacks contained in this physical frame.
-        for (uint8_t j = 0; j < stacks_per_frame; ++j) {
-            // Compute the addres of the top of the stack.
-            void * const stack = frame + j * stack_size;
-
-            // Initialize the lock for this stack. This lock is the very first
-            // word at the bottom of the stack.
-            void * const stack_bottom = stack + stack_size - 1;
-            // Set the lock to unlocked.
-            *(uint8_t*)stack_bottom = 0;
-
-            // Insert the real-mode segment corresponding to this stack into the
-            // stack_segments array.
-            uint32_t const index = i * stacks_per_frame + j;
-            uint16_t const segment = get_real_mode_segment_for_addr(stack);
-            data_frame->stack_segments[index] = segment;
-            data_frame->num_stacks ++;
-
-            LOG("stack[%u] = %p\n", index, stack);
-
-            if (index + 1 >= naps ||
-                data_frame->num_stacks == AP_WAKEUP_ROUTINE_MAX_STACKS) {
-                // We have enough stacks to go on. Stop now.
-                break;
+    // Allocate one kernel stack per APs that they will use after waking up and
+    // save the address of each stack in the data frame so that the APs can find
+    // their stack.
+    for (uint16_t cpu = 0; cpu < ncpus; ++cpu) {
+        if (cpu == cpu_id()) {
+            // For the current cpu, write a 0 since it won't be woken up.
+            data_frame->kernel_stacks[cpu] = 0x0;
+        } else {
+            // The kernel stack might be already allocated, this happens when
+            // running tests for instance where APs get reset for every test. If
+            // that is the case, we don't need to re-allocate.
+            if (cpu_var(kernel_stack, cpu)) {
+                data_frame->kernel_stacks[cpu] = cpu_var(kernel_stack, cpu);
+            } else {
+                void * const stack = allocate_ap_kernel_stack();
+                cpu_var(kernel_stack, cpu) = stack + KERNEL_STACK_SIZE;
+                data_frame->kernel_stacks[cpu] = stack + KERNEL_STACK_SIZE;
             }
         }
     }
     
-    // There should be at least one stack available for the APs to use.
-    ASSERT(data_frame->num_stacks);
-    LOG("Using %u stacks for %u cpus\n", data_frame->num_stacks, naps);
     return phy_frame;
 }
 
@@ -349,14 +317,6 @@ static void cleanup_ap_wakeup_routine_allocs(void * const code_frame) {
     // Don't free the code_frame here. It will be re-used later if we ever call
     // init_aps() again. See comment in create_trampoline().
 
-    // Iterate over the stack and de-allocate them.
-    uint32_t const inc = PAGE_SIZE / AP_WAKEUP_STACK_SIZE;
-    for (uint32_t i = 0; i < data_frame->num_stacks; i += inc) {
-        void * const stack_frame = (void*)(data_frame->stack_segments[i] << 4);
-        paging_unmap(stack_frame, PAGE_SIZE);
-        free_frame(stack_frame);
-    }
-
     // De-allocate the data frame.
     paging_unmap(data_frame, PAGE_SIZE);
     free_frame(data_frame);
@@ -380,93 +340,6 @@ DECLARE_SPINLOCK(AP_BOOT_LOCK);
 // be incremented _once_ per AP, while holding the AP_BOOT_LOCK.
 static uint8_t APS_ONLINE = 0;
 
-// This is kind of a hacky way to do compute the size of the kernel stack: Use
-// the same as the BSP's.
-extern uint8_t stack_top;
-extern uint8_t stack_bottom;
-#define KERNEL_STACK_SIZE   ((size_t)(&stack_top - &stack_bottom))
-
-// Array containing the virtual addresses of the top of the stack for all cpus
-// in the system. This will be allocated by the BSP prior to wake up the APs.
-// This is useful in case one wants to free the stacks used by the APs when
-// resetting them.
-// This variable should be accessed while holding the AP_BOOT_LOCK.
-// Note: This is a temporary mechanism until we have real per-cpus variables.
-static void **APS_STACKS = NULL;
-
-// Initialize the APS_STACKS array. If this array is not yet allocated, this
-// function allocates it. Otherwise it de-allocates all stacks in the array and
-// memzero the array.
-static void maybe_allocate_aps_stacks_array(void) {
-    uint32_t const ncpus = acpi_get_number_cpus();
-
-    spinlock_lock(&AP_BOOT_LOCK);
-    if (APS_STACKS) {
-        // The APs are probably already online. This means that this is a reset
-        // or a init_aps test. We thus need to de-allocate their stack. Now is a
-        // good time to do it, as they are in a wait-for-SIPI state and hence
-        // not running.
-        for (uint32_t i = 0; i < ncpus; ++i) {
-            void * stack = APS_STACKS[i];
-            if (i != cpu_apic_id() && stack) {
-                paging_unmap_and_free_frames(stack, KERNEL_STACK_SIZE);
-                APS_STACKS[i] = NULL;
-            }
-        }
-    } else {
-        APS_STACKS = kmalloc(ncpus * sizeof(*APS_STACKS));
-        if (!APS_STACKS) {
-            PANIC("Cannot allocate APs stack array\n");
-        }
-    }
-    spinlock_unlock(&AP_BOOT_LOCK);
-}
-
-// Allocate a stack in the higher half kernel of size KERNEL_STACK_SIZE.
-// @return: The address of the top of the stack.
-void *ap_alloc_higher_half_stack(void) {
-    // As this function is going to change global state (i.e. page tables and
-    // physical frames allocations) we need to acquire the AP_BOOT_LOCK. In the
-    // meantime, the BSP is waiting for the APs to boot and therefore is not
-    // accessing any of this states.
-    spinlock_lock(&AP_BOOT_LOCK);
-
-    // Find a big enough hole in the virtual address space to fit the kernel
-    // stack for this cpu.
-    size_t const size = ceil_x_over_y_u32(KERNEL_STACK_SIZE, PAGE_SIZE);
-    void * const vaddr = paging_find_contiguous_non_mapped_pages(
-        KERNEL_PHY_OFFSET, size);
-    if (vaddr == NO_REGION) {
-        PANIC("Stack for cpu %u doesnt fit in vaddr space\n", cpu_apic_id());
-    }
-    LOG("Found stack @ %p\n", vaddr);
-
-    // Allocate physical frames for the stack and map them to the higher half
-    // kernel.
-    for (uint32_t i = 0; i < size; ++i) {
-        void * const frame = alloc_frame();
-        if (frame == NO_FRAME) {
-            PANIC("Not enough mem to allocate cpu stack %u\n", cpu_apic_id());
-        }
-        if (!paging_map(frame, vaddr + i * PAGE_SIZE, PAGE_SIZE, VM_WRITE)) {
-            PANIC("Cannot map cpu %u's stack to virt mem\n", cpu_apic_id());
-        }
-    }
-
-    // Save the allocated stack into the APS_STACKS array.
-    ASSERT(APS_STACKS);
-    APS_STACKS[cpu_apic_id()] = vaddr;
-
-    this_cpu_var(kernel_stack) = vaddr + KERNEL_STACK_SIZE;
-    setup_tss();
-
-    // Allocation is over let other cpus do theirs.
-    spinlock_unlock(&AP_BOOT_LOCK);
-
-    // Return the virtual address of the top of the stack.
-    return vaddr;
-}
-
 // Initialize the AP state, that is IDT, GDT, cache, and LAPIC. This function
 // also increments the APS_ONLINE global variable before returning.
 void ap_initialize_state(void) {
@@ -474,6 +347,12 @@ void ap_initialize_state(void) {
     // Before being fully operational, a few operations need to be done one this
     // cpu. The next functions do not require the AP_BOOT_LOCK has they are
     // setting cpu-private states.
+    
+    // Use the final GDT.
+    ap_init_segmentation();
+    // We can now use percpu variables.
+
+    setup_tss();
     
     // Start by enabling the cache.
     cpu_enable_cache();
@@ -484,8 +363,10 @@ void ap_initialize_state(void) {
 
     // This AP is now fully initialized, announce the the BSP that it is online.
     uint8_t const apic_id = cpu_apic_id();
-    spinlock_lock(&AP_BOOT_LOCK);
     LOG("CPU %u online with stack %p\n", apic_id, cpu_read_esp());
+
+    // APS_ONLINE is protected using the AP_BOOT_LOCK.
+    spinlock_lock(&AP_BOOT_LOCK);
     APS_ONLINE ++;
     spinlock_unlock(&AP_BOOT_LOCK);
 }
@@ -532,9 +413,6 @@ static void do_init_aps(void (*target)(void)) {
 
     lapic_send_broadcast_init();
     lapic_sleep(10);
-
-    // Allocate the APS_STACKS or free any existing stacks in there.
-    maybe_allocate_aps_stacks_array();
 
     lapic_send_broadcast_sipi(ap_entry_point);
     // FIXME: The lapic sleep only has a millisecond granularity. Therefore wait

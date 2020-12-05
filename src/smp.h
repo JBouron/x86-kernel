@@ -24,16 +24,9 @@ struct ap_boot_data_frame {
     // The function the APs should call once they are fully initialized.
     void (*wake_up_target)(void);
 
-    // When initializing their stack pointers, APs need the size of their stack.
-    uint16_t stack_size;
-
-    // The number of entries available in the stack_segments array.
-    uint32_t num_stacks;
-
-    // This array contains the stack segments of all the available stacks that
-    // APs can use. When choosing a stack segment (and therefore a stack) APs
-    // will index this array with their temporary AP ID % num_stacks.
-    uint16_t stack_segments[0];
+    // The kernel stack for the APs. One kernel stack per AP indexed by the APIC
+    // ID.
+    void *kernel_stacks[0];
 } __attribute__((packed));
 
 // Since we need to use hardcoded values for the offset in the ap start up
@@ -43,9 +36,7 @@ struct ap_boot_data_frame {
 STATIC_ASSERT(offsetof(struct ap_boot_data_frame, gdt_desc) == 0, "");
 STATIC_ASSERT(offsetof(struct ap_boot_data_frame, page_dir_addr) == 0x1E, "");
 STATIC_ASSERT(offsetof(struct ap_boot_data_frame, wake_up_target) == 0x22, "");
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame, stack_size) == 0x26, "");
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame, num_stacks) == 0x28, "");
-STATIC_ASSERT(offsetof(struct ap_boot_data_frame, stack_segments) == 0x2C,"");
+STATIC_ASSERT(offsetof(struct ap_boot_data_frame, kernel_stacks) == 0x26, "");
 
 // Wake up the Application Processors on the system and wait for them to be
 // fully initialized.
