@@ -22,13 +22,21 @@
 
 # Define the stack here. By default use 16KiB.
 .section .bss
-.align 16
+# Align stack on a page.
+.align 4096
+
+# Insert a canary page under the stack. This page will be mapped read only so
+# that in case of a stack overflow a page fault will occur, since the stack
+# overflowed, the page fault will trigger another page fault and then a double
+# fault. The double fault handler will give a hint that a stack overflow occured
+# while in the kernel.
+.global canary_bottom
+canary_bottom:
+.skip 4096
+
+# The stack for the BSP starts here.
 .global stack_bottom
 stack_bottom:
-# Set the following .skip to set the kernel stack size (common to all
-# processors). We use 16KiB which is relatively big for a kernel of that size.
-# However this is very useful for testing as we can statically allocate big
-# data-structures.
 .skip 16384
 .global stack_top
 stack_top:
@@ -108,6 +116,10 @@ ASM_FUNC_DEF(_start_kernel):
     # We can now initialize paging.
     call    init_paging
 
+    # Enable the stack canary page as soon as possible so that we can detect
+    # stack overflow sooner.
+    call    enable_stack_canary
+
     # Call the kernel's main function.
     call    kernel_main
 
@@ -118,6 +130,40 @@ ASM_FUNC_DEF(_start_kernel):
     # We can still "return" from the HALT in case of non-maskable interrupt
     # thus let us be safe and jump back to the halt if it happens.
     jmp     1b
+
+# Enable the stack canary page for the BSP cpu.
+enable_stack_canary:
+    # FIXME: We cannot change the flags of a mapping other than by unmapping and
+    # remapping it.
+    push    ebp
+    mov     ebp, esp
+
+    push    ebx
+
+    # EBX = current address space
+    call    get_curr_addr_space
+    mov     ebx, eax
+
+    # Unmap the canary page.
+    push    0x1000
+    push    OFFSET FLAT : canary_bottom
+    push    ebx
+    call    paging_unmap_in
+    add     esp, 0xC
+
+    lea     eax, [canary_bottom]
+    # Mapping flags = 0 = Read only.
+    push    0x0
+    push    0x1000
+    push    eax
+    push    eax
+    push    ebx
+    call    paging_map_in
+    add     esp, 0x14
+
+    pop     ebx
+    leave
+    ret
 
 
 .code16

@@ -127,7 +127,8 @@ extern uint8_t stack_bottom;
 static void *allocate_ap_kernel_stack(void) {
     // Find a big enough hole in the virtual address space to fit the kernel
     // stack.
-    size_t const size = ceil_x_over_y_u32(KERNEL_STACK_SIZE, PAGE_SIZE);
+    // +1 for the stack canary.
+    size_t const size = ceil_x_over_y_u32(KERNEL_STACK_SIZE, PAGE_SIZE) + 1;
     void * const vaddr = paging_find_contiguous_non_mapped_pages(
         KERNEL_PHY_OFFSET, size);
     if (vaddr == NO_REGION) {
@@ -142,7 +143,9 @@ static void *allocate_ap_kernel_stack(void) {
         if (frame == NO_FRAME) {
             PANIC("Not enough mem to allocate kernel stack\n");
         }
-        if (!paging_map(frame, vaddr + i * PAGE_SIZE, PAGE_SIZE, VM_WRITE)) {
+        // The canary page (index 0) is read only.
+        uint32_t const flags = !i ? 0x0 : VM_WRITE;
+        if (!paging_map(frame, vaddr + i * PAGE_SIZE, PAGE_SIZE, flags)) {
             PANIC("Cannot map kernel stack to virt mem\n");
         }
     }
