@@ -7,6 +7,7 @@
 #include <acpi.h>
 #include <percpu.h>
 #include <addr_space.h>
+#include <cpu.h>
 
 // The granularity of a segment.
 enum segment_granularity {
@@ -57,29 +58,76 @@ union segment_descriptor_t {
 } __attribute__((packed));
 STATIC_ASSERT(sizeof(union segment_descriptor_t) == 8, "");
 
-// The TSS is a big structure. However, since we are doing software scheduling
-// only, the only fields that we are going to use are ESP0 and SS0.
+// Layout of a Task-State-Segment (TSS).
 struct tss {
-    union {
-        uint8_t _padding[104];
-        struct {
-            uint32_t : 32;
+    // Segment selector for the previous task.
+    union segment_selector_t prev_task;
+    uint16_t : 16;
 
-            // The stack pointer to use when entering the kernel through an
-            // interrupt.
-            void * esp0;
-            // The stack segment to use when entering the kernel through an
-            // interrupt.
-            union segment_selector_t ss0; 
+    // ESP and SS to be used by this task in ring 0.
+    void * esp0;
+    union segment_selector_t ss0;
+    uint16_t : 16;
 
-            uint16_t : 16;
-        } __attribute__((packed));
-    } __attribute__((packed));
+    // ESP and SS to be used by this task in ring 1.
+    void * esp1;
+    union segment_selector_t ss1;
+    uint16_t : 16;
+
+    // ESP and SS to be used by this task in ring 2.
+    void * esp2;
+    union segment_selector_t ss2;
+    uint16_t : 16;
+
+    // CR3 to be used by this task.
+    uint32_t cr3;
+
+    // Saved registers of the task from the previous switch.
+    reg_t eip;
+    reg_t eflags;
+    reg_t eax;
+    reg_t ecx;
+    reg_t edx;
+    reg_t ebx;
+    reg_t esp;
+    reg_t ebp;
+    reg_t esi;
+    reg_t edi;
+
+    // Segments used by the task.
+    union segment_selector_t es;
+    uint16_t : 16;
+    union segment_selector_t cs;
+    uint16_t : 16;
+    union segment_selector_t ss;
+    uint16_t : 16;
+    union segment_selector_t ds;
+    uint16_t : 16;
+    union segment_selector_t fs;
+    uint16_t : 16;
+    union segment_selector_t gs;
+    uint16_t : 16;
+
+    // Segment selector for the task's LDT.
+    union segment_selector_t ldt_segment_sel;
+    uint16_t : 16;
+
+    // If set, a switch to this task will generate a debug (#DB) exception.
+    bool debug_trap : 1;
+    uint16_t : 15;
+
+    uint16_t io_map_base_addr;
 } __attribute__((packed));
 STATIC_ASSERT(sizeof(struct tss) == 104, "");
 
 // Each CPU has its own TSS since each cpu has its own kernel stack.
 DECLARE_PER_CPU(struct tss, tss);
+
+// The double fault interrupt handler differs from the other because it is a
+// task-gate as opposed to interrupt-gate. See interrupt.c to understand why
+// this is necessary.
+// Having a single task for all CPUs should be enough.
+struct tss DOUBLE_FAULT_TASK;
 
 // TSS descriptor for the GDT.
 struct tss_descriptor {
@@ -216,28 +264,33 @@ static union segment_descriptor_t BOOT_GDT[] __attribute__((aligned(8))) = {
 //   2   |   Kernel Code Segment         |
 //   3   |   User Data Segment           |
 //   4   |   User Code Segment           |
-//   5   |   CPU 0's percpu segment      |
-//   6   |   CPU 1's percpu segment      |
+//   5   |   Double fault Task           |
+//   6   |   CPU 0's percpu segment      |
+//   7   |   CPU 1's percpu segment      |
 //       |           ...                 |
-// 5+N-1 |   CPU N's percpu segment      |
-//  5+N  |   CPU 0's TSS segment         |
-// 5+N+1 |   CPU 1's TSS segment         |
+// 6+N-1 |   CPU N's percpu segment      |
+//  6+N  |   CPU 0's TSS segment         |
+// 6+N+1 |   CPU 1's TSS segment         |
 //       |           ...                 |
-// 5+2N-1|   CPU N's TSS segment         |
+// 6+2N-1|   CPU N's TSS segment         |
+//
+// Note: We are only using one Double Fault interrupt task. The rationale is
+// that a double fault requires a reset anyway to all cpus can share the task.
 static union segment_descriptor_t *GDT = NULL;
 static size_t GDT_SIZE = 0;
 
 // The following macros are defining the index of each segment in the final GDT.
-#define GDT_KDATA_IDX       1
-#define GDT_KCODE_IDX       2
-#define GDT_UDATA_IDX       3
-#define GDT_UCODE_IDX       4
+#define GDT_KDATA_IDX               1
+#define GDT_KCODE_IDX               2
+#define GDT_UDATA_IDX               3
+#define GDT_UCODE_IDX               4
+#define GDT_DOUBLE_FAULT_TASK_IDX   5
 // The index of the percpu segment in the GDT for a particular cpu.
 // @param cpu: The ACPI index of the cpu (starting at 0).
-#define GDT_PERCPU_IDX(cpu) (5 + (cpu))
+#define GDT_PERCPU_IDX(cpu) (6 + (cpu))
 // The index of the TSS segment in the GDT for a particular cpu.
 // @param cpu: The ACPI index of the cpu (starting at 0).
-#define GDT_TSS_IDX(cpu)    (5 + acpi_get_number_cpus() + (cpu))
+#define GDT_TSS_IDX(cpu)    (6 + acpi_get_number_cpus() + (cpu))
 
 // Load a GDT into the GDTR of the current cpu.
 // @param gdt: The linear address of the GDT to load.
@@ -409,6 +462,46 @@ void initialize_trampoline_gdt(struct ap_boot_data_frame * const data_frame) {
     data_frame->gdt_desc.base = &data_frame->gdt;
 }
 
+// The double fault interrupt task _needs_ a valid stack when a #DF exception
+// occurs so that the CPU can push informations related to the interrupt. We use
+// this small stack for that purpose. This stack will also be enough for the cpu
+// to call set_segment_registers_for_kernel() in order to set GS and access
+// percpu variables.
+static uint8_t DOUBLE_FAULT_TASK_DEFAULT_STACK[128];
+
+// Initialize the interrupt task for the double fault handler.
+static void init_double_fault_interrupt_task(void) {
+    memzero(&DOUBLE_FAULT_TASK, sizeof(DOUBLE_FAULT_TASK));
+
+    // Zero the default stack.
+    size_t const def_stack_size = sizeof(DOUBLE_FAULT_TASK_DEFAULT_STACK);
+    void * const def_stack = DOUBLE_FAULT_TASK_DEFAULT_STACK;
+    memzero(def_stack, def_stack_size);
+
+    // ESPx and CSx for x = 0, 1, 2 are not used. This is because the double
+    // fault is expected to arise while in kernel mode only.
+
+    // Use the kernel page directory.
+    DOUBLE_FAULT_TASK.cr3 = cpu_read_cr3();
+
+    extern void interrupt_handler_8(void);
+    DOUBLE_FAULT_TASK.eip = (uint32_t)&interrupt_handler_8;
+
+    DOUBLE_FAULT_TASK.esp = (uint32_t)(def_stack + def_stack_size);
+
+    union segment_selector_t const kcode = kernel_code_selector();
+    union segment_selector_t const kdata = kernel_data_selector();
+
+    DOUBLE_FAULT_TASK.es = kdata;
+    DOUBLE_FAULT_TASK.cs = kcode;
+    DOUBLE_FAULT_TASK.ss = kdata;
+    DOUBLE_FAULT_TASK.ds = kdata;
+    DOUBLE_FAULT_TASK.fs = kdata;
+
+    // Leave GS to 0. This will be set to the correct percpu segment by the
+    // interrupt handler.
+}
+
 void init_final_gdt() {
     if (!PER_CPU_OFFSETS) {
         // allocate_aps_percpu_areas() _must_ be called before init_final_gdt.
@@ -416,10 +509,11 @@ void init_final_gdt() {
     }
 
     // 1 NULL entry, one kernel data segment, one kernel code segment, one user
-    // data segment, one user code segment, one segment per cpu for per-cpu data
-    // and one segment per cpu for TSS.
+    // data segment, one user code segment, one segment for the Double Fault
+    // TSS, one segment per cpu for per-cpu data and one segment per cpu for
+    // TSS.
     uint8_t const ncpus = acpi_get_number_cpus();
-    GDT_SIZE = 5 + 2 * ncpus;
+    GDT_SIZE = 6 + 2 * ncpus;
 
     // Allocate the final GDT. Kmalloc zeroes the GDT for us.
     GDT = kmalloc(GDT_SIZE * sizeof(*GDT));
@@ -432,6 +526,10 @@ void init_final_gdt() {
     GDT[GDT_KCODE_IDX] = GDT_ENTRY(0x0, PAGES, 0xFFFFF, CODE, 0);
     GDT[GDT_UDATA_IDX] = GDT_ENTRY(0x0, PAGES, 0xFFFFF, DATA, 3);
     GDT[GDT_UCODE_IDX] = GDT_ENTRY(0x0, PAGES, 0xFFFFF, CODE, 3);
+
+    uint32_t const df_tss = (uint32_t)&DOUBLE_FAULT_TASK;
+    GDT[GDT_DOUBLE_FAULT_TASK_IDX] = GDT_TSS_ENTRY(df_tss);
+    init_double_fault_interrupt_task();
 
     // Add one entry per cpu to contain per-cpu copies.
     size_t const pcpu_size = SECTION_PERCPU_SIZE;
@@ -494,6 +592,22 @@ void set_segment_registers_for_kernel(void) {
 void change_tss_esp0(void const * const new_esp0) {
     struct tss * const tss = &this_cpu_var(tss);
     tss->esp0 = (void*)new_esp0;
+}
+
+void double_fault_panic(struct interrupt_frame const * const frame) {
+    // In order to get the state (eg regs) of the cpu at the time of the double
+    // fault, we can look at the kernel task which is pointed by the prev_task
+    // pointer of the DOUBLE_FAULT_TASK.
+    union segment_selector_t const prev_sel = DOUBLE_FAULT_TASK.prev_task;
+    struct gdt_desc gdt;
+    cpu_sgdt(&gdt);
+    union segment_descriptor_t const prev_desc =
+        ((union segment_descriptor_t*)gdt.base)[prev_sel.index];
+
+    struct tss const * const prev_tss = (void*)(prev_desc.base_31_24 << 24 |
+        prev_desc.base_23_16 << 16 | prev_desc.base_15_0);
+
+    PANIC("Double fault detected at %p\n", prev_tss->eip);
 }
 
 #include <segmentation.test>

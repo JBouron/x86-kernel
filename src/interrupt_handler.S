@@ -276,6 +276,62 @@ do_fixup_priv_change_end:
     // ESP points to interrupt frame, we're ready to go.
     iret
 
+// The handler for the Double Fault exception differs from the other handlers
+// because we are using a task gate for this exception. This means that upon a
+// #DF interrupt, the cpu will switch to the stack of the DOUBLE_FAULT_TASK,
+// instead of using the stack that the cpu was using at the time of the
+// interrupt. Therefore we have a race condition if multiple cpus try to access
+// this handler as they will all use the same stack. It is for that reason that
+// we cannot go with the usual call to _prepare_stack_for_interrupt_entry.
+// Instead we need to switch the stack to the cpu's kernel stack and then call
+// _prepare_stack_for_interrupt_entry.
+.global interrupt_handler_8
+interrupt_handler_8:
+    // At this point the current stack is the DOUBLE_FAULT_TASK_DEFAULT_STACK
+    // which is big enough to hold the information pushed by the interrupt and
+    // calling simple functions (only 128 bytes).
+    // Note: Calling cpu_apic_id() is fine here even if multiple cpus are
+    // executing this handler since they will all push the same return address
+    // onto the stack.
+    // EAX = cpu id.
+    call    cpu_apic_id
+
+    // EAX = Pointer to the current cpu's percpu segment.
+    mov     ebx, [PER_CPU_OFFSETS]
+    mov     eax, [ebx + eax * 4]
+
+    // EBX = Offset of kernel_stack variable in percpu segment.
+    lea     ebx, [__percpu_kernel_stack]
+    sub     ebx, OFFSET FLAT : SECTION_PERCPU_START
+
+    mov     esp, [eax + ebx]
+    // We are now using our own stack, no corruption possible with other cpus.
+
+    // Since there is no privilege change (the interrupt happened in kernel
+    // mode), _prepare_stack_for_interrupt_entry will not call
+    // set_segment_registers_for_kernel() for us. However we do need to call it
+    // because GS is not correct.
+    call    set_segment_registers_for_kernel
+
+    // Fake an interrupt frame. This is ok because most of it is undefined with
+    // #DF. Put some magic numbers so that the frame is easy to recognize (this
+    // is for the prgrammer only, the code has other ways to determine that this
+    // is indeed a #DF).
+    push    0xDEADC0DE
+    mov     eax, cs
+    push    eax
+    push    0xDEADC0DE
+    push    0xDEADC0DE
+
+    # We cannot simply call _prepare_stack_for_interrupt_entry here, because the
+    # return address push onto the stack will be bogus (not between
+    # interrupt_handler_0 and interrupt_handler_255 + 5). Instead, push
+    # interrupt_handler_9 and jmp to _prepare_stack_for_interrupt_entry, this
+    # will trick _prepare_stack_for_interrupt_entry into thinking that
+    # interrupt_handler_8 is a simple call as every other handler.
+    push    OFFSET FLAT : interrupt_handler_9
+    jmp     _prepare_stack_for_interrupt_entry
+
 
 // Define one interrupt handler for every vector (0 through 255). Each handler
 // is a call instruction to the following routine:
@@ -303,7 +359,10 @@ interrupt_handler_no_err_code(4)
 interrupt_handler_no_err_code(5)
 interrupt_handler_no_err_code(6)
 interrupt_handler_no_err_code(7)
-interrupt_handler_err_code(8)
+// We are skipping interrupt_handler_8 since it is defined above. However we
+// need to make sure that &interrupt_handler_9 - interrupt_handler_7 == 10.
+// Hence put a place holder.
+.skip   5
 interrupt_handler_no_err_code(9)
 interrupt_handler_err_code(10)
 interrupt_handler_err_code(11)

@@ -39,29 +39,45 @@ union interrupt_descriptor_t {
 } __attribute__((packed));
 STATIC_ASSERT(sizeof(union interrupt_descriptor_t) == 8, "");
 
-// Initialize an union interrupt_descriptor_t given the information.
-// @param desc: The union interrupt_descriptor_t to initialize/fill.
-// @param offset: The offset of the interrupt handler for this interrupt
-// descriptor.
+// Initialize an union interrupt_descriptor_t as an interrupt gate descriptor.
 // @param segment_sel: The segment selector to use when calling the interrupt
 // handler.
-// @param priv_level: The privilege level to use when calling the interrupt
-// handler.
-static void init_desc(union interrupt_descriptor_t * const desc,
-                      uint32_t const offset,
-                      union segment_selector_t const segment_sel,
-                      uint8_t const priv_level) {
-    desc->offset_15_0 = offset & 0xFFFF;
-    desc->offset_31_16 = offset >> 16;
-    desc->segment_selector = segment_sel.value;
-    desc->reserved = 0;
-    desc->zero = 0;
-    desc->six = 6;
-    desc->size = 1;
-    desc->zero2 = 0;
-    desc->privilege_level = priv_level;
-    desc->present = 1;
-}
+// @param offset: The offset of the interrupt handler for this interrupt
+// descriptor.
+// @param dpl: The privilege level to use when calling the interrupt handler.
+#define IDT_ENTRY(segment_sel, offset, dpl)     \
+    (union interrupt_descriptor_t){             \
+        .offset_15_0 = (offset) & 0xFFFF,       \
+        .offset_31_16 = (offset) >> 16,         \
+        .segment_selector = (segment_sel).value,\
+        .reserved = 0,                          \
+        .zero = 0,                              \
+        .six = 6,                               \
+        .size = 1,                              \
+        .zero2 = 0,                             \
+        .privilege_level = (dpl),               \
+        .present = 1,                           \
+    }
+
+// Initialize an union interrupt_descriptor_t as task gate descriptor.
+// @param tss_segment_sel: The segment selector for the TSS to be used when
+// handling the interrupt handler.
+// @param offset: The offset of the interrupt handler for this interrupt
+// descriptor.
+// @param dpl: The privilege level to use when calling the interrupt handler.
+#define IDT_TASK_GATE_ENTRY(tss_segment_sel, dpl)   \
+    (union interrupt_descriptor_t){                 \
+        .offset_15_0 = 0x0,                         \
+        .offset_31_16 = 0x0,                        \
+        .segment_selector = (tss_segment_sel).value,\
+        .reserved = 0,                              \
+        .zero = 0,                                  \
+        .six = 5,                                   \
+        .size = 0,                                  \
+        .zero2 = 0,                                 \
+        .privilege_level = (dpl),                   \
+        .present = 1,                               \
+    }
 
 // The IDT contains an entry for every vector. Each handler is only 5 bytes long
 // (a single call instruction) hence this is ok to have them even if not all of
@@ -238,17 +254,27 @@ void interrupt_init(void) {
     // Zero the IDT, be safe.
     memzero(IDT, sizeof(IDT));
 
+    union segment_selector_t const kcode_sel = kernel_code_selector();
+
     // Fill each entry in the IDT with the corresponding interrupt_handler.
     for (uint16_t vector = 0; vector < IDT_SIZE; ++vector) {
-        uint32_t const handler_offset = get_interrupt_handler(vector);
-        ASSERT(handler_offset);
-        init_desc(IDT + vector, handler_offset, kernel_code_selector(), 0);
+        if (vector == 8) {
+            union segment_selector_t const df_sel = {
+                .requested_priv_level = 0,
+                .is_local = 0,
+                .index = 5,
+            };
+            IDT[vector] = IDT_TASK_GATE_ENTRY(df_sel, 0);
+        } else {
+            uint32_t const handler_offset = get_interrupt_handler(vector);
+            IDT[vector] = IDT_ENTRY(kcode_sel, handler_offset, 0);
+        }
     }
 
     // The syscall handler must be accessible through software interrupts from
     // ring 3 hence the DPL should be 3.
     uint32_t const syscall_handler = get_interrupt_handler(SYSCALL_VECTOR);
-    init_desc(IDT + SYSCALL_VECTOR, syscall_handler, kernel_code_selector(), 3);
+    IDT[SYSCALL_VECTOR] = IDT_ENTRY(kcode_sel, syscall_handler, 3);
 
     // Load the IDT information into the IDTR of the cpu.
     struct idt_desc const desc = {
@@ -267,6 +293,10 @@ void interrupt_init(void) {
     // Zero the callback array. This has to be done before enabling interrupts
     // to avoid race conditions.
     memzero(GLOBAL_CALLBACKS, sizeof(GLOBAL_CALLBACKS));
+
+    // We can already set the Double Fault callback to catch stack overflows in
+    // kernel.
+    interrupt_register_global_callback(0x8, double_fault_panic);
 }
 
 void interrupt_fixup_idtr(void) {

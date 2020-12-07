@@ -1,14 +1,13 @@
 #include <test.h>
 #include <proc.h>
 
-// Test the init_desc function.
+// Test the IDT_ENTRY macro.
 static bool interrupt_test_init_desc(void) {
-    union interrupt_descriptor_t desc;
     uint32_t const offset = 0xDEADBEEF;
     union segment_selector_t const sel = { .value = 0xBABE };
-    uint8_t const priv_level = 2;
+    uint8_t const dpl = 2;
 
-    init_desc(&desc, offset, sel, priv_level);
+    union interrupt_descriptor_t const desc = IDT_ENTRY(sel, offset, dpl);
     
     uint32_t const encoded_offset = (desc.offset_31_16 << 16) |
         desc.offset_15_0;
@@ -19,7 +18,7 @@ static bool interrupt_test_init_desc(void) {
     TEST_ASSERT(desc.six == 6);
     TEST_ASSERT(desc.size == 1);
     TEST_ASSERT(desc.zero2 == 0);
-    TEST_ASSERT(desc.privilege_level == priv_level);
+    TEST_ASSERT(desc.privilege_level == dpl);
     TEST_ASSERT(desc.present == 1);
 
     return true;
@@ -71,7 +70,7 @@ static bool basic_interrupt_test(void) {
     union interrupt_descriptor_t fake_idt[1];
     // Make the first offset in the IDT point to basic_interrupt_test_handler.
     uint32_t const offset = (uint32_t)&basic_interrupt_test_handler;
-    init_desc(fake_idt, offset, kernel_code_selector(), 0);
+    fake_idt[0] = IDT_ENTRY(kernel_code_selector(), offset, 0);
     // Load the fake IDT.
     struct idt_desc const desc = {
         .base = fake_idt,

@@ -1,6 +1,7 @@
 #pragma once
 #include <types.h>
 #include <smp.h>
+#include <interrupt.h>
 
 // Initialize the segmentation / GDT. This function will "jump" to higher half
 // logical addresses (where the kernel has been linked to). This function does
@@ -53,6 +54,12 @@ void set_segment_registers_for_kernel(void);
 // Change the stack pointer for the cpu's TSS.
 // @param new_esp0: The new esp0 to use.
 void change_tss_esp0(void const * const new_esp0);
+
+// Interrupt callback for a double fault.
+// @param frame: The interrupt frame. Note that in the case of a double this is
+// not used, the handler will look at the previous TSS instead to get the state
+// at the time of the interrupt.
+void double_fault_panic(struct interrupt_frame const * const frame);
 
 // Run tests related to segmentation.
 void segmentation_test(void);
