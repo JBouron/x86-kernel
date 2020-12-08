@@ -610,4 +610,20 @@ void double_fault_panic(struct interrupt_frame const * const frame) {
     PANIC("Double fault detected at %p\n", prev_tss->eip);
 }
 
+// Reset the busy bit of the TSS descriptor used by the task-gate for the #DF
+// interrupt. This is done in order to trick the CPU into executing the #DF task
+// multiple times if multiple cpus raised a #DF.
+// NOTE: This function is called at the very beginning of the #DF, this means
+// that between the time a cpu enters the task/interrupt handler and disable the
+// busy bit we have a race condition: another cpu could also raise a #DF and try
+// to switch to the task. Since the busy bit is still 1 at that point, the other
+// cpu will fail and will triple fault.
+// In reality, it is extremely unlikely that two cpus will overflow in the
+// kernel at the same time, hence the race condition is ok here.
+void reset_double_fault_task_busy_bit(void) {
+    struct tss_descriptor * const desc = (struct tss_descriptor *)GDT +
+        GDT_DOUBLE_FAULT_TASK_IDX;
+    desc->type = 0b1001;
+}
+
 #include <segmentation.test>

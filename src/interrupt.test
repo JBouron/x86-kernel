@@ -1,5 +1,7 @@
 #include <test.h>
 #include <proc.h>
+#include <acpi.h>
+#include <kmalloc.h>
 
 // Test the IDT_ENTRY macro.
 static bool interrupt_test_init_desc(void) {
@@ -186,6 +188,52 @@ static bool interrupt_register_save_test(void) {
     return interrupt_register_save_success;
 }
 
+static void kernel_stack_overflow_do_overflow(void * unused) {
+    LOG("[%u] Overflowing kernel stack ...\n", cpu_id());
+    while (1) {
+        asm("push $0xBEEFBABE");
+    }
+}
+
+static bool volatile kernel_stack_overflow_test_overflowed = false;
+
+static void kernel_stack_overflow_test_df_handler(
+    struct interrupt_frame const * const frame) {
+    LOG("[%u] Kernel stack overflow detected\n", cpu_id());
+    kernel_stack_overflow_test_overflowed = true;
+
+    // #DF are not supposed to return, hence lock up the cpu, it will be reset
+    // at the end of the test.
+    lock_up();
+}
+
+// Test that kernel stack overflows are detected and handled.
+static bool kernel_stack_overflow_test(void) {
+    uint32_t const ncpus = acpi_get_number_cpus();
+    int_callback_t const bak = GLOBAL_CALLBACKS[0x8];
+    GLOBAL_CALLBACKS[0x8] = kernel_stack_overflow_test_df_handler;
+
+    // Do the test on each cpu one after the other. This is to avoid the race
+    // condition on the busy bit of the TSS segment selector associated with the
+    // task-gate for the #DF interrupt.
+    for (uint16_t cpu = 0; cpu < ncpus; ++cpu) {
+        if (cpu == cpu_id()) {
+            continue;
+        }
+
+        kernel_stack_overflow_test_overflowed = false;
+        exec_remote_call(cpu, kernel_stack_overflow_do_overflow, NULL, false);
+
+        while (!kernel_stack_overflow_test_overflowed) {
+            lapic_sleep(50);
+        }
+    }
+
+    GLOBAL_CALLBACKS[0x8] = bak;
+    init_aps();
+    return true;
+}
+
 void interrupt_test(void) {
     TEST_FWK_RUN(interrupt_test_init_desc);
     TEST_FWK_RUN(get_interrupt_handler_test);
@@ -193,4 +241,5 @@ void interrupt_test(void) {
     TEST_FWK_RUN(interrupt_register_callback_test);
     TEST_FWK_RUN(interrupt_local_callback_priority_test);
     TEST_FWK_RUN(interrupt_register_save_test);
+    TEST_FWK_RUN(kernel_stack_overflow_test);
 }

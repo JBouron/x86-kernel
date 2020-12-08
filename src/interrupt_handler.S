@@ -290,6 +290,11 @@ interrupt_handler_8:
     // At this point the current stack is the DOUBLE_FAULT_TASK_DEFAULT_STACK
     // which is big enough to hold the information pushed by the interrupt and
     // calling simple functions (only 128 bytes).
+
+    // Mark the task as non-busy ASAP to avoid race condition if another cpu
+    // tries to call that handler/task.
+    call    reset_double_fault_task_busy_bit
+
     // Note: Calling cpu_apic_id() is fine here even if multiple cpus are
     // executing this handler since they will all push the same return address
     // onto the stack.
