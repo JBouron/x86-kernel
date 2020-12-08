@@ -76,7 +76,9 @@ static bool ipm_remote_call_test(void) {
 // The current cpu will make the other cpu send it __TEST messages through
 // REMOTE_CALL messages.
 
-static uint32_t overload_test_num_messages_per_core = 32;
+// The number of message per core must not be too high, otherwise it could
+// trigger a stack overflow on the receiving cpu.
+static uint32_t overload_test_num_messages_per_core = 8;
 static bool volatile overload_test_ready = false;
 static bool volatile ipi_sent = false;
 
