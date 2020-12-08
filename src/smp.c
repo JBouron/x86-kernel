@@ -149,7 +149,8 @@ static void *allocate_ap_kernel_stack(void) {
             PANIC("Cannot map kernel stack to virt mem\n");
         }
     }
-    return vaddr;
+    // Skip the canary when returning the bottom of the stack.
+    return vaddr + PAGE_SIZE;
 }
 
 // Create a data frame containing all data structures required by the APs to
