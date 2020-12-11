@@ -14,34 +14,42 @@ static bool create_proc_test(void) {
     struct proc * const proc = create_proc();
 
     // Check that registers are initialized correctly.
-    TEST_ASSERT(proc->saved_registers->edi == 0);
-    TEST_ASSERT(proc->saved_registers->esi == 0);
-    TEST_ASSERT(proc->saved_registers->ebp == (reg_t)proc->user_stack.bottom);
-    TEST_ASSERT(proc->saved_registers->ebx == 0);
-    TEST_ASSERT(proc->saved_registers->edx == 0);
-    TEST_ASSERT(proc->saved_registers->ecx == 0);
-    TEST_ASSERT(proc->saved_registers->eax == 0);
-    TEST_ASSERT(proc->saved_registers->eip == 0);
-    TEST_ASSERT(proc->saved_registers->eflags == 1 << 9);
-    TEST_ASSERT(proc->saved_registers->esp == (reg_t)(proc->user_stack.bottom));
+    TEST_ASSERT(proc->registers.edi == 0);
+    TEST_ASSERT(proc->registers.esi == 0);
+    TEST_ASSERT(proc->registers.ebp == (reg_t)proc->user_stack.bottom);
+    TEST_ASSERT(proc->registers.ebx == 0);
+    TEST_ASSERT(proc->registers.edx == 0);
+    TEST_ASSERT(proc->registers.ecx == 0);
+    TEST_ASSERT(proc->registers.eax == 0);
+    TEST_ASSERT(proc->registers.eip == 0);
+    TEST_ASSERT(proc->registers.eflags == 1 << 9);
+    TEST_ASSERT(proc->registers.esp == (reg_t)(proc->user_stack.bottom));
 
     delete_proc(proc);
     return true;
 }
 
 static bool create_kproc_test(void) {
-    struct proc * const proc = create_kproc((void*)0xDEADBEEF, (void*)0xABCDEF);
+    void * const func = (void *)0xDEADBEEF;
+    void * const arg = (void *)0xABCDEF;
+    struct proc * const proc = create_kproc(func, arg);
 
     // Check that registers are initialized correctly.
-    TEST_ASSERT(proc->saved_registers->edi == 0);
-    TEST_ASSERT(proc->saved_registers->esi == 0);
-    TEST_ASSERT(proc->saved_registers->ebp == proc->kernel_registers.ebp);
-    TEST_ASSERT(proc->saved_registers->ebx == 0);
-    TEST_ASSERT(proc->saved_registers->edx == 0);
-    TEST_ASSERT(proc->saved_registers->ecx == 0);
-    TEST_ASSERT(proc->saved_registers->eax == 0);
-    TEST_ASSERT(proc->saved_registers->eip == 0);
-    TEST_ASSERT(proc->saved_registers->eflags == 1 << 9);
+    TEST_ASSERT(proc->registers.edi == 0);
+    TEST_ASSERT(proc->registers.esi == 0);
+    TEST_ASSERT(proc->registers.ebp == (reg_t)proc->kernel_stack.bottom);
+    TEST_ASSERT(proc->registers.ebx == 0);
+    TEST_ASSERT(proc->registers.edx == 0);
+    TEST_ASSERT(proc->registers.ecx == 0);
+    TEST_ASSERT(proc->registers.eax == 0);
+    TEST_ASSERT(proc->registers.eip == (reg_t)func);
+    TEST_ASSERT(proc->registers.eflags == 1 << 9);
+
+    // Check that current stack frame contains correct values.
+    TEST_ASSERT(proc->registers.esp == (reg_t)(proc->kernel_stack.bottom - 8));
+    uint32_t const * const esp = (uint32_t const *)proc->registers.esp;
+    TEST_ASSERT(esp[0] == (uint32_t)&catch_kstack_underflow);
+    TEST_ASSERT(esp[1] == (uint32_t)arg);
 
     delete_proc(proc);
     return true;
@@ -78,7 +86,7 @@ static bool privileged_instr_in_ring3_test(void) {
 
     copy_code_to_proc(proc, code, len);
     // The very first instruction should be the one raising the #GP.
-    privileged_instr_in_ring3_expected_eip = proc->saved_registers->eip;
+    privileged_instr_in_ring3_expected_eip = proc->registers.eip;
 
     // Vector for a General Protection Fault.
     uint8_t const v = 13;
@@ -200,7 +208,7 @@ static bool kernel_access_from_ring3_test(void) {
 
     copy_code_to_proc(proc, code, len);
 
-    kernel_access_from_ring3_expected_eip = proc->saved_registers->eip;
+    kernel_access_from_ring3_expected_eip = proc->registers.eip;
 
     interrupt_register_global_callback(14, kernel_access_from_ring3_pg_handler);
 
@@ -358,6 +366,46 @@ static bool create_proc_oom_test(void) {
     return true;
 }
 
+// When calling save_registers() from C code it is hard to predict the value of
+// ESP and EFLAGS. For that reason, the ASM code actually calling save_registers
+// will write the value of ESP and EFLAGS in the following variable just before
+// the call.
+reg_t save_registers_test_exp_esp;
+reg_t save_registers_test_exp_eflags;
+
+// Test the save_registers() function.
+static bool save_registers_test(void) {
+
+    // The test routine is written in ASM and will set all registers to some
+    // values (except CS, DS, and SS), call save_registers() with the
+    // destination passed as argument, restore the registers and return.
+    extern void save_registers_test_routine(struct register_save_area *);
+
+    struct register_save_area regs;
+    save_registers_test_routine(&regs);
+
+    TEST_ASSERT(regs.eax == 0xAAAAAAAA);
+    TEST_ASSERT(regs.ebx == 0xBBBBBBBB);
+    TEST_ASSERT(regs.ecx == 0xCCCCCCCC);
+    TEST_ASSERT(regs.edx == 0xDDDDDDDD);
+    TEST_ASSERT(regs.esi == 0xDEADBEEF);
+    TEST_ASSERT(regs.edi == 0xBEEFBABE);
+    TEST_ASSERT(regs.ebp == 0xDEADBABE);
+    TEST_ASSERT(regs.esp == save_registers_test_exp_esp);
+
+    TEST_ASSERT(regs.eip == 0xDEADC0DE);
+    TEST_ASSERT(regs.eflags == save_registers_test_exp_eflags);
+    
+    union segment_selector_t const curr_gs = cpu_read_gs();
+    TEST_ASSERT(regs.cs == kernel_code_selector().value);
+    TEST_ASSERT(regs.ds == kernel_data_selector().value);
+    TEST_ASSERT(regs.es == curr_gs.value);
+    TEST_ASSERT(regs.fs == curr_gs.value);
+    TEST_ASSERT(regs.gs == kernel_data_selector().value);
+    TEST_ASSERT(regs.ss == kernel_data_selector().value);
+    return true;
+}
+
 void proc_test(void) {
     TEST_FWK_RUN(get_stack_bottom_test);
     TEST_FWK_RUN(create_proc_test);
@@ -368,4 +416,5 @@ void proc_test(void) {
     TEST_FWK_RUN(kernel_process_test);
     TEST_FWK_RUN(register_saving_ring0_int_test);
     TEST_FWK_RUN(create_proc_oom_test);
+    TEST_FWK_RUN(save_registers_test);
 }

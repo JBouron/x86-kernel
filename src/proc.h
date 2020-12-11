@@ -65,16 +65,10 @@ struct stack {
 struct proc {
     // The private address space of this process.
     struct addr_space * addr_space;
-    // When the process is not currently running on a cpu, its general purpose
-    // registers are saved onto its kernel stack. This pointer points to where
-    // they are stored.
-    // For regular user processes, these are the user space registers. For
-    // kernel processes these are "application" registers.
-    struct register_save_area *saved_registers;
 
-    // The saved values of the registers used in kernel mode, right before the
-    // last context switch for this process.
-    struct register_save_area kernel_registers;
+    // The state of the registers at the time of the last context switch that
+    // paused the execution of this process.
+    struct register_save_area registers;
 
     // Indicate the nesting level of the interrupt for this process.
     // 0  = process is running.
@@ -165,8 +159,8 @@ struct proc *create_proc(void);
 // is returned.
 struct proc *create_kproc(void (*func)(void*), void * const arg);
 
-// Switch the execution of the current cpu to a process. This function does not
-// return.
+// Perform a context switch to a new process. This function will return when the
+// execution of the current process resumes.
 // @param proc: The process to execute.
 void switch_to_proc(struct proc * const proc);
 

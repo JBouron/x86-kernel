@@ -100,19 +100,6 @@ static uint32_t get_interrupt_handler(uint8_t const vector) {
     return ((uint32_t)&interrupt_handler_0) + vector * 5;
 }
 
-// Save the register values of a process.
-// @param proc: The process for which the register values should be saved.
-// @param regs: The current values of the registers for `proc`.
-static void save_registers(struct proc * const proc,
-                           struct register_save_area const * const regs) {
-    ASSERT((void*)proc->kernel_stack.bottom >= (void*)regs + sizeof(*regs));
-    ASSERT((void*)proc->kernel_stack.top <= (void*)regs);
-    // Discard the const qualifier here. We could instead change the signature
-    // of the struct interrupt_frame to not have the const qualifier for the
-    // saved registers but this would open up possibility of modifying them.
-    proc->saved_registers = (struct register_save_area *)regs;
-}
-
 // Dump the value of the registers at the time of the interrupt.
 // @param frame: The interrupt frame for which the registers should be dumped.
 static void dump_registers(struct interrupt_frame const * const frame) {
@@ -155,14 +142,6 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
     if (sched_running_on_cpu()) {
         struct proc * const curr = this_cpu_var(curr_proc);
         ASSERT(curr);
-        if (!curr->interrupt_nest_level) {
-            // The current process on this cpu just got interrupted, save its
-            // registers into its struct proc.
-            // This is not required per se, since the register values are onto
-            // the kernel stack of the current process, however it does make
-            // testing and debug easier.
-            save_registers(curr, frame->registers);
-        }
         curr->interrupt_nest_level++;
     }
 

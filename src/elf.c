@@ -396,7 +396,7 @@ bool load_elf_binary(struct file * const file, struct proc * const proc) {
     switch_to_addr_space(get_kernel_addr_space());
 
     // Set the EIP to the entry point of the program.
-    proc->saved_registers->eip = (reg_t)header.entry;
+    proc->registers.eip = (reg_t)header.entry;
 
     proc->state_flags &= ~PROC_WAITING_EIP;
     return true;

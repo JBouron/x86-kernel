@@ -116,79 +116,45 @@ static pid_t get_new_pid(void) {
 // @param proc: The process to return into.
 extern void initial_ret_to_proc(struct proc * const proc);
 
-// This function is meant to be called if a kernel stack underflow occurs while
-// context switching. This is a protection mechanism used when a function passed
-// to init_kernel_stack returns.
-static void catch_kstack_underflow(void) {
-    PANIC("Kernel stack underflow");
-}
+// Initialize the registers for a process.
+// @param proc: The process to initialize the registers for.
+static void init_registers(struct proc * const proc) {
+    bool const kproc = proc->is_kernel_proc;
+    struct register_save_area * const regs = &proc->registers;
 
-// Initialize the proc's kernel stack so that the first context switch to this
-// proc will call a particular function.
-// @param proc: The proc for which the kernel stack should be initialzed. Its
-// kernel stack should already been allocated.
-// @param func: The function to be called by the proc while in kernel during the
-// first context switch. This function must not return, otherwise a stack
-// underflow will occur.
-// @parm arg: The argument to the function.
-static void init_kernel_stack(struct proc * const proc,
-                              void (*func)(void*),
-                              void * const arg) {
-    // We need to manipulate the kernel stack of the proc in such a way that the
-    // first call to _schedule() that will branch execution to this proc will
-    // call a function (func) once it returns from _schedule().
-    // Hence the initial kernel stack should look like the following (offsets
-    // are relative to %ESP):
-    // %ESP + 0x10     Arg for `func`, i.e. `arg`.
-    // %ESP + 0x0C     Presumably caller of `func`. catch_kstack_underflow.
-    // %ESP + 0x08     Second arg for _schedule() (next). More info below.
-    // %ESP + 0x04     First arg for _schedule() (prev). More info below.
-    // %ESP + 0x00     Return address for _schedule(), i.e. address of `func`.
-    //
-    // When a call to _schedule() will start executing the proc, the proc will
-    // restore its kernel registers (default to 0) and ret from _schedule().
-    // Since we crafted the return address to point to `func`, the proc will
-    // start executing the `func` function. The return address for this call is
-    // a dummy value, hence why `func` must never return. The argument for
-    // `func` is found at the very bottom of the stack.
-    //
-    // Note: Because `func` is most likely not even aware of the fake
-    // _schedule() call, it will not pop out the arguments of _schedule(). Hence
-    // we need to pop them out within the _schedule() funtion hence the stdcall
-    // attribute for _schedule().
-    //
-    // Note2: The arguments to _schedule() must be: prev == proc, next == dummy.
-    // This is because we want to fake a context switch to the proc and hence
-    // this is done by making the proc believe it executed a _schedule() in the
-    // past. Since when executing _schedule() prev must point to the current
-    // process, here it needs to point to `proc`. The `next` pointer does not
-    // matter since it won't be used (only the second half of _schedule will be
-    // executed).
-    ASSERT(proc->kernel_registers.esp);
-    uint32_t * esp0 = (uint32_t*)proc->kernel_registers.esp;
+    // Zero out all the registers. EAX, EBX, ECX, EDX, EDI and ESI will be 0 at
+    // the first execution of the process.
+    memzero(regs, sizeof(*regs));
 
-    // Push the arg for the function onto the stack.
-    *esp0 = (uint32_t)arg;
-    esp0 --;
+    // Set the ESP to point to the correct stack (user or kernel) and create the
+    // original stack frame with EBP.
+    if (kproc) {
+        // Kernel processes use their kernel stack as their "application" stack.
+        regs->esp = (reg_t)proc->kernel_stack.bottom;
+    } else {
+        // For user processes this is the bottom of the user stack.
+        regs->esp = (reg_t)proc->user_stack.bottom;
+    }
+    regs->ebp = regs->esp;
 
-    // Push a dummy address for the caller.
-    *esp0 = (uint32_t)(void*)catch_kstack_underflow;
-    esp0 --;
+    // For processes the EFLAGS should only have the interrupt bit set.
+    regs->eflags = 1 << 9;
 
-    // The second arg of _schedule().
-    *esp0 = 0;
-    esp0 --;
-
-    // The first arg of _schedule().
-    *esp0 = (uint32_t)(void*)proc;
-    esp0 --;
-
-    // Push the presumably caller of _schedule() onto the stack. That is the
-    // function we are trying to execute.
-    *esp0 = (uint32_t)(void*)func;
-
-    // Set the saved esp to point to the last word on the stack.
-    proc->kernel_registers.esp = (reg_t)esp0;
+    // Setup code, data and stack segments to user or kernel segments.
+    union segment_selector_t const cs =
+        (kproc) ? kernel_code_selector() : user_code_seg_sel();
+    union segment_selector_t const ds =
+        (kproc) ? kernel_data_selector() : user_data_seg_sel();
+    regs->cs = cs.value;
+    regs->ds = ds.value;
+    regs->es = ds.value;
+    regs->fs = ds.value;
+    // If the task is to be run in ring 0 give it access to percpu vars through
+    // GS. This is actually not needed, the function resuming the execution of a
+    // process will make sure that the correct GS is loaded and will ignore the
+    // value of the saved GS (except for user processes).
+    regs->gs = (kproc) ? cpu_read_gs().value : ds.value;
+    regs->ss = ds.value;
 }
 
 // Create a new process. This function will set default values for the process'
@@ -203,26 +169,29 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
         SET_ERROR("Could not allocate struct proc", ENONE);
         return NULL;
     }
-    proc->is_kernel_proc = (ring == 0);
+    proc->is_kernel_proc = (!ring);
 
-    // Kernel processes use the kernel address space.
+    // Kernel processes use the kernel address space whereas user processes will
+    // have their own address space.
     proc->addr_space =
-        (ring == 0) ? get_kernel_addr_space() : create_new_addr_space();
+        (!ring) ? get_kernel_addr_space() : create_new_addr_space();
+
     if (!proc->addr_space) {
         SET_ERROR("Cannot create address space for new process", ENONE);
         kfree(proc);
         return NULL;
     }
 
-    if (!proc->is_kernel_proc) {
-        // Allocate user stack for user processes.
-        if (!allocate_stack(proc, false)) {
-            SET_ERROR("Could not allocate user stack for process", ENONE);
-            delete_addr_space(proc->addr_space);
-            kfree(proc);
-            return NULL;
-        }
+    // User processes will have a user stack besides the kernel stack. Kernel
+    // processes only have a kernel stack.
+    if (!proc->is_kernel_proc && !allocate_stack(proc, false)) {
+        SET_ERROR("Could not allocate user stack for process", ENONE);
+        delete_addr_space(proc->addr_space);
+        kfree(proc);
+        return NULL;
     }
+
+    // Allocate kernel stack for the process.
     if (!allocate_stack(proc, true)) {
         SET_ERROR("Could not allocate kernel stack for process", ENONE);
         // De-allocate the user stack.
@@ -235,73 +204,37 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
         return NULL;
     }
 
-    // Allocate a space on the kernel stack to store the saved registers. This
-    // will only be used until the first time the process gets executed. After
-    // that, the interrupt handler will save the registers and update the
-    // pointer to them.
-    void * const esp0 = proc->kernel_stack.bottom;
-    proc->saved_registers = esp0 - sizeof(*proc->saved_registers);
-    // Zero out the register_save struct of the proc so that the first time it
-    // gets run all registers will be 0.
-    memzero(proc->saved_registers, sizeof(*proc->saved_registers));
-
-    // For user space and kernel space, only %ESP and %EBP will be initialized
-    // to something != 0.
-    void * const new_esp0 = esp0 - sizeof(*proc->saved_registers) - 4;
-    // Initialize kernel %ESP and %EBP for all procs.
-    proc->kernel_registers.esp = (reg_t)new_esp0;
-    proc->kernel_registers.ebp = (reg_t)new_esp0;
-    if (proc->is_kernel_proc) {
-        // Kernel processes use their kernel stack as their "application" stack.
-        // Therefore the saved %ESP and %EBP are the same as the kernel ones.
-        proc->saved_registers->esp = proc->kernel_registers.esp;
-        proc->saved_registers->ebp = proc->kernel_registers.ebp;
-    } else {
-        // For user processes this is the bottom of the user stack.
-        proc->saved_registers->esp = (reg_t)proc->user_stack.bottom;
-        proc->saved_registers->ebp = proc->saved_registers->esp;
-    }
-
-    proc->interrupt_nest_level = 0;
-
-    // For processes the eflags should only have the interrupt bit set.
-    proc->saved_registers->eflags = 1 << 9;
-
-    // Setup code, data and stack segments to use user space segments.
-    union segment_selector_t cs =
-        (ring == 0) ? kernel_code_selector() : user_code_seg_sel();
-    union segment_selector_t ds =
-        (ring == 0) ? kernel_data_selector() : user_data_seg_sel();
-    proc->saved_registers->cs = cs.value;
-    proc->saved_registers->ds = ds.value;
-    proc->saved_registers->es = ds.value;
-    proc->saved_registers->fs = ds.value;
-    // If the task is to be run in ring 0 give it access to percpu vars through
-    // GS.
-    proc->saved_registers->gs = (ring == 0) ? cpu_read_gs().value : ds.value;
-    proc->saved_registers->ss = ds.value;
+    // Initialize registers to their default values. This must be done after
+    // allocating the stack(s) since ESP and EBP will be pointing onto the
+    // kernel/user stack.
+    init_registers(proc);
 
     list_init(&proc->rq);
 
-    // A process is not runnable until its EIP is setup.
+    // A process is not runnable until its EIP is setup. This function will not
+    // set the EIP.
     proc->state_flags = PROC_WAITING_EIP;
 
     proc->pid = get_new_pid();
+
+    // All other fields are 0 since the kmalloc memzeroed the struct proc for
+    // us.
 
     return proc;
 }
 
 struct proc *create_proc(void) {
-    struct proc * const proc =  create_proc_in_ring(3);
-    if (!proc) {
-        return NULL;
-    }
+    // For user processes, the create_proc_in_ring() will do all the required
+    // work. After this call one only needs to copy the code into the process'
+    // address space and point EIP to the right place.
+    return create_proc_in_ring(3);
+}
 
-    // Make the proc execute initial_ret_to_proc() upon the first execution.
-    // This will create an interrupt stack frame onto the kernel stack and iret
-    // from it straight to user space.
-    init_kernel_stack(proc, (void*)initial_ret_to_proc, proc);
-    return proc;
+// This function is meant to be called if a kernel stack underflow occurs while
+// context switching. This is a protection mechanism used when a function passed
+// to init_kernel_stack returns.
+static void catch_kstack_underflow(void) {
+    PANIC("Kernel stack underflow");
 }
 
 struct proc *create_kproc(void (*func)(void*), void * const arg) {
@@ -310,7 +243,18 @@ struct proc *create_kproc(void (*func)(void*), void * const arg) {
         return NULL;
     }
 
-    init_kernel_stack(kproc, func, arg);
+    // For kernel procs, we need to build a stack frame for the function call to
+    // `func`. More specifically, we need to push in that order:
+    //  - arg
+    //  - Dummy return address. Use catch_kstack_underflow so that any return
+    //  would be caught and PANIC.
+    uint32_t * esp = (uint32_t*)kproc->registers.esp;
+    *(--esp) = (uint32_t)arg;
+    *(--esp) = (uint32_t)&catch_kstack_underflow;
+    kproc->registers.esp = (reg_t)esp;
+
+    // Set the EIP to the target function.
+    kproc->registers.eip = (reg_t)func;
 
     // Kernel processes are runnable as soon as they are created since this
     // function sets up the EIP.
@@ -319,77 +263,30 @@ struct proc *create_kproc(void (*func)(void*), void * const arg) {
     return kproc;
 }
 
-// The following constants are used by initial_ret_to_proc() to access various
-// fields of the struct register_save_area.
-// This value is used by proc_asm.S to know the offset of saved_registers within
-// the struct proc.
-uint32_t const REGISTERS_SAVE_OFFSET = offsetof(struct proc, saved_registers);
-uint32_t const KERNEL_REG_SAVE_OFFSET = offsetof(struct proc, kernel_registers);
-uint32_t const IS_KPROC_OFFSET = offsetof(struct proc, is_kernel_proc);
-uint32_t const KERNEL_STACK_BOTTOM_OFFSET =
-    offsetof(struct proc, kernel_stack) + offsetof(struct stack, bottom);
-
-// Offsets of saved registers within the struct register_save_area.
-uint32_t const SS_OFF = offsetof(struct register_save_area, ss);
-uint32_t const ESP_OFF = offsetof(struct register_save_area, esp);
-uint32_t const EFLAGS_OFF = offsetof(struct register_save_area, eflags);
-uint32_t const CS_OFF = offsetof(struct register_save_area, cs);
-uint32_t const EIP_OFF = offsetof(struct register_save_area, eip);
-uint32_t const DS_OFF = offsetof(struct register_save_area, ds);
-uint32_t const ES_OFF = offsetof(struct register_save_area, es);
-uint32_t const FS_OFF = offsetof(struct register_save_area, fs);
-uint32_t const GS_OFF = offsetof(struct register_save_area, gs);
-
-// Check that the saved segments registers for a process about to run on the
-// current cpu are ok. This means: user segments for user processes.
-// @param proc: The process to check the segment registers for.
-static void check_segments(struct proc const * const proc) {
-    if (proc->is_kernel_proc) {
-        // It is not necessary to make this check for kernel processes since the
-        // segment registers will not be changed when going from the kernel to
-        // the kernel process. Hence, at all time when running, kernel processes
-        // will use kernel segments.
-    } else {
-        struct register_save_area const * const reg = proc->saved_registers;
-        ASSERT(reg);
-        uint16_t const ucode = user_code_seg_sel().value;
-        uint16_t const udata = user_data_seg_sel().value;
-        ASSERT(reg->cs == ucode);
-        ASSERT(reg->es == udata);
-        ASSERT(reg->ds == udata);
-        ASSERT(reg->fs == udata);
-        ASSERT(reg->gs == udata);
-        ASSERT(reg->ss == udata);
-    }
-}
+// Used by assembly code to access the `registers` field of a struct proc.
+uint32_t const REG_SAVE_OFFSET = offsetof(struct proc, registers);
 
 // Perform the actual context switch from prev to next.
-// @param prev: The process that was running up until the call to _schedule.  If
-// this is the very first context switch on the current core then prev must be
-// NULL.
+// @param prev: The process that was running up until this call. If this is the
+// very first context switch on the current core then prev must be NULL.
 // @param next: The process to branch the execution to.
 // Note: This function will not change the address space, nor the curr_proc
 // percpu variable. This MUST be done by the caller, before calling this
 // function.
-extern __attribute__((stdcall))
-    void _schedule(struct proc * const prev, struct proc * const next);
+extern void do_context_switch(struct proc * prev, struct proc * next);
 
 void switch_to_proc(struct proc * const proc) {
     struct proc * const prev = this_cpu_var(curr_proc);
+
     proc->cpu = cpu_id();
 
     // Switch to the next process' address space and update this cpu's curr_proc
-    // variable.
+    // variable. This won't be done by do_context_switch()!
     this_cpu_var(curr_proc) = proc;
     switch_to_addr_space(proc->addr_space);
 
-    // Check that the segments are sound, this needs to be done *after*
-    // switching to the proc's address space since the registers are saved into
-    // its kernel stack.
-    check_segments(proc);
-
     // Perform the actual context switch.
-    _schedule(prev, proc);
+    do_context_switch(prev, proc);
 }
 
 // Close all the files opened by a process.

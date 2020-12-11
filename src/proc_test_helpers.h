@@ -15,6 +15,10 @@ static inline void copy_code_to_proc(struct proc * const proc,
     // in size. This is ok as most of the test codes are very small anyways.
     ASSERT(len < PAGE_SIZE);
 
+    // Kernel procs should not need to have their code copied since they execute
+    // kernel functions that are already accessible to them.
+    ASSERT(!proc->is_kernel_proc);
+
     // Allocate a new physical frame that will contain the code.
     void * code_frame = alloc_frame();
     // Map the frame to the current address space an copy the code.
@@ -30,7 +34,7 @@ static inline void copy_code_to_proc(struct proc * const proc,
                                                   1,
                                                   flags);
     // Set the EIP to point to the copied code.
-    proc->saved_registers->eip = (reg_t)eip;
+    proc->registers.eip = (reg_t)eip;
 }
 
 // Helper function to execute a process. This function is meant to be used by a

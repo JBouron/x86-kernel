@@ -138,3 +138,81 @@ kernel_access_from_ring3_expected_offset:
 
 .global kernel_access_from_ring3_code_end
 kernel_access_from_ring3_code_end:
+
+.section .data
+save_registers_test_routine_data:
+// Size = (8 GP + EFLAGS) * 4 + ret address + arg. = 44
+.skip   0x2C
+.global save_registers_test_routine_data_end
+save_registers_test_routine_data_end:
+
+ASM_FUNC_DEF(save_registers_test_routine):
+    // Set registers to some values and call the save_registers() function
+    // to save them.
+    push    ebp
+    mov     ebp, esp
+    pusha
+
+    // For the segment registers, all we need to do is to set them to something
+    // different than we they currently are. At this point we have:
+    //  CS = Kernel code segment.
+    //  DS = ES = FS = SS = kernel data segment.
+    //  GS = percpu segment of current cpu.
+    // CS, DS and SS cannot change, they must stay the same (or we would need
+    // duplicate entries at different indices in the GDT).
+    // For ES, FS and GS we can do:
+    //  ES = FS = percpu segment.
+    //  GS = kernel data segment.
+    mov     ax, gs
+    mov     cx, es
+    mov     es, ax
+    mov     fs, ax
+    mov     gs, cx
+
+    // For ESP we need to account for the fact that we need to call
+    // save_registers and therefore we cannot set a random value.
+    // save_registers_test_routine_data is big enough to call save_registers.
+    mov     eax, esp
+    lea     esp, [save_registers_test_routine_data_end]
+    // Save the previous ESP.
+    push    eax
+
+    // Push EIP override to save_registers.
+    push    0xDEADC0DE
+
+    // Push the dest argument to save_registers. From now on the ESP does not
+    // change.
+    push    [ebp + 0x8]
+
+    // Indicate to the test functions the expected values of ESP, EIP and
+    // EFLAGS. This is because those cannot be randomly assigned and hard to
+    // predict.
+.extern save_registers_test_exp_esp
+.extern save_registers_test_exp_eflags
+    mov     [save_registers_test_exp_esp], esp
+    pushf
+    pop     [save_registers_test_exp_eflags]
+
+    // For GP registers, just set anything.
+    mov     eax, 0xAAAAAAAA
+    mov     ebx, 0xBBBBBBBB
+    mov     ecx, 0xCCCCCCCC
+    mov     edx, 0xDDDDDDDD
+    mov     esi, 0xDEADBEEF
+    mov     edi, 0xBEEFBABE
+    mov     ebp, 0xDEADBABE
+
+    call    save_registers
+0:
+    add     esp, 8
+
+    // Restore the original ESP
+    pop     esp
+
+    // Before leaving restore the segment registers.
+    call    set_segment_registers_for_kernel
+
+    // Restore the GP and return.
+    popa
+    leave
+    ret 

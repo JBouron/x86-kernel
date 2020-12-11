@@ -290,7 +290,7 @@ static bool load_elf_binary_test(void) {
     TEST_ASSERT(memeq((void*)0x0804915C, zero, 0x88 - 4));
     kfree(zero);
 
-    TEST_ASSERT(proc->saved_registers->eip == (reg_t)0x8048074);
+    TEST_ASSERT(proc->registers.eip == (reg_t)0x8048074);
 
     switch_to_addr_space(get_kernel_addr_space());
     delete_proc(proc);
