@@ -223,13 +223,11 @@ do_fixup_priv_change:
     mov     eax, [ebp - 0x4]
     mov     [ebp - 0x4C], eax
 
-    // Because the interrupted context was not the kernel, the current segment
-    // registers (except CS and SS) are not kernel segment. In particular GS is
-    // not set to the percpu segment. Fixup the segment register before
-    // continuing.
+do_fixup_priv_change_end:
+    // No matter where the interrupt comes from (kernel or userspace), do not
+    // trust the segment registers and set them correctly for kernel operations.
     call    set_segment_registers_for_kernel
 
-do_fixup_priv_change_end:
     // Construct the struct interrupt_frame_t for the generic interrupt handler,
     // onto the stack.
 
@@ -261,7 +259,7 @@ do_fixup_priv_change_end:
     mov     fs, [ebp - 0x2C]
     mov     gs, [ebp - 0x30]
 
-    // SS does not need to be restore because:
+    // SS does not need to be restored because:
     // - If a priv change occured, the SS will be restored by the IRET.
     // - If no priv change occured, then the SS has to be the same as the
     // kernel's SS otherwise this interrupt handler would not even work.
