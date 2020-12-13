@@ -224,48 +224,46 @@ ASM_FUNC_DEF(switch_to_proc_test_routine):
     // Create a new struct register_save_area containing the current values of
     // the registers, onto the stack.
 
-    // Save EIP.
+    // ESP points to a struct switch_to_proc_test_data. We need to fill its
+    // struct register_save_area. This struct starts at ESP + 0x4 (skipping the
+    // flag). We cannot use save_registers here as we are not sure to have a
+    // correct DS.
+    mov     [esp + 0x04], edi
+    mov     [esp + 0x08], esi
+    mov     [esp + 0x0C], ebp
+    mov     [esp + 0x10], esp
+    mov     [esp + 0x14], ebx
+    mov     [esp + 0x18], edx
+    mov     [esp + 0x1C], ecx
+    mov     [esp + 0x20], eax
+
+    pushf
+    pop     eax
+    mov     [esp + 0x24], eax
+
     call    0f
 0:
-
-    // The struct register_save_area:
-    push    0x0
-    mov     [esp], es
-    push    0x0
-    mov     [esp], cs
-    push    0x0
-    mov     [esp], ss
-    push    0x0
-    mov     [esp], ds
-    push    0x0
-    mov     [esp], fs
-    push    0x0
-    mov     [esp], gs
-
-    // Push EIP, dummy value for now, will be computed later once we can use the
-    // GPs.
-    push    0xDEADC0DE
-    pushf
-    pusha
-
-    // The EIP needs fixing. We have the EIP of 0 at [esp + 0x40], the original
-    // EIP was [esp + 0x40] - 5 because of the CALL instruction.
     lea     eax, [0b] 
     lea     ebx, [switch_to_proc_test_routine]
     // EAX = Offset between switch_to_proc_test_routine and 0.
     sub     eax, ebx
-    // EBX = Original EIP before the CALL instruction.
-    mov     ebx, [esp + 0x40]
+    pop     ebx
     sub     ebx, eax
-    // Fixup EIP in the struct.
-    mov     [esp + 0x24], ebx
+    mov     [esp + 0x28], ebx
 
-    // The saved ESP needs fixup as well.
-    lea     eax, [esp + 0x44]
-    mov     [esp + 0xC], eax
-
-    // Remove two struct register_save_area + the temp EIP.
-    add     esp, 0x84
+    xor     eax, eax
+    mov     ax, gs
+    mov     [esp + 0x2C], ax
+    mov     ax, fs
+    mov     [esp + 0x30], ax
+    mov     ax, ds
+    mov     [esp + 0x34], ax
+    mov     ax, ss
+    mov     [esp + 0x38], ax
+    mov     ax, cs
+    mov     [esp + 0x3C], ax
+    mov     ax, es
+    mov     [esp + 0x40], ax
 
     // Set the flag.
     mov     DWORD PTR [esp], 1

@@ -146,13 +146,11 @@ ASM_FUNC_DEF(resume_proc_exec):
 
     test    ax, ax
     jz      0f
-    // Restoring GS and DS is only possible for user processes, this is because
-    // with kernel processes the DS must match the current DS and the GS will
-    // not change.
+    // Restoring/changing GS is only possible for user processes.
     mov     gs, [edi + 0x28]
-    mov     ds, [edi + 0x30]
 
 0:
+    mov     ds, [edi + 0x30]
     popa
     iret
 

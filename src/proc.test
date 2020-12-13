@@ -406,20 +406,68 @@ static bool save_registers_test(void) {
     return true;
 }
 
-// Test that a process executing for the first time will have its registers set
-// to the correct values.
+// =============================================================================
+// switch_to_proc() tests. In these tests we start execution of a process using
+// switch_to_proc() and checks that the process starts with the correct values
+// loaded into its registers (GPs, EFLAGS, and segment registers). This test is
+// done for ring 0 and ring 3.
+
+// This struct will be created on the process stack.
+struct switch_to_proc_test_data {
+    // If 1 then the process is done writting its registers into the `registers`
+    // field below.
+    uint32_t volatile flag;
+    // Contains the values of all the registers as they appear in the process
+    // once it is running. Only valid if flag is 1.
+    struct register_save_area registers;
+};
+
+// Run the test for a certain ring.
+// @param ring: The ring of the process to create and execute.
+// @return: true if the test is successful, false otherwise.
 static bool switch_to_proc_test(uint8_t const ring) {
+    // This test runs as follows:
+    //  1. The process is created.
+    //  2. The process' registers (saved into the struct proc) are set to some
+    //  values.
+    //  3. A struct switch_to_proc_test_data is pushed onto the process' stack
+    //  (by this function, NOT the process itself) and initialized.
+    //  4. The process is run and executes switch_to_proc_test_routine. This
+    //  routine will copy the register values into the struct
+    //  switch_to_proc_test_data onto the stack.
+    //  5. Wait for the process to indicate that it is done by waiting on the
+    //  `flag` field of the struct switch_to_proc_test_data.
+    //  6. Compare the register values reported in the struct
+    //  switch_to_proc_test_data with the expected values.
+
+    // This function is the code of the process. It expects the ESP register to
+    // point to a struct switch_to_proc_test_data onto the stack. This function
+    // will fill the struct with the current values of its registers before
+    // writing 1 into the `flag` field.
     extern void switch_to_proc_test_routine(void);
 
     struct proc * const p = create_test_proc(ring, switch_to_proc_test_routine);
 
-    uint8_t const target = TEST_TARGET_CPU(0);
-    union segment_selector_t target_gs;
-    exec_remote_call(target, remote_read_gs, &target_gs, true);
+    // The cpu on which the process will run.
+    uint8_t const cpu = TEST_TARGET_CPU(0);
 
-    // Set the registers to some specific values so that we can see if they
-    // changed once the process get interrupted.
-    // ESP does not change.
+    // For kernel processes, the GS is set to the percpu segment of the cpu
+    // running them. Since the process will run on a remote cpu, we need to know
+    // the GS of this cpu for the comparison.
+    union segment_selector_t target_gs;
+    exec_remote_call(cpu, remote_read_gs, &target_gs, true);
+
+    // Use non zero values for registers to make sure they are loaded correctly
+    // by switch_to_proc().
+    // Some of the registers CANNOT have arbitrary values, those are:
+    //  - EIP: Otherwise we would have a #PF when doing the iret to the process.
+    //  - ESP: The process will push onto its stack so the ESP must point onto
+    //  its stack.
+    //  - CS: Otherwise we would have a #PF when doing the iret to the process.
+    //  - SS: The process will push onto its stack, hence SS must be a valid
+    //  segment with correct privileges.
+    //  - For kernel proc: GS: This is because the GS will be set to point to
+    //  the percpu segment of the cpu running the process.
     p->registers.eax = 0xAAAAAAAA;
     p->registers.ebx = 0xBBBBBBBB;
     p->registers.ecx = 0xCCCCCCCC;
@@ -427,52 +475,44 @@ static bool switch_to_proc_test(uint8_t const ring) {
     p->registers.esi = 0xDEADBEEF;
     p->registers.edi = 0xBEEFBABE;
     p->registers.ebp = 0xDEADBABE;
+    // For the EFLAGS, make sure the interrupts are enabled.
     p->registers.eflags = (1 << 9) | 0x2;
-
     // For segment registers, set user segments. This is because setting kernel
     // segments for user process will not work as IRET would zero them out. This
     // is a quirky behaviour of x86.
     p->registers.es = user_data_seg_sel().value;
     p->registers.fs = user_code_seg_sel().value;
+    p->registers.ds = user_code_seg_sel().value;
     if (ring) {
         // For user processes, we can change DS and GS.
-        p->registers.ds = user_code_seg_sel().value;
         p->registers.gs = user_code_seg_sel().value;
     } else {
         // For kernel processes, the GS will be set to the percpu segment of the
         // cpu running it.
         p->registers.gs = target_gs.value;
     }
-    // CS cannot be changed, otherwise we would have a #GP upon executing the
-    // proc.
-    // EIP cannot be changed, otherwise we would have a #PF.
-    // SS needs to be correct for user processes since it will be set upon the
-    // IRET, for kernel processes it will be used by the IRET. Hence it cannot
-    // be changed.
     
-    // Prepare stack for test.
+    // Since we are going to read/write into the process' stack, we need to
+    // switch to its address space.
     switch_to_addr_space(p->addr_space);
 
-    uint8_t * esp = (uint8_t*)p->registers.esp;
-    // We need: 1 uint32_t to contain the result of the test, and enough space
-    // to fit the expected struct register_save_area.
-    esp -= sizeof(p->registers) + 4;
-    p->registers.esp = (reg_t)esp;
+    // Prepare the struct switch_to_proc_test_data onto the process' stack.
+    p->registers.esp -= sizeof(struct switch_to_proc_test_data);
+    struct switch_to_proc_test_data * const data = (void*)p->registers.esp;
+    memzero(data, sizeof(*data));
 
-    memcpy(esp, &p->registers, sizeof(p->registers));
-    uint32_t volatile * const res_dest = (void*)esp + sizeof(p->registers);
-    ASSERT((void*)res_dest == (void*)esp + 0x40);
-    *res_dest = 0x0;
+    // Execute proc on remote cpu.
+    exec_remote_call(cpu, exec_proc, p, false);
 
-    exec_remote_call(target, exec_proc, p, false);
-
-    while (!*res_dest) {
+    // Wait for proc to terminate execution.
+    while (!data->flag) {
         lapic_sleep(50);
     }
 
+    // Compare the values of the registers read by the process with the expected
+    // values store into its struct proc.
     struct register_save_area const * const exp = &p->registers;
-    struct register_save_area const * const curr = (void*)esp - 0x44;
-
+    struct register_save_area const * const curr = &data->registers;
     bool const same = memeq(exp, curr, sizeof(*exp));
     LOG("Comparison = %d\n", same);
 
