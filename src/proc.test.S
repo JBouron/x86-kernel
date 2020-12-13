@@ -216,3 +216,63 @@ ASM_FUNC_DEF(save_registers_test_routine):
     popa
     leave
     ret 
+
+//void switch_to_proc_test_routine(void)
+ASM_FUNC_DEF(switch_to_proc_test_routine):
+    // At this point the stack contains a struct register_save_area containing
+    // the expected values of the registers.
+    // Create a new struct register_save_area containing the current values of
+    // the registers, onto the stack.
+
+    // Save EIP.
+    call    0f
+0:
+
+    // The struct register_save_area:
+    push    0x0
+    mov     [esp], es
+    push    0x0
+    mov     [esp], cs
+    push    0x0
+    mov     [esp], ss
+    push    0x0
+    mov     [esp], ds
+    push    0x0
+    mov     [esp], fs
+    push    0x0
+    mov     [esp], gs
+
+    // Push EIP, dummy value for now, will be computed later once we can use the
+    // GPs.
+    push    0xDEADC0DE
+    pushf
+    pusha
+
+    // The EIP needs fixing. We have the EIP of 0 at [esp + 0x40], the original
+    // EIP was [esp + 0x40] - 5 because of the CALL instruction.
+    lea     eax, [0b] 
+    lea     ebx, [switch_to_proc_test_routine]
+    // EAX = Offset between switch_to_proc_test_routine and 0.
+    sub     eax, ebx
+    // EBX = Original EIP before the CALL instruction.
+    mov     ebx, [esp + 0x40]
+    sub     ebx, eax
+    // Fixup EIP in the struct.
+    mov     [esp + 0x24], ebx
+
+    // The saved ESP needs fixup as well.
+    lea     eax, [esp + 0x44]
+    mov     [esp + 0xC], eax
+
+    // Remove two struct register_save_area + the temp EIP.
+    add     esp, 0x84
+
+    // Set the flag.
+    mov     DWORD PTR [esp], 1
+1: 
+    pause
+    jmp     1b
+    
+    
+.global switch_to_proc_test_routine_end
+switch_to_proc_test_routine_end:

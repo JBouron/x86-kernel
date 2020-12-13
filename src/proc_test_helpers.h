@@ -3,6 +3,12 @@
 #include <paging.h>
 #include <frame_alloc.h>
 
+#define GET_CODE_LEN(func_name) \
+    ({  \
+        extern uint8_t func_name ## _end;   \
+        (void*)&func_name##_end - (void*)func_name;     \
+     })
+
 // Helper function used to copy some code to the process' address space and set
 // the EIP accodingly.
 // @param proc: The process to copy the code to.
@@ -14,10 +20,6 @@ static inline void copy_code_to_proc(struct proc * const proc,
     // For now this function does not support copying code that is more than 4KB
     // in size. This is ok as most of the test codes are very small anyways.
     ASSERT(len < PAGE_SIZE);
-
-    // Kernel procs should not need to have their code copied since they execute
-    // kernel functions that are already accessible to them.
-    ASSERT(!proc->is_kernel_proc);
 
     // Allocate a new physical frame that will contain the code.
     void * code_frame = alloc_frame();
@@ -35,6 +37,27 @@ static inline void copy_code_to_proc(struct proc * const proc,
                                                   flags);
     // Set the EIP to point to the copied code.
     proc->registers.eip = (reg_t)eip;
+}
+
+#define create_test_proc(ring, func_name) \
+    _create_test_proc(ring, func_name, GET_CODE_LEN(func_name))
+
+// Helper to create a test process.
+// @param ring: The ring/priv level of the process.
+// @param code: The code to be executed by the process.
+static inline struct proc *_create_test_proc(uint8_t const ring,
+                                             void const * const code,
+                                             size_t const len) {
+    ASSERT(ring == 3 || !ring);
+
+    struct proc * proc = NULL;
+    if (!ring) {
+        proc = create_kproc(code, NULL);
+    } else {
+        proc = create_proc();
+        copy_code_to_proc(proc, code, len);
+    }
+    return proc;
 }
 
 // Helper function to execute a process. This function is meant to be used by a

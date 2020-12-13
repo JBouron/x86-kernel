@@ -406,6 +406,91 @@ static bool save_registers_test(void) {
     return true;
 }
 
+// Test that a process executing for the first time will have its registers set
+// to the correct values.
+static bool switch_to_proc_test(uint8_t const ring) {
+    extern void switch_to_proc_test_routine(void);
+
+    struct proc * const p = create_test_proc(ring, switch_to_proc_test_routine);
+
+    uint8_t const target = TEST_TARGET_CPU(0);
+    union segment_selector_t target_gs;
+    exec_remote_call(target, remote_read_gs, &target_gs, true);
+
+    // Set the registers to some specific values so that we can see if they
+    // changed once the process get interrupted.
+    // ESP does not change.
+    p->registers.eax = 0xAAAAAAAA;
+    p->registers.ebx = 0xBBBBBBBB;
+    p->registers.ecx = 0xCCCCCCCC;
+    p->registers.edx = 0xDDDDDDDD;
+    p->registers.esi = 0xDEADBEEF;
+    p->registers.edi = 0xBEEFBABE;
+    p->registers.ebp = 0xDEADBABE;
+    p->registers.eflags = (1 << 9) | 0x2;
+
+    // For segment registers, set user segments. This is because setting kernel
+    // segments for user process will not work as IRET would zero them out. This
+    // is a quirky behaviour of x86.
+    p->registers.es = user_data_seg_sel().value;
+    p->registers.fs = user_code_seg_sel().value;
+    if (ring) {
+        // For user processes, we can change DS and GS.
+        p->registers.ds = user_code_seg_sel().value;
+        p->registers.gs = user_code_seg_sel().value;
+    } else {
+        // For kernel processes, the GS will be set to the percpu segment of the
+        // cpu running it.
+        p->registers.gs = target_gs.value;
+    }
+    // CS cannot be changed, otherwise we would have a #GP upon executing the
+    // proc.
+    // EIP cannot be changed, otherwise we would have a #PF.
+    // SS needs to be correct for user processes since it will be set upon the
+    // IRET, for kernel processes it will be used by the IRET. Hence it cannot
+    // be changed.
+    
+    // Prepare stack for test.
+    switch_to_addr_space(p->addr_space);
+
+    uint8_t * esp = (uint8_t*)p->registers.esp;
+    // We need: 1 uint32_t to contain the result of the test, and enough space
+    // to fit the expected struct register_save_area.
+    esp -= sizeof(p->registers) + 4;
+    p->registers.esp = (reg_t)esp;
+
+    memcpy(esp, &p->registers, sizeof(p->registers));
+    uint32_t volatile * const res_dest = (void*)esp + sizeof(p->registers);
+    ASSERT((void*)res_dest == (void*)esp + 0x40);
+    *res_dest = 0x0;
+
+    exec_remote_call(target, exec_proc, p, false);
+
+    while (!*res_dest) {
+        lapic_sleep(50);
+    }
+
+    struct register_save_area const * const exp = &p->registers;
+    struct register_save_area const * const curr = (void*)esp - 0x44;
+
+    bool const same = memeq(exp, curr, sizeof(*exp));
+    LOG("Comparison = %d\n", same);
+
+    switch_to_addr_space(get_kernel_addr_space());
+
+    init_aps();
+    delete_proc(p);
+    return same;
+}
+
+static bool switch_to_proc_test_ring0(void) {
+    return switch_to_proc_test(0);
+}
+
+static bool switch_to_proc_test_ring3(void) {
+    return switch_to_proc_test(3);
+}
+
 void proc_test(void) {
     TEST_FWK_RUN(get_stack_bottom_test);
     TEST_FWK_RUN(create_proc_test);
@@ -417,4 +502,6 @@ void proc_test(void) {
     TEST_FWK_RUN(register_saving_ring0_int_test);
     TEST_FWK_RUN(create_proc_oom_test);
     TEST_FWK_RUN(save_registers_test);
+    TEST_FWK_RUN(switch_to_proc_test_ring0);
+    TEST_FWK_RUN(switch_to_proc_test_ring3);
 }

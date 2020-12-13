@@ -109,13 +109,6 @@ static pid_t get_new_pid(void) {
     return pid;
 }
 
-// Force the execution of a process. This function will restore the registers
-// and iret into the process code. This function is meant to be used for the
-// very first time a process is running ONLY. Using this function directly will
-// break the scheduler state.
-// @param proc: The process to return into.
-extern void initial_ret_to_proc(struct proc * const proc);
-
 // Initialize the registers for a process.
 // @param proc: The process to initialize the registers for.
 static void init_registers(struct proc * const proc) {
