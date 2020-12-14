@@ -278,6 +278,13 @@ void switch_to_proc(struct proc * const proc) {
     this_cpu_var(curr_proc) = proc;
     switch_to_addr_space(proc->addr_space);
 
+    // Change the kernel stack of the TSS of this cpu. This is only required for
+    // user processes since kernel processes will never have to switch privilege
+    // level.
+    if (!proc->is_kernel_proc) {
+        change_tss_esp0(proc->kernel_stack.bottom);
+    }
+
     // Perform the actual context switch.
     do_context_switch(prev, proc);
 }

@@ -55,6 +55,12 @@ void set_segment_registers_for_kernel(void);
 // @param new_esp0: The new esp0 to use.
 void change_tss_esp0(void const * const new_esp0);
 
+// Get the current ESP0 in the TSS of a cpu.
+// @param cpu: The cpu to get the ESP0 for.
+// @return: The value of ESP0 in the cpu's TSS.
+// Note: This function is only used for testing.
+void *get_tss_esp0(uint8_t const cpu);
+
 // Interrupt callback for a double fault.
 // @param frame: The interrupt frame. Note that in the case of a double this is
 // not used, the handler will look at the previous TSS instead to get the state

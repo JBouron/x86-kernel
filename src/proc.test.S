@@ -176,3 +176,11 @@ switch_to_proc_test_routine_end:
 // is here.
 .global interrupt_reg_save_routine_end
 interrupt_reg_save_routine_end:
+
+// Code simply executing INT 0x80.
+ASM_FUNC_DEF(int_0x80_code):
+    int     0x80
+0:
+    jmp     0b
+.global int_0x80_code_end
+int_0x80_code_end:

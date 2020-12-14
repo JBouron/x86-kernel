@@ -582,6 +582,84 @@ static bool interrupt_reg_save_test_ring3(void) {
     return interrupt_reg_save(3);
 }
 
+// ============================================================================= 
+// This test checks that switching to a user process changes the ESP0 of the TSS
+// of the current cpu. This is a regression test of a BUG where switch_to_proc()
+// would not change the ESP0 of the TSS hence causing conflicts if multiple user
+// processes would run on the same cpu.
+
+// The value of the ESP register on the remote cpu during the handling of the
+// interrupt raised by the process.
+static void const * esp0_test_esp_during_int = NULL;
+// The value of the ESP0 of the TSS of the remote cpu during the handling of the
+// interrupt.
+static void const * esp0_test_esp0_during_int = NULL;
+// Indicate to the cpu running the test that the interrupt handler has been
+// called and the two values above are valid.
+static bool volatile esp0_test_handler_done = false;
+
+// Temporary handler for 0x80 during this test. This handler will simply save
+// the values of the ESP register and the ESP0 of the TSS into
+// esp0_test_esp_during_int and esp0_test_esp0_during_int respectively.
+static void esp0_test_handler(struct interrupt_frame const * const frame) {
+    esp0_test_esp_during_int = cpu_read_esp();
+    esp0_test_esp0_during_int = get_tss_esp0(cpu_id());
+    esp0_test_handler_done = true;
+
+    // The execution of the process cannot resume. Simply wait for the other cpu
+    // to reset us.
+    lock_up();
+}
+
+static bool tss_esp0_change_on_context_switch_test(void) {
+    // This test works as follows:
+    //  1. A use process is created, running int_0x80_code.
+    //  2. The process is executed on the remote cpu.
+    //  3. Once the process raise a 0x80 interrupt, the remote cpu will execute
+    //  the appropriate handler (esp0_test_handler) which will save the value of
+    //  both ESP and ESP0 of the TSS in esp0_test_esp_during_int and
+    //  esp0_test_esp0_during_int respectively. Once it is done, it will set
+    //  esp0_test_handler_done to true.
+    //  4. The cpu running this test will wait on esp0_test_handler_done to
+    //  become true.
+    //  5. Once it is true, the cpu running this test will check the following:
+    //      - The ESP reported by the handler MUST lie within the kernel stack
+    //      of the process.
+    //      - The ESP0 must be the address of the bottom of the kernel stack of
+    //      the process.
+
+    esp0_test_handler_done = false;
+
+    // Simply executes a "INT 0x80" instruction.
+    extern void int_0x80_code(void);
+
+    uint8_t const ring = 3;
+    struct proc * const proc = create_test_proc(ring, int_0x80_code);
+
+    interrupt_register_global_callback(SYSCALL_VECTOR, esp0_test_handler);
+
+    // Start the execution of the process on the remote cpu.
+    uint8_t const cpu = TEST_TARGET_CPU(0);
+    exec_remote_call(cpu, exec_proc, proc, false);
+
+    // Wait for the process to raise the interrupt and the remote cpu to execute
+    // the handler and save the ESP and ESP0.
+    while (!esp0_test_handler_done) {
+        lapic_sleep(10);
+    }
+
+    void const * const expected_esp0 = proc->kernel_stack.bottom;
+    TEST_ASSERT(esp0_test_esp0_during_int == expected_esp0);
+    TEST_ASSERT(esp0_test_esp_during_int < proc->kernel_stack.bottom);
+    TEST_ASSERT(proc->kernel_stack.top <= esp0_test_esp_during_int);
+
+    interrupt_delete_global_callback(SYSCALL_VECTOR);
+    init_aps();
+    delete_proc(proc);
+
+    return true;
+}
+
 void proc_test(void) {
     TEST_FWK_RUN(get_stack_bottom_test);
     TEST_FWK_RUN(create_proc_test);
@@ -595,4 +673,5 @@ void proc_test(void) {
     TEST_FWK_RUN(switch_to_proc_test_ring3);
     TEST_FWK_RUN(interrupt_reg_save_test_ring0);
     TEST_FWK_RUN(interrupt_reg_save_test_ring3);
+    TEST_FWK_RUN(tss_esp0_change_on_context_switch_test);
 }

@@ -626,4 +626,9 @@ void reset_double_fault_task_busy_bit(void) {
     desc->type = 0b1001;
 }
 
+void *get_tss_esp0(uint8_t const cpu) {
+    struct tss const * const tss = &cpu_var(tss, cpu);
+    return tss->esp0;
+}
+
 #include <segmentation.test>
