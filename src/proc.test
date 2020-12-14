@@ -25,6 +25,9 @@ static bool create_proc_test(void) {
     TEST_ASSERT(proc->registers.eflags == 1 << 9);
     TEST_ASSERT(proc->registers.esp == (reg_t)(proc->user_stack.bottom));
 
+    // No program has been loaded in this process yet.
+    TEST_ASSERT(proc->state_flags == PROC_WAITING_EIP);
+
     delete_proc(proc);
     return true;
 }
@@ -50,6 +53,8 @@ static bool create_kproc_test(void) {
     uint32_t const * const esp = (uint32_t const *)proc->registers.esp;
     TEST_ASSERT(esp[0] == (uint32_t)&catch_kstack_underflow);
     TEST_ASSERT(esp[1] == (uint32_t)arg);
+
+    TEST_ASSERT(proc->state_flags == PROC_RUNNABLE);
 
     delete_proc(proc);
     return true;

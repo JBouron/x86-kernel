@@ -1,6 +1,7 @@
 #include <macro.h>
 .intel_syntax   noprefix
 
+// Execute a privileged instruction (HLT in this case).
 ASM_FUNC_DEF(privileged_instr_in_ring3_code):
 .global privileged_instr_in_ring3_code_start
 privileged_instr_in_ring3_code_start:
@@ -9,17 +10,25 @@ privileged_instr_in_ring3_code_start:
 .global privileged_instr_in_ring3_code_end
 privileged_instr_in_ring3_code_end:
 
-.extern kernel_access_from_ring3_kernel_var
+
+// Try to access kernel memory.
 ASM_FUNC_DEF(kernel_access_from_ring3_code):
 .global kernel_access_from_ring3_code_start
 kernel_access_from_ring3_code_start:
 
 kernel_access_from_ring3_expected_offset:
+    .extern kernel_access_from_ring3_kernel_var
     mov     DWORD PTR [kernel_access_from_ring3_kernel_var], 0xBEEFBABE
 
 .global kernel_access_from_ring3_code_end
 kernel_access_from_ring3_code_end:
 
+// ============================================================================= 
+// Routines used by save_registers_test.
+
+// This buffer will be used as a stack by save_registers_test_routine(). The
+// rationale is that we want to avoid using the same stack as the caller of this
+// routine. This stack is big enough to call save_registers().
 .section .data
 save_registers_test_routine_data:
 // Size = (8 GP + EFLAGS) * 4 + ret address + arg. = 44

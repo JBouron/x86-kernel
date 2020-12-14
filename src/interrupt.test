@@ -147,47 +147,6 @@ static bool interrupt_local_callback_priority_test(void) {
     return !global_callback_called && local_callback_called;
 }
 
-// Do a software interrupt with vector = 0 (any vector works as long as it does
-// not have an error code). This function will put specific values in registers
-// and store the expected values in interrupt_register_save_expected.
-extern bool interrupt_register_save_do_int(void);
-struct register_save_area interrupt_register_save_expected;
-static bool interrupt_register_save_success = false;
-static void interrupt_register_save_handler(
-    struct interrupt_frame const * const frame) {
-
-    bool success = true;
-    success &= (frame->registers->edi == interrupt_register_save_expected.edi);
-    success &= (frame->registers->esi == interrupt_register_save_expected.esi);
-    success &= (frame->registers->ebp == interrupt_register_save_expected.ebp);
-    success &= (frame->registers->esp == interrupt_register_save_expected.esp);
-    success &= (frame->registers->ebx == interrupt_register_save_expected.ebx);
-    success &= (frame->registers->edx == interrupt_register_save_expected.edx);
-    success &= (frame->registers->ecx == interrupt_register_save_expected.ecx);
-    success &= (frame->registers->eax == interrupt_register_save_expected.eax);
-    success &= 
-        (frame->registers->eflags == interrupt_register_save_expected.eflags);
-    success &= (frame->registers->eip == interrupt_register_save_expected.eip);
-    success &= (frame->registers->gs == interrupt_register_save_expected.gs);
-    success &= (frame->registers->fs == interrupt_register_save_expected.fs);
-    success &= (frame->registers->ds == interrupt_register_save_expected.ds);
-    success &= (frame->registers->ss == interrupt_register_save_expected.ss);
-    success &= (frame->registers->cs == interrupt_register_save_expected.cs);
-    success &= (frame->registers->es == interrupt_register_save_expected.es);
-
-    interrupt_register_save_success = success;
-}
-static bool interrupt_register_save_test(void) {
-    uint8_t const vector = 0;
-    interrupt_register_local_callback(vector, interrupt_register_save_handler);
-
-    interrupt_register_save_success = false;
-
-    interrupt_register_save_do_int();
-
-    return interrupt_register_save_success;
-}
-
 static void kernel_stack_overflow_do_overflow(void * unused) {
     LOG("[%u] Overflowing kernel stack ...\n", cpu_id());
     while (1) {
@@ -240,6 +199,5 @@ void interrupt_test(void) {
     TEST_FWK_RUN(basic_interrupt_test);
     TEST_FWK_RUN(interrupt_register_callback_test);
     TEST_FWK_RUN(interrupt_local_callback_priority_test);
-    TEST_FWK_RUN(interrupt_register_save_test);
     TEST_FWK_RUN(kernel_stack_overflow_test);
 }
