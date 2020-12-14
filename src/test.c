@@ -30,20 +30,20 @@ static void detect_memory_leaks(char const * const name,
     uint32_t const max_tries = 10;
     uint32_t num_tries = 0;
     while (num_tries < max_tries &&
-        (frames_allocated() != frames_before ||
-        kmalloc_total_allocated() != kmalloc_before)) {
+        (frames_allocated() > frames_before ||
+        kmalloc_total_allocated() > kmalloc_before)) {
         num_tries ++;
         lapic_sleep(100);
     }
 
     uint32_t const allocated_frames_after = frames_allocated();
     size_t const kmalloc_tot_after = kmalloc_total_allocated();
-    if (frames_before != allocated_frames_after) {
+    if (frames_before < allocated_frames_after) {
         uint32_t const num = allocated_frames_after - frames_before;
         WARN("  Physical frame leak of %u frames detected for %s\n", num, name);
         TOT_PHY_FRAME_LEAK += num;
     }
-    if (kmalloc_before != kmalloc_tot_after) {
+    if (kmalloc_before < kmalloc_tot_after) {
         uint32_t const num = kmalloc_tot_after - kmalloc_before;
         WARN("  Dynamic memory leak of %u bytes detected for %s\n", num, name);
         TOT_DYN_MEM_LEAK += num;
