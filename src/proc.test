@@ -316,6 +316,13 @@ struct proc_test_data {
     struct register_save_area registers;
 };
 
+// Generate a "random" uint32_t using the TSC.
+// @return: An arbitrary uint32_t.
+static uint32_t poor_mans_rand(void) {
+    uint64_t const tsc = read_tsc();
+    return (uint32_t)tsc;
+}
+
 // Helper function used to set the saved registers of a process to some
 // arbitrary values.
 // @param proc: The proc to set the registers for.
@@ -329,24 +336,28 @@ struct proc_test_data {
 //  - For kernel proc: GS: This is because the GS will be set to point to the
 //  percpu segment of the cpu running the process.
 static void set_registers_for_test(struct proc * const proc) {
-    proc->registers.eax = 0xAAAAAAAA;
-    proc->registers.ebx = 0xBBBBBBBB;
-    proc->registers.ecx = 0xCCCCCCCC;
-    proc->registers.edx = 0xDDDDDDDD;
-    proc->registers.esi = 0xDEADBEEF;
-    proc->registers.edi = 0xBEEFBABE;
-    proc->registers.ebp = 0xDEADBABE;
-    // For the EFLAGS, make sure the interrupts are enabled.
+    proc->registers.eax = poor_mans_rand();
+    proc->registers.ebx = poor_mans_rand();
+    proc->registers.ecx = poor_mans_rand();
+    proc->registers.edx = poor_mans_rand();
+    proc->registers.esi = poor_mans_rand();
+    proc->registers.edi = poor_mans_rand();
+    proc->registers.ebp = poor_mans_rand();
+    // For the EFLAGS, make sure the interrupts are enabled. The bit 1 MUST be
+    // set as it is always 1 in x86. This is to avoid comparison failure.
     proc->registers.eflags = (1 << 9) | 0x2;
+
     // For segment registers, set user segments. This is because setting kernel
     // segments for user process will not work as IRET would zero them out. This
     // is a quirky behaviour of x86.
-    proc->registers.es = user_data_seg_sel().value;
-    proc->registers.fs = user_code_seg_sel().value;
-    proc->registers.ds = user_code_seg_sel().value;
+    uint32_t const ud = user_data_seg_sel().value;
+    uint32_t const uc = user_data_seg_sel().value;
+    proc->registers.es = poor_mans_rand() % 2 ? ud : uc;
+    proc->registers.fs = poor_mans_rand() % 2 ? ud : uc;
+    proc->registers.ds = poor_mans_rand() % 2 ? ud : uc;
     if (!proc->is_kernel_proc) {
         // For user processes, we can change GS.
-        proc->registers.gs = user_code_seg_sel().value;
+        proc->registers.gs = poor_mans_rand() % 2 ? ud : uc;
     } else {
         // For kernel processes, the GS will be set to the percpu segment of the
         // cpu running it.
