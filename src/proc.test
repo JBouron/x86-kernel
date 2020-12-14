@@ -660,6 +660,195 @@ static bool tss_esp0_change_on_context_switch_test(void) {
     return true;
 }
 
+// ============================================================================= 
+// do_context_switch() testing. In this test we are running N processes on the
+// same cpu and performing 2N context switches. This test makes sure that
+// registers are not changed between context switches.
+//
+// We mix user processes and kernel processes. There is no scheduler running,
+// hence the test is explicitely using switch_to_proc() to perform the context
+// switches.
+// All N programs are executing the same code (at different priv levels):
+//  1. INT 0x80. This is the very first instruction, no register is changed.
+//  2. Save registers into the struct proc_test_data present on its stack (ESP
+//  is assumed to point to that struct).
+//  3. Write 1 to the flag field of the struct.
+//  4. INT 0x80 again.
+// The test uses a special handler for 0x80 which will perform a context switch
+// every time it is called. Hence the expected interleaving of the processes
+// look as follows:
+//  * Proc 1 starts executing and execute the INT 0x80 instruction.
+//  * The handler for 0x80 performs a context switch.
+//  * Proc 2 starts executing and execute the INT 0x80 instruction.
+//  * The handler for 0x80 performs a context switch.
+//      ...
+//  * Proc N starts executing and execute the INT 0x80 instruction.
+//  * The handler for 0x80 performs a context switch.
+//  * Proc 1 resumes execution after the INT 0x80 and save its registers onto
+//  its stack. Finally it executes a INT 0x80 again.
+//  * The handler for 0x80 performs a context switch.
+//  * Proc 2 resumes execution after the INT 0x80 and save its registers onto
+//  its stack. Finally it executes a INT 0x80 again.
+//  * The handler for 0x80 performs a context switch.
+//      ...
+//  * Proc N resumes execution after the INT 0x80 and save its registers onto
+//  its stack. Finally it executes a INT 0x80 again.
+//  * The handler terminates the execution of all processes.
+// After that the cpu running the test will compare the values of the register
+// reported by the processes (through their stack) with the start values. They
+// should match except for EIP.
+
+// Indicate to the cpu running the test that all the interrupts have been
+// received and that the processes are done running.
+static bool volatile context_switch_test_over = false;
+// The number of 0x80 interrupts received so far.
+static uint32_t context_switch_test_num_ints = 0;
+// The number of processes used in the test.
+static uint32_t context_switch_test_num_procs = 0;
+// The processes used in the test.
+static struct proc **context_switch_test_procs = NULL;
+
+// This is the temporary 0x80 interrupt handler. Its function is to perform the
+// context switch everytime an interrupt is raised.
+static void cs_test_handler(struct interrupt_frame const * const frame) {
+    // Make sure the current process is the one expected.
+    struct proc const * const curr = this_cpu_var(curr_proc);
+    uint32_t const curr_exp_idx = context_switch_test_num_ints %
+        context_switch_test_num_procs;
+    ASSERT(curr == context_switch_test_procs[curr_exp_idx]);
+
+    // Count the number of interrupts.
+    context_switch_test_num_ints ++;
+    LOG("Interrupt %u from proc %u\n", context_switch_test_num_ints, curr->pid);
+
+    if (context_switch_test_num_ints == 2 * context_switch_test_num_procs) {
+        // This was the last interrupt, notify the remote cpu running the test
+        // and lock up this cpu awaiting a reset.
+        LOG("Last interrupt, test over\n");
+        context_switch_test_over = true;
+        lock_up();
+    } else {
+        // Perform a context switch to the next process in the list. Wrap around
+        // if this is the last process.
+        uint32_t const next_idx = context_switch_test_num_ints %
+            context_switch_test_num_procs;
+        struct proc * const next = context_switch_test_procs[next_idx];
+        LOG("Switching to process %u\n", next->pid);
+        switch_to_proc(next);
+    }
+}
+
+static bool context_switch_test(void) {
+    // i.  Execute a int 0x80.
+    // ii. After returning from the interrupt save all the registers into the
+    //     struct proc_test_data present on the stack.
+    // iii. Immediately execute another 0x80.
+    // Note: We are re-using the interrupt_reg_save_routine() function for this
+    // test in order to avoid the duplication of saving the registers.
+    extern void interrupt_reg_save_routine(void);
+
+    // The address of the instruction after the INT 0x80 in
+    // interrupt_reg_save_routine.
+    extern uint8_t interrupt_reg_save_routine_after_int;
+
+    interrupt_register_global_callback(SYSCALL_VECTOR, cs_test_handler);
+
+    // The cpu on which the processes will run.
+    uint8_t const cpu = TEST_TARGET_CPU(0);
+
+    // For kernel processes, the GS is set to the percpu segment of the cpu
+    // running them. Since the process will run on a remote cpu, we need to know
+    // the GS of this cpu for the comparison.
+    union segment_selector_t target_gs;
+    exec_remote_call(cpu, remote_read_gs, &target_gs, true);
+
+    // Stress test the context switch with 256 processes.
+    uint32_t const num_procs = 256;
+
+    context_switch_test_over = false;
+    context_switch_test_num_ints = 0;
+    context_switch_test_num_procs = num_procs;
+
+    // Allocate the array of processes.
+    size_t const array_size = num_procs * sizeof(*context_switch_test_procs);
+    context_switch_test_procs = kmalloc(array_size);
+
+    // Save the ESP of each process pointing to the struct proc_test_data. This
+    // will be used later in the comparison part.
+    struct proc_test_data ** const datas = kmalloc(num_procs * sizeof(*datas));
+
+    // For the expected values, we cannot simply look at the register values
+    // reported in the struct proc. This is because the context_switch will
+    // overwrite them. Hence we need to save them before the very first context
+    // switch.
+    struct register_save_area * const expected_values =
+        kmalloc(num_procs * sizeof(*expected_values));
+
+    for (uint32_t i = 0; i < num_procs; ++i) {
+        // For the priv level make sure the levels have the following pattern:
+        //  Procs: 1 2 3 4 5 6 ...
+        //  CPL:   K K U U K K ...
+        // This is to make sure that we test all permutations of context
+        // switches, that is K -> K, K -> U, U -> U and U -> K.
+        uint8_t const ring = 3 * ((i / 2) % 2);
+        struct proc * proc = create_test_proc(ring, interrupt_reg_save_routine);
+        context_switch_test_procs[i] = proc;
+
+        set_registers_for_test(proc);
+        if (proc->is_kernel_proc) {
+            proc->registers.gs = target_gs.value;
+        }
+
+        // Since we are going to read/write into the process' stack, we need to
+        // switch to its address space.
+        switch_to_addr_space(proc->addr_space);
+
+        // Prepare the struct proc_test_data onto the process' stack.
+        proc->registers.esp -= sizeof(struct proc_test_data);
+        datas[i] = (void*)proc->registers.esp;
+        memzero(datas[i], sizeof(*datas[i]));
+        datas[i]->flag = 1;
+
+        // Save the expected values of the registers.
+        memcpy(&expected_values[i], &proc->registers, sizeof(proc->registers));
+        expected_values[i].eip = expected_values[i].eip +
+            ((void*)&interrupt_reg_save_routine_after_int -
+             (void*)&interrupt_reg_save_routine);
+    }
+
+    // Execute first proc on remote cpu.
+    exec_remote_call(cpu, exec_proc, context_switch_test_procs[0], false);
+
+    // Wait for proc to terminate execution.
+    while (!context_switch_test_over) {
+        lapic_sleep(50);
+    }
+    LOG("Comparing register values\n");
+
+    for (uint32_t i = 0; i < num_procs; ++i) {
+        struct proc_test_data * const data = datas[i];
+
+        switch_to_addr_space(context_switch_test_procs[i]->addr_space);
+        struct register_save_area const * const exp = &expected_values[i];
+        struct register_save_area const * const curr = &data->registers;
+        TEST_ASSERT(memeq(exp, curr, sizeof(*exp)));
+    }
+
+    switch_to_addr_space(get_kernel_addr_space());
+
+    interrupt_delete_global_callback(SYSCALL_VECTOR);
+
+    init_aps();
+
+    for (uint32_t i = 0; i < num_procs; ++i) {
+        delete_proc(context_switch_test_procs[i]);
+    }
+    kfree(context_switch_test_procs);
+    kfree(datas);
+    kfree(expected_values);
+    return true;
+}
+
 void proc_test(void) {
     TEST_FWK_RUN(get_stack_bottom_test);
     TEST_FWK_RUN(create_proc_test);
@@ -674,4 +863,5 @@ void proc_test(void) {
     TEST_FWK_RUN(interrupt_reg_save_test_ring0);
     TEST_FWK_RUN(interrupt_reg_save_test_ring3);
     TEST_FWK_RUN(tss_esp0_change_on_context_switch_test);
+    TEST_FWK_RUN(context_switch_test);
 }

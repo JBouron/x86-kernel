@@ -162,12 +162,21 @@ ASM_FUNC_DEF(switch_to_proc_test_routine):
     mov     ax, es
     mov     [esp + 0x40], ax
 
+    // For the do_context_switch() tests, the flag will be set to 1 before
+    // executing the process, indicating that the proces should finish with a
+    // second INT 0x80.
+    cmp     DWORD PTR [esp], 1
+    je      2f
+
     // Set the flag.
     mov     DWORD PTR [esp], 1
 1: 
     pause
     jmp     1b
-    
+
+2:
+    int     0x80
+    jmp     2b
     
 .global switch_to_proc_test_routine_end
 switch_to_proc_test_routine_end:
