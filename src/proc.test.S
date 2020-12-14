@@ -9,125 +9,6 @@ privileged_instr_in_ring3_code_start:
 .global privileged_instr_in_ring3_code_end
 privileged_instr_in_ring3_code_end:
 
-ASM_FUNC_DEF(register_saving_ring3_int_code):
-.global register_saving_ring3_int_code_start
-register_saving_ring3_int_code_start:
-    // Make space on the stack to contain the expected register values twice:
-    //  - Once for the values before the interrupt.
-    //  - Second one for the values after the interrupt.
-    mov     ecx, 64
-    shl     ecx, 1
-    sub     esp, ecx
-
-    // Zero out the allocated space.
-    mov     edi, esp
-    cld
-    mov     al, 0
-    rep     stosb
-
-    rdtsc
-    mov     ecx, eax
-
-    rdtsc
-    mov     esi, eax
-
-    rdtsc
-    mov     edi, eax
-
-    rdtsc
-    mov     edx, eax
-
-    mov     eax, 0xAAAAAAAA
-    mov     ebx, 0xBBBBBBBB
-
-    mov     eax, esp
-    add     eax, 64
-    mov     [eax + 0x00], edi
-    mov     [eax + 0x04], esi
-    mov     [eax + 0x08], ebp
-    mov     [eax + 0x10], ebx
-    mov     [eax + 0x14], edx
-    mov     [eax + 0x18], ecx
-    mov     DWORD PTR [eax + 0x1C], 0xAAAAAAAA
-    pushf
-    mov     ebx, [esp]
-    mov     [eax + 0x20], ebx
-    mov     [eax + 0x0C], esp
-    mov     DWORD PTR [eax + 0x24], OFFSET FLAT : exp_eip
-    mov     ebx, gs
-    mov     [eax + 0x28], ebx
-    mov     ebx, fs
-    mov     [eax + 0x2C], ebx
-    mov     ebx, ds
-    mov     [eax + 0x30], ebx
-    mov     ebx, ss
-    mov     [eax + 0x34], ebx
-    mov     ebx, cs
-    mov     [eax + 0x38], ebx
-    mov     ebx, es
-    mov     [eax + 0x3C], ebx
-    
-    // Reset EAX and EBX were modified while writting the values to the stack.
-    // Reset them to their expected value.
-    mov     eax, 0xAAAAAAAA
-    mov     ebx, 0xBBBBBBBB
-
-    // We can now raise a soft interrupt.
-    int     0x80
-exp_eip:
-    // Store current values of registers onto the second area on the stack.
-    mov     [esp + 0x20], eax
-    mov     [esp + 0x14], ebx
-    mov     [esp + 0x10], esp
-    mov     eax, esp
-
-    pushf
-    mov     ebx, [esp]
-
-    add     eax, 4
-
-    mov     [eax + 0x20], ebx
-
-    mov     [eax + 0x00], edi
-    mov     [eax + 0x04], esi
-    mov     [eax + 0x08], ebp
-    mov     [eax + 0x14], edx
-    mov     [eax + 0x18], ecx
-    // Can't compare the EIP. Use placeholder value.
-    mov     DWORD PTR [eax + 0x24], OFFSET FLAT : exp_eip
-    mov     ebx, gs
-    mov     [eax + 0x28], ebx
-    mov     ebx, fs
-    mov     [eax + 0x2C], ebx
-    mov     ebx, ds
-    mov     [eax + 0x30], ebx
-    mov     ebx, ss
-    mov     [eax + 0x34], ebx
-    mov     ebx, cs
-    mov     [eax + 0x38], ebx
-    mov     ebx, es
-    mov     [eax + 0x3C], ebx
-
-    add     esp, 0x8
-
-    // Compare the two snapshot of registers at (%esp) and 0x40(%esp).
-    cld
-    lea     esi, [esp]
-    lea     edi, [esp + 0x40]
-    mov     ecx, 0x40
-    rep     cmpsb
-    je      same
-not_same:
-    mov     eax, 0
-    jmp     do_int
-same:
-    mov     eax, 1
-do_int:
-    int     0x80
-
-.global register_saving_ring3_int_code_end
-register_saving_ring3_int_code_end:
-
 .extern kernel_access_from_ring3_kernel_var
 ASM_FUNC_DEF(kernel_access_from_ring3_code):
 .global kernel_access_from_ring3_code_start
@@ -217,6 +98,13 @@ ASM_FUNC_DEF(save_registers_test_routine):
     leave
     ret 
 
+ASM_FUNC_DEF(interrupt_reg_save_routine):
+    int     0x80
+.global interrupt_reg_save_routine_after_int
+interrupt_reg_save_routine_after_int:
+    // FALLTHROUGH TO switch_to_proc_test_routine to re-use the register saving
+    // code.
+
 //void switch_to_proc_test_routine(void)
 ASM_FUNC_DEF(switch_to_proc_test_routine):
     // At this point the stack contains a struct register_save_area containing
@@ -224,10 +112,10 @@ ASM_FUNC_DEF(switch_to_proc_test_routine):
     // Create a new struct register_save_area containing the current values of
     // the registers, onto the stack.
 
-    // ESP points to a struct switch_to_proc_test_data. We need to fill its
-    // struct register_save_area. This struct starts at ESP + 0x4 (skipping the
-    // flag). We cannot use save_registers here as we are not sure to have a
-    // correct DS.
+    // ESP points to a struct proc_test_data. We need to fill its struct
+    // register_save_area. This struct starts at ESP + 0x4 (skipping the flag).
+    // We cannot use save_registers here as we are not sure to have a correct
+    // DS.
     mov     [esp + 0x04], edi
     mov     [esp + 0x08], esi
     mov     [esp + 0x0C], ebp
@@ -274,3 +162,8 @@ ASM_FUNC_DEF(switch_to_proc_test_routine):
     
 .global switch_to_proc_test_routine_end
 switch_to_proc_test_routine_end:
+// Since interrupt_reg_save_routine falls-through switch_to_proc_test_routine to
+// share the register saving code the actual end of interrupt_reg_save_routine
+// is here.
+.global interrupt_reg_save_routine_end
+interrupt_reg_save_routine_end:

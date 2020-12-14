@@ -116,63 +116,6 @@ static bool privileged_instr_in_ring3_test(void) {
     return true;
 }
 
-static uint8_t register_saving_ring3_int_syscall_count = 0;
-static bool register_saving_ring3_int_syscall_success = false;
-static void register_saving_ring3_int_syscall_handler(
-    struct interrupt_frame const * const frame) {
-
-    register_saving_ring3_int_syscall_count ++; 
-    if (register_saving_ring3_int_syscall_count == 1) {
-        // This is the first syscall, nothing to do here, we return to the
-        // process execution.
-        LOG("First interrupt for register_saving_ring3_int_test.\n");
-    } else if (register_saving_ring3_int_syscall_count == 2) {
-        // In the second interrupt, the process will put the result of the
-        // comparison in its EAX register.
-        LOG("Second interrupt for register_saving_ring3_int_test.\n");
-        LOG("EAX = %u\n", frame->registers->eax);
-
-        register_saving_ring3_int_syscall_success = frame->registers->eax == 1;
-        // Wait for the cpu running the test to re-init this cpu.
-        lock_up();
-    }
-}
-
-extern void register_saving_ring3_int_code(void);
-
-static bool register_saving_ring3_int_test(void) {
-    struct proc * const proc = create_proc();
-
-    extern uint8_t register_saving_ring3_int_code_start;
-    extern uint8_t register_saving_ring3_int_code_end;
-    size_t const len = &register_saving_ring3_int_code_end -
-        &register_saving_ring3_int_code_start;
-    void const * const code = register_saving_ring3_int_code;
-
-    copy_code_to_proc(proc, code, len);
-
-    interrupt_register_global_callback(SYSCALL_VECTOR,
-        register_saving_ring3_int_syscall_handler);
-
-    TEST_ASSERT(acpi_get_number_cpus() > 1);
-    uint8_t const target = (cpu_id() + 1) % acpi_get_number_cpus();
-
-    // make the other cpu execute the process. we cannot wait since the
-    // exec_proc function does not return.
-    exec_remote_call(target, exec_proc, proc, false);
-
-    while (!register_saving_ring3_int_syscall_success) {
-        cpu_pause();
-    }
-
-    // The remote cpu is stuck executing the process. Unstuck it by
-    // re-initializing it.
-    init_aps();
-    interrupt_delete_global_callback(SYSCALL_VECTOR);
-    delete_proc(proc);
-    return true;
-}
-
 extern void kernel_access_from_ring3_code(void);
 
 static reg_t kernel_access_from_ring3_expected_eip = 0;
@@ -308,55 +251,6 @@ static bool kernel_process_test(void) {
     return true;
 }
 
-static uint8_t register_saving_ring0_int_syscall_count = 0;
-static bool register_saving_ring0_int_syscall_success = false;
-static void register_saving_ring0_int_syscall_handler(
-    struct interrupt_frame const * const frame) {
-
-    register_saving_ring0_int_syscall_count ++; 
-    if (register_saving_ring0_int_syscall_count == 1) {
-        // This is the first syscall, nothing to do here, we return to the
-        // process execution.
-        LOG("First interrupt for register_saving_ring0_int_test.\n");
-    } else if (register_saving_ring0_int_syscall_count == 2) {
-        // In the second interrupt, the process will put the result of the
-        // comparison in its EAX register.
-        LOG("Second interrupt for register_saving_ring0_int_test.\n");
-        LOG("EAX = %u\n", frame->registers->eax);
-
-        register_saving_ring0_int_syscall_success = frame->registers->eax == 1;
-        // Wait for the cpu running the test to re-init this cpu.
-        lock_up();
-    }
-}
-
-static bool register_saving_ring0_int_test(void) {
-    // Re-use the register_saving_ring3_int_code function.
-    void *func = (void*)&register_saving_ring3_int_code;
-    struct proc * const kproc = create_kproc(func, NULL);
-
-    interrupt_register_global_callback(SYSCALL_VECTOR,
-        register_saving_ring0_int_syscall_handler);
-
-    TEST_ASSERT(acpi_get_number_cpus() > 1);
-    uint8_t const target = (cpu_id() + 1) % acpi_get_number_cpus();
-
-    // make the other cpu execute the process. we cannot wait since the
-    // exec_proc function does not return.
-    exec_remote_call(target, exec_proc, kproc, false);
-
-    while (!register_saving_ring0_int_syscall_success) {
-        cpu_pause();
-    }
-
-    // The remote cpu is stuck executing the process. Unstuck it by
-    // re-initializing it.
-    init_aps();
-    interrupt_delete_global_callback(SYSCALL_VECTOR);
-    delete_proc(kproc);
-    return true;
-}
-
 static bool create_proc_oom_test(void) {
     frame_alloc_set_oom_simulation(true);
     TEST_ASSERT(!create_proc());
@@ -406,14 +300,9 @@ static bool save_registers_test(void) {
     return true;
 }
 
-// =============================================================================
-// switch_to_proc() tests. In these tests we start execution of a process using
-// switch_to_proc() and checks that the process starts with the correct values
-// loaded into its registers (GPs, EFLAGS, and segment registers). This test is
-// done for ring 0 and ring 3.
-
-// This struct will be created on the process stack.
-struct switch_to_proc_test_data {
+// This struct is used in multiple tests to check the values of registers in
+// process' contexts.
+struct proc_test_data {
     // If 1 then the process is done writting its registers into the `registers`
     // field below.
     uint32_t volatile flag;
@@ -421,6 +310,49 @@ struct switch_to_proc_test_data {
     // once it is running. Only valid if flag is 1.
     struct register_save_area registers;
 };
+
+// Helper function used to set the saved registers of a process to some
+// arbitrary values.
+// @param proc: The proc to set the registers for.
+// Note: Some of the registers CANNOT have arbitrary values, those are:
+//  - EIP: Otherwise we would have a #PF when doing the iret to the process.
+//  - ESP: The process will push onto its stack so the ESP must point onto its
+//  stack.
+//  - CS: Otherwise we would have a #PF when doing the iret to the process.
+//  - SS: The process will push onto its stack, hence SS must be a valid segment
+//  with correct privileges.
+//  - For kernel proc: GS: This is because the GS will be set to point to the
+//  percpu segment of the cpu running the process.
+static void set_registers_for_test(struct proc * const proc) {
+    proc->registers.eax = 0xAAAAAAAA;
+    proc->registers.ebx = 0xBBBBBBBB;
+    proc->registers.ecx = 0xCCCCCCCC;
+    proc->registers.edx = 0xDDDDDDDD;
+    proc->registers.esi = 0xDEADBEEF;
+    proc->registers.edi = 0xBEEFBABE;
+    proc->registers.ebp = 0xDEADBABE;
+    // For the EFLAGS, make sure the interrupts are enabled.
+    proc->registers.eflags = (1 << 9) | 0x2;
+    // For segment registers, set user segments. This is because setting kernel
+    // segments for user process will not work as IRET would zero them out. This
+    // is a quirky behaviour of x86.
+    proc->registers.es = user_data_seg_sel().value;
+    proc->registers.fs = user_code_seg_sel().value;
+    proc->registers.ds = user_code_seg_sel().value;
+    if (!proc->is_kernel_proc) {
+        // For user processes, we can change GS.
+        proc->registers.gs = user_code_seg_sel().value;
+    } else {
+        // For kernel processes, the GS will be set to the percpu segment of the
+        // cpu running it.
+    }
+}
+
+// =============================================================================
+// switch_to_proc() tests. In these tests we start execution of a process using
+// switch_to_proc() and checks that the process starts with the correct values
+// loaded into its registers (GPs, EFLAGS, and segment registers). This test is
+// done for ring 0 and ring 3.
 
 // Run the test for a certain ring.
 // @param ring: The ring of the process to create and execute.
@@ -430,20 +362,20 @@ static bool switch_to_proc_test(uint8_t const ring) {
     //  1. The process is created.
     //  2. The process' registers (saved into the struct proc) are set to some
     //  values.
-    //  3. A struct switch_to_proc_test_data is pushed onto the process' stack
-    //  (by this function, NOT the process itself) and initialized.
+    //  3. A struct proc_test_data is pushed onto the process' stack (by this
+    //  function, NOT the process itself) and initialized.
     //  4. The process is run and executes switch_to_proc_test_routine. This
-    //  routine will copy the register values into the struct
-    //  switch_to_proc_test_data onto the stack.
+    //  routine will copy the register values into the struct proc_test_data
+    //  onto the stack.
     //  5. Wait for the process to indicate that it is done by waiting on the
-    //  `flag` field of the struct switch_to_proc_test_data.
-    //  6. Compare the register values reported in the struct
-    //  switch_to_proc_test_data with the expected values.
+    //  `flag` field of the struct proc_test_data.
+    //  6. Compare the register values reported in the struct proc_test_data
+    //  with the expected values.
 
     // This function is the code of the process. It expects the ESP register to
-    // point to a struct switch_to_proc_test_data onto the stack. This function
-    // will fill the struct with the current values of its registers before
-    // writing 1 into the `flag` field.
+    // point to a struct proc_test_data onto the stack. This function will fill
+    // the struct with the current values of its registers before writing 1 into
+    // the `flag` field.
     extern void switch_to_proc_test_routine(void);
 
     struct proc * const p = create_test_proc(ring, switch_to_proc_test_routine);
@@ -457,38 +389,8 @@ static bool switch_to_proc_test(uint8_t const ring) {
     union segment_selector_t target_gs;
     exec_remote_call(cpu, remote_read_gs, &target_gs, true);
 
-    // Use non zero values for registers to make sure they are loaded correctly
-    // by switch_to_proc().
-    // Some of the registers CANNOT have arbitrary values, those are:
-    //  - EIP: Otherwise we would have a #PF when doing the iret to the process.
-    //  - ESP: The process will push onto its stack so the ESP must point onto
-    //  its stack.
-    //  - CS: Otherwise we would have a #PF when doing the iret to the process.
-    //  - SS: The process will push onto its stack, hence SS must be a valid
-    //  segment with correct privileges.
-    //  - For kernel proc: GS: This is because the GS will be set to point to
-    //  the percpu segment of the cpu running the process.
-    p->registers.eax = 0xAAAAAAAA;
-    p->registers.ebx = 0xBBBBBBBB;
-    p->registers.ecx = 0xCCCCCCCC;
-    p->registers.edx = 0xDDDDDDDD;
-    p->registers.esi = 0xDEADBEEF;
-    p->registers.edi = 0xBEEFBABE;
-    p->registers.ebp = 0xDEADBABE;
-    // For the EFLAGS, make sure the interrupts are enabled.
-    p->registers.eflags = (1 << 9) | 0x2;
-    // For segment registers, set user segments. This is because setting kernel
-    // segments for user process will not work as IRET would zero them out. This
-    // is a quirky behaviour of x86.
-    p->registers.es = user_data_seg_sel().value;
-    p->registers.fs = user_code_seg_sel().value;
-    p->registers.ds = user_code_seg_sel().value;
-    if (ring) {
-        // For user processes, we can change DS and GS.
-        p->registers.gs = user_code_seg_sel().value;
-    } else {
-        // For kernel processes, the GS will be set to the percpu segment of the
-        // cpu running it.
+    set_registers_for_test(p);
+    if (p->is_kernel_proc) {
         p->registers.gs = target_gs.value;
     }
     
@@ -496,9 +398,9 @@ static bool switch_to_proc_test(uint8_t const ring) {
     // switch to its address space.
     switch_to_addr_space(p->addr_space);
 
-    // Prepare the struct switch_to_proc_test_data onto the process' stack.
-    p->registers.esp -= sizeof(struct switch_to_proc_test_data);
-    struct switch_to_proc_test_data * const data = (void*)p->registers.esp;
+    // Prepare the struct proc_test_data onto the process' stack.
+    p->registers.esp -= sizeof(struct proc_test_data);
+    struct proc_test_data * const data = (void*)p->registers.esp;
     memzero(data, sizeof(*data));
 
     // Execute proc on remote cpu.
@@ -531,17 +433,150 @@ static bool switch_to_proc_test_ring3(void) {
     return switch_to_proc_test(3);
 }
 
+// =============================================================================
+// interrupt_reg_save() test: This test will check two things:
+//  - When a process is interrupted, the values of the registers reported in the
+//  struct interrupt_frame should correspond to the value of the registers right
+//  before the interrupt.
+//  - When a process resumes execution after being interrupted, the values of
+//  its registers should be the same as right before the interrupt (except for
+//  EIP), provided that the handler does not change the values of the saved
+//  registers.
+//
+// This test works as follows:
+//  1. Create a process. A struct proc_test_data is pushed onto its stack and
+//  ESP is pointing at it.
+//  2. Set the saved registers of the process to some arbitrary values.
+//  3. Run the process. The process will execute the interrupt_reg_save_routine
+//  function which will execute the following:
+//      i.  Execute a int 0x80.
+//      ii. After returning from the interrupt save all the registers into the
+//      struct proc_test_data present on the stack and set its flag to 1.
+//  4. In the interrupt handler for vector 0x80, check that the registers
+//  reported in the struct interrupt_frame are the same as the saved registers
+//  of the struct proc of the process, except for EIP (see code). Return
+//  immediately.
+//  5. (On the cpu executing the test) Wait for the `flag` field to become 1 on
+//  the process' stack.
+//  6. Once `flag` is 1 (indicating that the process as copied its registers
+//  into the struct proc_test_data onto its stack), check that the value of the
+//  registers are the same as the saved values in struct proc.
+
+// Set in the 0x80 handler to indicate if the comparison was successful.
+static bool int_frame_has_correct_regs = false;
+// Because the process will execute the `int 0x80` instruction, the EIP would
+// have advanced at the time of the interrupt. Hence its expected value will be
+// different than in the struct proc.
+static reg_t int_frame_exp_eip = 0x0;
+// The process used in this test.
+struct proc * proc = NULL;
+
+// Handler for the interrupt with vector 0x80.
+static void int_reg_save_handler(struct interrupt_frame const * const frame) {
+    LOG("Received SW interrupt 0x80 from process\n");
+
+    if (frame->registers->eip != int_frame_exp_eip) {
+        LOG("Disrepancy in EIP\n");
+    } else {
+        proc->registers.eip = int_frame_exp_eip; 
+        struct register_save_area const * const exp = &proc->registers;
+        struct register_save_area const * const curr = frame->registers;
+        bool const same = memeq(exp, curr, sizeof(*exp));
+        LOG("Comparison in interrupt = %d\n", same);
+        int_frame_has_correct_regs = same;
+    }
+}
+
+// Execute the interrupt_reg_save() test for a process in a given privilege
+// ring.
+// @param ring: The ring to use for the process.
+// @return: true on sucess, false otherwise.
+static bool interrupt_reg_save(uint8_t const ring) {
+    // i.  Execute a int 0x80.
+    // ii. After returning from the interrupt save all the registers into the
+    //     struct proc_test_data present on the stack and set its flag to 1.
+    extern void interrupt_reg_save_routine(void);
+
+    // The address of the instruction after the INT 0x80 in
+    // interrupt_reg_save_routine.
+    extern uint8_t interrupt_reg_save_routine_after_int;
+
+    interrupt_register_global_callback(SYSCALL_VECTOR, int_reg_save_handler);
+
+    proc = create_test_proc(ring, interrupt_reg_save_routine);
+
+    int_frame_has_correct_regs = false;
+    // Compute the expected EIP to see within the interrupt handler.
+    int_frame_exp_eip = proc->registers.eip +
+        ((void*)&interrupt_reg_save_routine_after_int -
+         (void*)&interrupt_reg_save_routine);
+
+    // The cpu on which the process will run.
+    uint8_t const cpu = TEST_TARGET_CPU(0);
+
+    // For kernel processes, the GS is set to the percpu segment of the cpu
+    // running them. Since the process will run on a remote cpu, we need to know
+    // the GS of this cpu for the comparison.
+    union segment_selector_t target_gs;
+    exec_remote_call(cpu, remote_read_gs, &target_gs, true);
+
+    set_registers_for_test(proc);
+    if (proc->is_kernel_proc) {
+        proc->registers.gs = target_gs.value;
+    }
+
+    // Since we are going to read/write into the process' stack, we need to
+    // switch to its address space.
+    switch_to_addr_space(proc->addr_space);
+
+    // Prepare the struct proc_test_data onto the process' stack.
+    proc->registers.esp -= sizeof(struct proc_test_data);
+    struct proc_test_data * const data = (void*)proc->registers.esp;
+    memzero(data, sizeof(*data));
+
+    // Execute proc on remote cpu.
+    exec_remote_call(cpu, exec_proc, proc, false);
+
+    // Wait for proc to terminate execution.
+    while (!data->flag) {
+        lapic_sleep(50);
+    }
+
+    // Compare the values of the registers read by the process with the expected
+    // values store into its struct proc.
+    struct register_save_area const * const exp = &proc->registers;
+    struct register_save_area const * const curr = &data->registers;
+    bool const same = memeq(exp, curr, sizeof(*exp));
+    LOG("Comparison = %d\n", same);
+
+    switch_to_addr_space(get_kernel_addr_space());
+
+    interrupt_delete_global_callback(SYSCALL_VECTOR);
+
+    init_aps();
+    delete_proc(proc);
+    return same;
+}
+
+static bool interrupt_reg_save_test_ring0(void) {
+    return interrupt_reg_save(0);
+}
+
+static bool interrupt_reg_save_test_ring3(void) {
+    return interrupt_reg_save(3);
+}
+
 void proc_test(void) {
     TEST_FWK_RUN(get_stack_bottom_test);
     TEST_FWK_RUN(create_proc_test);
     TEST_FWK_RUN(create_kproc_test);
     TEST_FWK_RUN(privileged_instr_in_ring3_test);
-    TEST_FWK_RUN(register_saving_ring3_int_test);
     TEST_FWK_RUN(kernel_access_from_ring3_test);
     TEST_FWK_RUN(kernel_process_test);
-    TEST_FWK_RUN(register_saving_ring0_int_test);
     TEST_FWK_RUN(create_proc_oom_test);
     TEST_FWK_RUN(save_registers_test);
     TEST_FWK_RUN(switch_to_proc_test_ring0);
     TEST_FWK_RUN(switch_to_proc_test_ring3);
+    TEST_FWK_RUN(interrupt_reg_save_test_ring0);
+    TEST_FWK_RUN(interrupt_reg_save_test_ring3);
 }

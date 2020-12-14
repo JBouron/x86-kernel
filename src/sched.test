@@ -166,7 +166,9 @@ extern void register_saving_ring3_int_code(void);
 
 static void process_code(void * name) {
     LOG("[%u] Running %s\n", cpu_id(), name);
-    register_saving_ring3_int_code();
+    // FIXME: register_saving_ring3_int_code does not exist anymore. This test
+    // will fail for now.
+    // register_saving_ring3_int_code();
     __UNREACHABLE__;
 }
 
