@@ -2,230 +2,123 @@
 #include <ipm.h>
 #include <smp.h>
 
-// In this test, we start two kernel process running the code in
-// register_saving_ring3_int_code. This piece of code will set registers to some
-// values and make a syscall. Once the execution is resumed after the syscall,
-// the code will compare the current register values with the ones it saved. It
-// will then do a second syscall during which EAX will contain 1 if the
-// registers are the same, 0 otherwise.
-// The test scheduler makes sure that there is a context switch at each syscall.
-
-struct test_data {
-    struct proc *proc;
-    uint32_t syscall_count;
-};
-
-static struct test_data test_data_1;
-static struct test_data test_data_2;
-static uint32_t num_syscalls = 0;
-static uint32_t last_num_syscalls = 0;
-static uint32_t max_syscalls = 4;
-// On which cpu should the test be run ?
-static uint8_t test_cpu;
-static bool test_over = false;
-
-static uint8_t test_sched_select_cpu_for_proc(struct proc const * const proc) {
-    return test_cpu;
-}
-
-static void test_sched_enqueue_proc(uint8_t const cpu,
-                                    struct proc * const proc) {
-    ASSERT(cpu == test_cpu);
-    // No-op, we don't have a runqueue in this test.
-}
-
-static void test_sched_dequeue_proc(uint8_t const cpu,
-                                    struct proc * const proc) {
-    ASSERT(cpu == test_cpu);
-    // No-op, we don't have a runqueue in this test.
-}
-
-static void test_sched_update_curr(uint8_t const cpu) {
-    ASSERT(cpu == test_cpu);
-
-    // This scheduler will perform a context switch at every interrupt. This is
-    // to make sure the execution of the processes are interleaved. Note: we
-    // only resched() when a syscall interrupt occured, not because of a tick.
-    // This is implemented using the last_num_syscalls.
-    if (last_num_syscalls != num_syscalls) {
-        sched_resched();
-        last_num_syscalls = num_syscalls;
-    } else {
-        // If last_num_syscalls == num_syscalls then the interrupt triggering
-        // the call to this update_curr() was a tick. Ignore.
-        return;
-    }
-
-    // Check that the correct process is running. This function is called
-    // _after_ the syscall has been served.
-    struct proc * const curr = this_cpu_var(curr_proc);
-    struct proc * expected = NULL;
-    switch (num_syscalls) {
-        case 1: expected = test_data_1.proc; break;
-        case 2: expected = test_data_2.proc; break;
-        case 3: expected = test_data_1.proc; break;
-        case 4: expected = test_data_2.proc; break;
-        default:
-            PANIC("Unexpected amount of syscalls in sched_test\n");
-    }
-    ASSERT(curr == expected);
-}
-
-static void test_sched_tick(uint8_t const cpu) {
-    ASSERT(cpu == test_cpu);
-    // No-op
-}
-
-static struct proc *test_sched_pick_next_proc(uint8_t const cpu) {
-    ASSERT(cpu == test_cpu);
-    switch (num_syscalls) {
-        case 0: return test_data_1.proc;
-        case 1: return test_data_2.proc;
-        case 2: return test_data_1.proc;
-        case 3: return test_data_2.proc;
-        default:
-            PANIC("Unexpected amount of syscalls in sched_test\n");
-    }
-    __UNREACHABLE__;
-    // Avoid warning.
-    return NULL;
-}
-
-static void test_sched_put_prev_proc(uint8_t const cpu, struct proc * proc) {
-    ASSERT(cpu == test_cpu);
-    // Check that the correct process is running. This function is called
-    // _after_ the syscall has been served but before the context switch
-    // actually happens.
-    struct proc * const curr = this_cpu_var(curr_proc);
-    struct proc * expected = NULL;
-    switch (num_syscalls) {
-        case 1: expected = test_data_1.proc; break;
-        case 2: expected = test_data_2.proc; break;
-        case 3: expected = test_data_1.proc; break;
-        case 4: expected = test_data_2.proc; break;
-        default:
-            PANIC("Unexpected amount of syscalls in sched_test\n");
-    }
-    ASSERT(curr == expected);
-    ASSERT(curr == proc);
-}
-
-struct sched test_sched = {
-    // Unused.
-    .sched_init          = NULL,
-    .select_cpu_for_proc = test_sched_select_cpu_for_proc,
-    .enqueue_proc        = test_sched_enqueue_proc,
-    .dequeue_proc        = test_sched_dequeue_proc,
-    .update_curr         = test_sched_update_curr,
-    .tick                = test_sched_tick,
-    .pick_next_proc      = test_sched_pick_next_proc,
-    .put_prev_proc       = test_sched_put_prev_proc,
-};
-
-static void syscall_handler(struct interrupt_frame const * const frame) {
-    num_syscalls ++;
-    struct proc * const curr = this_cpu_var(curr_proc);
-    ASSERT(curr == test_data_1.proc || curr == test_data_2.proc);
-    struct test_data * data;
-    if (curr == test_data_1.proc) {
-        LOG("[%u] Syscall for proc 1\n", cpu_id());
-        data = &test_data_1;
-    } else {
-        LOG("[%u] Syscall for proc 2\n", cpu_id());
-        data = &test_data_2;
-    }
-    data->syscall_count ++;
-    if (data->syscall_count == 2) {
-        // Second syscall indicate success or failure in EAX.
-        ASSERT(frame->registers->eax);
-        LOG("[%u] EAX = %x\n", cpu_id(), frame->registers->eax);
-    }
-
-    if (num_syscalls == max_syscalls) {
-        LOG("[%u] Test over\n", cpu_id());
-        test_over = true;
-
-        // Wait for this cpu to die. We need to do an infinite loop with
-        // interrupts enabled. This is because the cpu running the test will
-        // first de-allocate some stuff and send us TLB_SHOOTDOWN messages
-        // before reseting this cpu. This cpu _NEEDS_ to answer to those
-        // messages.
-        while (true) {
-            cpu_set_interrupt_flag(true);
-            cpu_halt();
-        }
-    }
-}
-
-static void test_sched_start_remote(void * unused) {
-    SCHEDULER = &test_sched;
-    sched_start();
-}
-
-extern void register_saving_ring3_int_code(void);
-
-static void process_code(void * name) {
-    LOG("[%u] Running %s\n", cpu_id(), name);
-    // FIXME: register_saving_ring3_int_code does not exist anymore. This test
-    // will fail for now.
-    // register_saving_ring3_int_code();
-    __UNREACHABLE__;
-}
-
-// Stop the scheduler, this is used for testing as there is no reason to ever
-// stop the scheduler.
-static void sched_stop_remote(void * unused) {
-    this_cpu_var(sched_running) = false;
-
-    lapic_stop_timer();
-
-    // De-allocate the idle processes.
-    uint8_t const ncpus = acpi_get_number_cpus();
-    for (uint8_t cpu = 0; cpu < ncpus; ++cpu) {
+// Helper function to cancel the effect of a sched_init() call. More
+// specifically, this function will delete the idle processes created in
+// sched_init(). Additionally, it will make sure that the curr_proc of all cpu
+// is set to NULL.
+static void sched_cancel_init(void) {
+    for (uint16_t cpu = 0; cpu < acpi_get_number_cpus(); ++cpu) {
         struct proc * const idle = cpu_var(idle_proc, cpu);
+        ASSERT(idle);
         delete_proc(idle);
         cpu_var(curr_proc, cpu) = NULL;
-    }
+    } 
 }
 
-static bool run_test(void) {
+// ============================================================================= 
+// Tests for the functions in sched_core responsible to call the correct
+// callbacks. More specifically:
+//  - sched_init() should call the `sched_init` callback.
+//  - sched_enqueue() should call the `enqueue_proc` callback.
+//  - sched_dequeue() should call the `dequeue_proc` callback.
+//  - sched_update_curr() should call the `update_curr` callback.
+//  - sched_tick() should call the `tick` callback.
+// sched_core.c does not provide wrappers for `pick_next_proc` and
+// `put_prev_proc`, those are called in schedule(). Hence those are not tested
+// here but will be tested in the schedule() test.
+
+enum callback_id {
+    NONE, INIT, ENQUEUE, DEQUEUE, UPDATE_CURR, TICK, PICK_NEXT, PUT_PREV,
+};
+
+// Indicate the last callback that was called.
+static enum callback_id ct_last_callback = NONE;
+// Indicate the value of the struct proc pass as argument in the last callback
+// if applicable.
+static struct proc * ct_last_proc = NULL;
+
+static void ct_sched_init(void) {
+    ASSERT(ct_last_callback == NONE);
+    ct_last_callback = INIT;
+}
+
+static void ct_enqueue_proc(struct proc * const proc) {
+    ASSERT(ct_last_callback == NONE);
+    ct_last_callback = ENQUEUE;
+    ct_last_proc = proc;
+}
+
+static void ct_dequeue_proc(struct proc * const proc) {
+    ASSERT(ct_last_callback == NONE);
+    ct_last_callback = DEQUEUE;
+    ct_last_proc = proc;
+}
+
+static void ct_update_curr(void) {
+    ASSERT(ct_last_callback == NONE);
+    ct_last_callback = UPDATE_CURR;
+}
+
+static void ct_tick(void) {
+    ASSERT(ct_last_callback == NONE);
+    ct_last_callback = TICK;
+}
+
+static struct sched callbacks_test_sched = {
+    .sched_init       = ct_sched_init,
+    .enqueue_proc     = ct_enqueue_proc,
+    .dequeue_proc     = ct_dequeue_proc,
+    .update_curr      = ct_update_curr,
+    .tick             = ct_tick,
+    .pick_next_proc   = NULL,
+    .put_prev_proc    = NULL,
+};
+
+static bool sched_callbacks_test(void) {
+    struct sched * const old_sched = SCHEDULER;
+    SCHEDULER = &callbacks_test_sched;   
+
+    // Create a placeholder process. It won't be executed but it needs to be
+    // runnable (since we will enqueue it).
+    struct proc * const proc = create_kproc(NULL, NULL);
+
+    // Test that the callbacks are called when calling sched_core.c's wrapper
+    // functions.
     sched_init();
+    TEST_ASSERT(ct_last_callback == INIT);
+    ct_last_callback = NONE;
+    ct_last_proc = NULL;
 
-    cpu_set_interrupt_flag(true);
+    sched_enqueue_proc(proc);
+    TEST_ASSERT(ct_last_callback == ENQUEUE);
+    TEST_ASSERT(ct_last_proc == proc);
+    ct_last_callback = NONE;
+    ct_last_proc = NULL;
 
-    test_data_1.proc = create_kproc(process_code, "Proc1");
-    test_data_1.syscall_count = 0;
-    test_data_2.proc = create_kproc(process_code, "Proc2");
-    test_data_2.syscall_count = 0;
+    // We need to mock the fact that the cpu is running the process.
+    this_cpu_var(curr_proc) = proc;
+    sched_update_curr();
+    TEST_ASSERT(ct_last_callback == UPDATE_CURR);
+    ct_last_callback = NONE;
+    ct_last_proc = NULL;
 
-    TEST_ASSERT(acpi_get_number_cpus() > 1);
-    test_cpu = (cpu_id() + 1) % acpi_get_number_cpus();
+    sched_tick(NULL);
+    TEST_ASSERT(ct_last_callback == TICK);
+    ct_last_callback = NONE;
+    ct_last_proc = NULL;
 
-    interrupt_register_global_callback(0x80, syscall_handler);
+    sched_dequeue_proc(proc);
+    TEST_ASSERT(ct_last_callback == DEQUEUE);
+    TEST_ASSERT(ct_last_proc == proc);
+    ct_last_callback = NONE;
+    ct_last_proc = NULL;
 
-    exec_remote_call(test_cpu, test_sched_start_remote, NULL, false);
-
-    while (!test_over) {
-        cpu_pause();
-    }
-
-    // Disable the scheduler here. We need to do that because the sched_stop
-    //cpu_var(sched_running, test_cpu) = false;
-    exec_remote_call(test_cpu, sched_stop_remote, NULL, true);
-
-    init_aps();
-
-    delete_proc(test_data_1.proc);
-    delete_proc(test_data_2.proc);
-
-    interrupt_delete_global_callback(0x80);
-
-    // Reset the pointer to the scheduler.
-    extern struct sched ts_sched;
-    SCHEDULER = &ts_sched;
+    delete_proc(proc);
+    sched_cancel_init();
+    SCHEDULER = old_sched;
     return true;
 }
 
 void sched_test(void) {
-    TEST_FWK_RUN(run_test);
+    TEST_FWK_RUN(sched_callbacks_test);
 }

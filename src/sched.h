@@ -17,42 +17,31 @@ struct sched {
     // Initialize the scheduler.
     void (*sched_init)(void);
 
-    // Select on which cpu the process should be enqueued.
-    // @param proc: A non-enqueued process.
-    // @return: The cpu id of the cpu on which `proc` should be enqueued.
-    uint8_t (*select_cpu_for_proc)(struct proc const * const proc);
-
-    // Enqueue a process on a cpu.
-    // @param cpu: The cpu to enqueue the process on.
+    // Enqueue a process in the scheduler.
     // @parma proc: The process to be enqueued.
-    void (*enqueue_proc)(uint8_t const cpu, struct proc * const proc);
+    void (*enqueue_proc)(struct proc * const proc);
 
-    // Dequeue a process from a cpu.
-    // @param cpu: The cpu to dequeue the process from.
+    // Dequeue a process from the scheduler.
     // @parma proc: The process to be dequeued.
-    void (*dequeue_proc)(uint8_t const cpu, struct proc * const proc);
+    void (*dequeue_proc)(struct proc * const proc);
 
-    // Update statistics about the current process of a cpu.
-    // @param cpu: The cpu.
-    void (*update_curr)(uint8_t const cpu);
+    // Update statistics about the current process of the current cpu.
+    void (*update_curr)(void);
 
-    // Handle a tick from the scheduler timer.
-    // @param cpu: The cpu.
-    void (*tick)(uint8_t const cpu);
+    // Handle a tick from the scheduler timer on the current cpu.
+    void (*tick)(void);
 
-    // Select the next process to run.
-    // @param cpu: The cpu for which a next proc should be picked.
-    // @return: A struct proc * on the next proc to be run on `cpu`. If no
-    // process is ready this function shall return NO_PROC.
+    // Select the next process to run on the current cpu.
+    // @return: A struct proc * on the next proc to be run on the current cpu.If
+    // no process is ready this function shall return NO_PROC.
     // Note: If applicable, this function can return the curr_proc.
-    struct proc *(*pick_next_proc)(uint8_t const cpu);
+    struct proc *(*pick_next_proc)(void);
 
-    // Enqueue the previous proc running on a given cpu. This is called after a
-    // new proc has been picked if the new proc is different from the one
-    // running.
-    // @param cpu: The cpu to put the prev proc on.
+    // Enqueue the previous proc running on the current cpu. This is called
+    // after a new proc has been picked if the new proc is different from the
+    // one running.
     // @param proc: The process that was running on the cpu.
-    void (*put_prev_proc)(uint8_t const cpu, struct proc * proc);
+    void (*put_prev_proc)(struct proc * proc);
 };
 
 // Initialize the scheduler. This must be called once.

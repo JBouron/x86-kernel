@@ -34,17 +34,9 @@ static void ts_sched_init(void) {
     spinlock_init(&RUNQUEUE_LOCK);
 }
 
-// Select a cpu for a process.
-// @param proc: The process.
-static uint8_t ts_select_cpu_for_proc(struct proc const * const proc) {
-    // The cpu does not matter in TS since we only have one runqueue. Use 0.
-    return 0;
-}
-
 // Enqueue a process.
-// @param cpu: Unused.
 // @param proc: The process to enqueue.
-static void ts_enqueue_proc(uint8_t const cpu, struct proc * const proc) {
+static void ts_enqueue_proc(struct proc * const proc) {
     struct list_node * const runqueue = get_runqueue_and_lock();
 
     list_add_tail(runqueue, &proc->rq);
@@ -67,9 +59,8 @@ static bool in_runqueue(struct proc const * const proc) {
 }
 
 // Dequeue a process.
-// @param cpu: Unused.
 // @param proc: The process to dequeue.
-static void ts_dequeue_proc(uint8_t const cpu, struct proc * const proc) {
+static void ts_dequeue_proc(struct proc * const proc) {
     struct list_node * const runqueue = get_runqueue_and_lock();
 
     ASSERT(in_runqueue(proc) && runqueue);
@@ -79,23 +70,19 @@ static void ts_dequeue_proc(uint8_t const cpu, struct proc * const proc) {
 }
 
 // Update the current process.
-// @param cpu: Unused.
-static void ts_update_curr(uint8_t const cpu) {
-
+static void ts_update_curr(void) {
 }
 
 // React to a scheduler tick.
-// @param cpu: Unused.
-static void ts_tick(uint8_t const cpu) {
+static void ts_tick(void) {
     // For now, the TS scheduler performs one context switch per tick.
     sched_resched();
 }
 
 // Select the next process to be run on a cpu.
 // If no process is available, this function will return NO_PROC.
-// @param cpu: The cpu for which this function needs to pick a process.
 // @return: The next process to run.
-static struct proc *ts_pick_next_proc(uint8_t const cpu) {
+static struct proc *ts_pick_next_proc(void) {
     struct proc * next;
     struct list_node * const runqueue = get_runqueue_and_lock();
 
@@ -112,7 +99,6 @@ static struct proc *ts_pick_next_proc(uint8_t const cpu) {
 
 struct sched const ts_sched = {
     .sched_init          = ts_sched_init,
-    .select_cpu_for_proc = ts_select_cpu_for_proc,
     .enqueue_proc        = ts_enqueue_proc,
     .dequeue_proc        = ts_dequeue_proc,
     .update_curr         = ts_update_curr,

@@ -9,8 +9,9 @@
 // The core logic of scheduling. This file defines the functions declared in
 // sched.h.
 
+extern struct sched ts_sched;
 // The scheduler implementation to use.
-static struct sched *SCHEDULER = NULL;
+static struct sched *SCHEDULER = &ts_sched;
 
 // Indicate if the scheduler is running on the current cpu.
 DECLARE_PER_CPU(bool, sched_running) = false;
@@ -55,8 +56,6 @@ void sched_init(void) {
     }
 
     // Initialize the actual scheduler.
-    extern struct sched ts_sched;
-    SCHEDULER = &ts_sched;
     SCHEDULER->sched_init();
 }
 
@@ -68,8 +67,7 @@ bool sched_running_on_cpu(void) {
 // @param frame: Unused, but mandatory to be used as an interrupt callback.
 static void sched_tick(struct interrupt_frame const * const frame) {
     ASSERT(SCHEDULER);
-    uint8_t const this_cpu = cpu_id();
-    SCHEDULER->tick(this_cpu);
+    SCHEDULER->tick();
 }
 
 // Arm the LAPIC timer to send a tick in SCHED_TICK_PERIOD ms.
@@ -100,18 +98,12 @@ void sched_enqueue_proc(struct proc * const proc) {
     ASSERT(SCHEDULER);
     ASSERT(proc_is_runnable(proc));
 
-    uint8_t const cpu = SCHEDULER->select_cpu_for_proc(proc);
-    SCHEDULER->enqueue_proc(cpu, proc);
-    proc->cpu = cpu;
-
-    // Enqueuing triggers a resched. TODO: Implement something similar to
-    // check_preempt_curr() from Linux.
-    cpu_var(resched_flag, cpu) = true;
+    SCHEDULER->enqueue_proc(proc);
 }
 
 void sched_dequeue_proc(struct proc * const proc) {
     ASSERT(SCHEDULER);
-    SCHEDULER->dequeue_proc(proc->cpu, proc);
+    SCHEDULER->dequeue_proc(proc);
 }
 
 void sched_update_curr(void) {
@@ -127,7 +119,7 @@ void sched_update_curr(void) {
         // This process just became dead, need to resched.
         sched_resched();
     } else {
-        SCHEDULER->update_curr(cpu_id());
+        SCHEDULER->update_curr();
     }
 }
 
@@ -163,12 +155,12 @@ void schedule(void) {
                 // Notify the scheduler of the context switch. This must be done
                 // before picking the next proc, in case there is a single proc on
                 // the system.
-                SCHEDULER->put_prev_proc(this_cpu, prev);
+                SCHEDULER->put_prev_proc(prev);
             }
         }
 
         // Pick a new process to run. Default to idle_proc.
-        next = SCHEDULER->pick_next_proc(this_cpu);
+        next = SCHEDULER->pick_next_proc();
         if (next == NO_PROC) {
             next = idle;
         }
