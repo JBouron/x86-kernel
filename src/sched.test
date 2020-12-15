@@ -1,6 +1,7 @@
 #include <test.h>
 #include <ipm.h>
 #include <smp.h>
+#include <kmalloc.h>
 
 // Helper function to cancel the effect of a sched_init() call. More
 // specifically, this function will delete the idle processes created in
@@ -119,6 +120,200 @@ static bool sched_callbacks_test(void) {
     return true;
 }
 
+// ============================================================================= 
+// schedule() test.
+// This test makes sure that schedule() correctly calls the put_prev_proc
+// callback on the current proc, calls the pick_next_proc to select a new proc
+// and perform a context switch to that process.
+// Additionally, this test makes sure that calling schedule() does not corrupt
+// callee-saved registers, and respects the SYSV ABI.
+//
+// The test runs as follows: We have N kernel processes, all are executing the
+// same code which is a "while (1) int 0x80". At every interrupt, the interrupt
+// handler will set the resched_flag on the current cpu and call schedule. Hence
+// we expect the following inter-leaving of processes:
+//  0 1 2 3 ... N-2 N-1 0 1 2 3 ... N-2 N-1 0 1 2 3 ...
+// The interrupt handler makes sure that at every interrupt the current process
+// is the expected one (proc 0 for the first in, proc 1 for the second, ...).
+// Additionally, the interrupt handler checks that callee-saved registers do not
+// change when calling schedule() AND that context switches actually occur by
+// looking at the context_switches counter of the current cpu.
+// This test uses a custom scheduler in which the pick_next_proc ensure the
+// above interleaving. The put_prev_proc makes sure that the prev process is the
+// expected one.
+// The test will run until all processes will have raised `st_num_ints_per_proc`
+// interrupts, this means there will be `st_num_procs` * `st_num_ints_per_proc`
+// interrupts/context switches in total.
+
+// The number of processes to use in this test.
+static uint32_t st_num_procs = 32;
+// The array of all processes used in this test.
+static struct proc **st_procs = NULL;
+// The number of 0x80 interrupts so far.
+static uint32_t st_num_ints = 0;
+// The number of context switches on the current cpu before the call to
+// schedule() within the interrupt handler.
+static uint64_t st_last_context_switches = 0;
+// The last "curr" proc before the call to schedule() within the interrupt
+// handler.
+static struct proc *st_last_proc = NULL;
+
+// The maximum number of interrupt per process. This means that this test will
+// stop after st_num_procs * st_num_ints_per_proc interrupts.
+static uint32_t st_num_ints_per_proc = 32;
+// Indicate to the cpu running this test that the test is over.
+static bool volatile st_test_done = false;
+
+// The code executed by all the processes during the test.
+static void st_proc_code(void * unused) {
+    while (1) {
+        asm("int $0x80");
+    }
+}
+
+extern void save_registers(struct register_save_area *, void*);
+
+// The 0x80 interrupt handler.
+// @param frame: unused.
+static void st_int_handler(struct interrupt_frame const * const frame) {
+    struct proc * const curr = this_cpu_var(curr_proc);
+
+    st_num_ints ++;
+    LOG("Proc %u raised interrupt %u\n", curr->pid, st_num_ints);
+
+    if (st_num_ints == st_num_procs * st_num_ints_per_proc) {
+        LOG("Max number of interrupts reached. Test over and successful\n");
+        st_test_done = true;
+        lock_up();
+    }
+
+    st_last_context_switches = this_cpu_var(context_switches);
+
+    // Make sure the next call to schedule() performs a context switch.
+    sched_resched();
+
+    st_last_proc = curr;
+
+    LOG("Proc %u is calling schedule()\n", curr->pid);
+
+    // Right before calling schedule(), save the current value of the registers
+    // onto the current stack. EIP is set to some dummy value.
+    struct register_save_area regs_before_schedule;
+    save_registers(&regs_before_schedule, (void*)0xBEEFBABE);
+
+    schedule();
+
+    // Execution resumed after a while, read the current values of the registers
+    // and compare the values of the callee-save registers, they MUST be exactly
+    // the same.
+    struct register_save_area regs_after_schedule;
+    save_registers(&regs_after_schedule, (void*)0xBEEFBABE);
+    ASSERT(regs_after_schedule.edi == regs_before_schedule.edi);
+    ASSERT(regs_after_schedule.esi == regs_before_schedule.esi);
+    ASSERT(regs_after_schedule.ebx == regs_before_schedule.ebx);
+    ASSERT(regs_after_schedule.ebp == regs_before_schedule.ebp);
+    ASSERT(regs_after_schedule.esp == regs_before_schedule.esp);
+
+    LOG("Proc %u returning from schedule()\n", curr->pid);
+
+    // Make sure that the last proc calling schedule() let to a context switch.
+    ASSERT(this_cpu_var(context_switches) == st_last_context_switches + 1);
+
+    // The last process MUST be the previous one in the array st_procs (wrap
+    // around if curr is proc 0).
+    ASSERT(st_last_proc == st_procs[(st_num_ints - 1) % st_num_procs]);
+
+    // From our point of view, nothing should have changed.
+    ASSERT(this_cpu_var(curr_proc) == curr);
+    ASSERT(curr == st_procs[st_num_ints % st_num_procs]);
+}
+
+// pick_next_proc callback of the scheduler used during this test.
+// This function makes sure that the interleaving of processes looks as follows:
+//  0 1 2 3 ... N-2 N-1 0 1 2 ...
+static struct proc *st_sched_pick_next_proc(void) {
+    struct proc * const prev = this_cpu_var(curr_proc);
+
+    // The previous process (which is the current process at this point) must be
+    // the proc at index st_num_ints - 1.
+    ASSERT(st_num_ints > 0);
+    ASSERT(prev == st_procs[(st_num_ints - 1) % st_num_procs]);
+
+    // The context switch did not happen yet. It will be _after_ this call.
+    ASSERT(this_cpu_var(context_switches) == st_last_context_switches);
+
+    // The next process to run is the next in the array.
+    struct proc * const next = st_procs[st_num_ints % st_num_procs];
+    LOG("Pick next = %u\n", next->pid);
+    return next;
+}
+
+// put_prev_proc callback of the scheduler used during this test. Simply checks
+// that this is the expected proc.
+static void st_sched_put_prev_proc(struct proc * const proc) {
+    LOG("Put prev %u\n", proc->pid);
+    ASSERT(st_num_ints > 0);
+    ASSERT(proc == st_procs[(st_num_ints - 1) % st_num_procs]);
+
+    // The context switch did not happen yet. It will be _after_ the call to
+    // pick_next_proc.
+    ASSERT(this_cpu_var(context_switches) == st_last_context_switches);
+}
+
+// The scheduler used for the schedule() test. Note that since schedule() only
+// uses the `pick_next_proc` and `put_prev_proc` callbacks, those are the only
+// two we need.
+static struct sched st_sched = {
+    .sched_init       = NULL,
+    .enqueue_proc     = NULL,
+    .dequeue_proc     = NULL,
+    .update_curr      = NULL,
+    .tick             = NULL,
+    .pick_next_proc   = st_sched_pick_next_proc,
+    .put_prev_proc    = st_sched_put_prev_proc,
+};
+
+// Start executing the first process of st_procs.
+static void st_start_exec(void * arg) {
+    // Start the execution of the first process in st_procs.
+    switch_to_proc(st_procs[0]);
+    __UNREACHABLE__;
+}
+
+// The actual test.
+static bool schedule_test(void) {
+    struct sched * const old_sched = SCHEDULER;
+    SCHEDULER = &st_sched;
+
+    interrupt_register_global_callback(SYSCALL_VECTOR, st_int_handler);
+
+    st_procs = kmalloc(st_num_procs * sizeof(*st_procs));
+    st_num_ints = 0;
+
+    for (uint32_t i = 0; i < st_num_procs; ++i) {
+        st_procs[i] = create_kproc(st_proc_code, NULL);
+    }
+
+    uint8_t const cpu = TEST_TARGET_CPU(0);
+    exec_remote_call(cpu, st_start_exec, NULL, false);
+
+    while (!st_test_done) {
+        lapic_sleep(50);
+    }
+
+    init_aps();
+
+    for (uint32_t i = 0; i < st_num_procs; ++i) {
+        delete_proc(st_procs[i]);
+    }
+    kfree(st_procs);
+
+    interrupt_delete_global_callback(SYSCALL_VECTOR);
+    SCHEDULER = old_sched;
+    return true;
+}
+
 void sched_test(void) {
     TEST_FWK_RUN(sched_callbacks_test);
+    TEST_FWK_RUN(schedule_test);
 }

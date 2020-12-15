@@ -19,6 +19,9 @@ DECLARE_PER_CPU(bool, sched_running) = false;
 // Indicate if a resched is necessary on a given cpu.
 DECLARE_PER_CPU(bool, resched_flag) = false;
 
+// The number of context switches performed by a cpu so far.
+DECLARE_PER_CPU(uint64_t, context_switches) = 0;
+
 // The interrupt vector to use for scheduler ticks.
 #define SCHED_TICK_VECTOR   34
 
@@ -123,47 +126,40 @@ void sched_update_curr(void) {
     }
 }
 
-void schedule(void) {
-    ASSERT(SCHEDULER);
-
-    // schedule() is called after an interrupt has been serviced, hence
-    // interrupts are assumed to be disabled. See comment at the end of
-    // generic_interrupt_handler().
-    ASSERT(!interrupts_enabled());
-
-    uint8_t const this_cpu = cpu_id();
-    struct proc * const curr = this_cpu_var(curr_proc);
-    struct proc * next = NULL;
-
+// Check if the current cpu needs a reschedule.
+// @return: true if the current cpu needs a resched, false otherwise.
+static bool curr_cpu_need_resched(void) {
     // We need a reschedule in the following situations:
     //  - If this is the first time schedule() is called (curr == NULL).
     //  - If an explicit resched was requested, do it now.
     //  - If this cpu was idle, check for a new proc anyway. This avoids bugs in
     //    which a cpu has processes waiting in its runqueue but never wakes up.
     //  - If the current process exited (is dead).
-    bool const need_resched = !curr ||
-                              cpu_is_idle(this_cpu) ||
-                              cpu_var(resched_flag, this_cpu) ||
-                              proc_is_dead(curr);
+    struct proc * const curr = this_cpu_var(curr_proc);
+    return !curr || cpu_is_idle(cpu_id()) || this_cpu_var(resched_flag) ||
+        proc_is_dead(curr);
+}
 
-    if (need_resched) {
-        struct proc * const prev = curr;
+void schedule(void) {
+    ASSERT(SCHEDULER);
+
+    bool const int_enabled = interrupts_enabled();
+    cpu_set_interrupt_flag(false);
+
+    if (curr_cpu_need_resched()) {
+        struct proc * const curr = this_cpu_var(curr_proc);
         struct proc * const idle = this_cpu_var(idle_proc);
 
-        if (curr) {
-            if (prev != idle && !proc_is_dead(curr)) {
-                // Notify the scheduler of the context switch. This must be done
-                // before picking the next proc, in case there is a single proc on
-                // the system.
-                SCHEDULER->put_prev_proc(prev);
-            }
+        if (curr && curr != idle && !proc_is_dead(curr)) {
+            // Notify the scheduler of the context switch. This must be done
+            // before picking the next proc, in case there is a single proc on
+            // the system (i.e. curr).
+            SCHEDULER->put_prev_proc(curr);
         }
 
         // Pick a new process to run. Default to idle_proc.
-        next = SCHEDULER->pick_next_proc();
-        if (next == NO_PROC) {
-            next = idle;
-        }
+        struct proc * next = SCHEDULER->pick_next_proc();
+        next = (next == NO_PROC) ? idle : next;
         ASSERT(proc_is_runnable(next));
 
         this_cpu_var(resched_flag) = false;
@@ -171,9 +167,11 @@ void schedule(void) {
         if (next != curr) {
             // Interrupts are still disabled and will only be enabled by the
             // context switch.
+            this_cpu_var(context_switches) ++;
             switch_to_proc(next);
         }
     }
+    cpu_set_interrupt_flag(int_enabled);
 }
 
 void sched_resched(void) {
