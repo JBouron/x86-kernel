@@ -121,8 +121,10 @@ void sched_update_curr(void) {
     ASSERT(!interrupts_enabled());
 
     struct proc * const curr = this_cpu_var(curr_proc);
-    if (proc_is_dead(curr)) {
-        // This process just became dead, need to resched.
+    if (!proc_is_runnable(curr)) {
+        // The current proc is not runnable anymore, we should set the
+        // resched_flag so that the next call to schedule() will choose another
+        // proc to run.
         sched_resched();
     } else {
         SCHEDULER->update_curr();

@@ -483,9 +483,67 @@ static bool schedule_resched_test(void) {
     return true;
 }
 
+// =============================================================================
+// sched_update_curr() test. This test makes sure that sched_update_curr()
+// either call the update_curr callback of the scheduler if curr is runnable or
+// set the resched_flag if it is not.
+
+// Indicate if the update_curr callback has been called.
+static bool volatile suct_update_curr_called = false;
+static void suct_update_curr(void) {
+    suct_update_curr_called = true;
+}
+
+// The scheduler used by the test. Only update_curr is required here.
+static struct sched suct_sched = {
+    .update_curr = suct_update_curr,
+};
+
+static bool sched_update_curr_test(void) {
+    struct sched * const old_sched = SCHEDULER;
+    SCHEDULER = &suct_sched;
+
+    // Test case 1: The current proc is runnable. sched_update_curr() is
+    // expected to call the update_curr callback. No rescheduling is requested.
+    struct proc * const proc = create_kproc(NULL, NULL);
+    this_cpu_var(curr_proc) = proc;
+    suct_update_curr_called = false;
+    sched_update_curr();
+    TEST_ASSERT(suct_update_curr_called);
+    TEST_ASSERT(!this_cpu_var(resched_flag));
+
+    // Test case 2: The current process is not runnable, sched_update_curr()
+    // should not call update_curr and instead should set the resched_flag.
+    proc->state_flags = PROC_WAITING_EIP;
+    this_cpu_var(curr_proc) = proc;
+    this_cpu_var(resched_flag) = false;
+
+    // Case 2.1: state_flags == PROC_WAITING_EIP.
+    suct_update_curr_called = false;
+    sched_update_curr();
+    TEST_ASSERT(!suct_update_curr_called);
+    TEST_ASSERT(this_cpu_var(resched_flag));
+    this_cpu_var(resched_flag) = false;
+
+    // Case 2.2: state_flags == PROC_DEAD.
+    proc->state_flags = PROC_DEAD;
+    suct_update_curr_called = false;
+    sched_update_curr();
+    TEST_ASSERT(!suct_update_curr_called);
+    TEST_ASSERT(this_cpu_var(resched_flag));
+    this_cpu_var(resched_flag) = false;
+
+    SCHEDULER = old_sched;
+    delete_proc(proc);
+    this_cpu_var(resched_flag) = false;
+    this_cpu_var(curr_proc) = NULL;
+    return true;
+}
+
 void sched_test(void) {
     TEST_FWK_RUN(sched_callbacks_test);
     TEST_FWK_RUN(curr_cpu_need_resched_test);
     TEST_FWK_RUN(schedule_test);
     TEST_FWK_RUN(schedule_resched_test);
+    TEST_FWK_RUN(sched_update_curr_test);
 }
