@@ -355,7 +355,7 @@ static bool schedule_test(void) {
 // =============================================================================
 // schedule() test 2: This test will check that a cpu that is idle, or not
 // running any process (curr_proc == NULL) or having its current process not
-// runnable will trigger a context switch upon calling schedule().
+// runnable (or dead) will trigger a context switch upon calling schedule().
 
 // A runnable process. This is the process we expects the cpu to start executing
 // on the next call to schedule.
@@ -431,7 +431,7 @@ static bool schedule_resched_test(void) {
     SCHEDULER = &srt_sched;
 
     uint8_t const cpu = TEST_TARGET_CPU(0);
-    for (uint8_t i = 0; i < 3; ++i) {
+    for (uint8_t i = 0; i < 4; ++i) {
         if (i) {
             init_aps();
             delete_proc(srt_proc);
@@ -454,6 +454,12 @@ static bool schedule_resched_test(void) {
             case 2:
                 remote_curr = create_proc();
                 break;
+
+            // Test case 4: The current process is dead.
+            case 3:
+                remote_curr = create_proc();
+                remote_curr->state_flags = PROC_DEAD;
+                break;
         }
 
         // Set the curr_proc on the remote cpu and start execution (only
@@ -472,7 +478,7 @@ static bool schedule_resched_test(void) {
         // to start executing srt_proc.
         TEST_WAIT_FOR(srt_proc_done, 100);
 
-        if (i == 2) {
+        if (i == 2 || i == 3) {
             delete_proc(remote_curr);
         }
     }
