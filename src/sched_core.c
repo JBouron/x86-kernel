@@ -115,10 +115,8 @@ void sched_dequeue_proc(struct proc * const proc) {
 void sched_update_curr(void) {
     ASSERT(SCHEDULER);
 
-    // sched_update_curr() is called after an interrupt has been serviced, hence
-    // interrupts are assumed to be disabled. See comment at the end of
-    // generic_interrupt_handler().
-    ASSERT(!interrupts_enabled());
+    bool const int_enabled = interrupts_enabled();
+    cpu_set_interrupt_flag(false);
 
     struct proc * const curr = this_cpu_var(curr_proc);
     if (!proc_is_runnable(curr)) {
@@ -129,6 +127,8 @@ void sched_update_curr(void) {
     } else {
         SCHEDULER->update_curr();
     }
+
+    cpu_set_interrupt_flag(int_enabled);
 }
 
 // Check if the current cpu needs a reschedule.
