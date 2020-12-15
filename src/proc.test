@@ -719,7 +719,6 @@ static void cs_test_handler(struct interrupt_frame const * const frame) {
 
     // Count the number of interrupts.
     context_switch_test_num_ints ++;
-    LOG("Interrupt %u from proc %u\n", context_switch_test_num_ints, curr->pid);
 
     if (context_switch_test_num_ints == 2 * context_switch_test_num_procs) {
         // This was the last interrupt, notify the remote cpu running the test
@@ -733,7 +732,6 @@ static void cs_test_handler(struct interrupt_frame const * const frame) {
         uint32_t const next_idx = context_switch_test_num_ints %
             context_switch_test_num_procs;
         struct proc * const next = context_switch_test_procs[next_idx];
-        LOG("Switching to process %u\n", next->pid);
         switch_to_proc(next);
     }
 }
