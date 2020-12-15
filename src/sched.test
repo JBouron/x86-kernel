@@ -352,8 +352,140 @@ static bool schedule_test(void) {
     return true;
 }
 
+// =============================================================================
+// schedule() test 2: This test will check that a cpu that is idle, or not
+// running any process (curr_proc == NULL) or having its current process not
+// runnable will trigger a context switch upon calling schedule().
+
+// A runnable process. This is the process we expects the cpu to start executing
+// on the next call to schedule.
+static struct proc * srt_proc = NULL;
+
+// The pick_next_proc simply return the test process srt_proc.
+static struct proc *srt_sched_pick_next_proc(void) {
+    return srt_proc;
+}
+
+// Since the current process is either: idle, NULL, or not runnable, we expects
+// that schedule() will skip the call to put_prev_proc when doing the context
+// switch to srt_proc. Hence put an ASSERT(false) to make sure this function is
+// never executed.
+static void srt_sched_put_prev_proc(struct proc * const proc) {
+    ASSERT(false);
+}
+
+// The scheduler used for the test. Only pick_next_proc and put_prev_proc are
+// required since we will interact with schedule() only.
+static struct sched srt_sched = {
+    .sched_init       = NULL,
+    .enqueue_proc     = NULL,
+    .dequeue_proc     = NULL,
+    .update_curr      = NULL,
+    .tick             = NULL,
+    .pick_next_proc   = srt_sched_pick_next_proc,
+    .put_prev_proc    = srt_sched_put_prev_proc,
+};
+
+// Call schedule on the current cpu. This function is meant to be used remotely.
+static void srt_remote_schedule(void * unused) {
+    schedule();
+    // The call to schedule is not expected to return, this is because the cpu
+    // will be reset between each test case. This assert also makes sure that a
+    // context switch happened in the call to schedule().
+    ASSERT(false);
+}
+
+// Start the test case remotely. This function will set the curr_proc to the
+// proc passed as argument (even if NULL or not-runnable) and start execution if
+// it is runnable.
+// @param arg: A struct proc * to use as curr_proc.
+static void srt_remote_start(void * arg) {
+    struct proc * const proc = arg;
+
+    if (proc && proc_is_runnable(proc)) {
+        ASSERT(proc == this_cpu_var(idle_proc));
+        switch_to_proc(arg);
+    } else {
+        LOG("Proc not runnable\n");
+        this_cpu_var(curr_proc) = proc;
+    }
+}
+
+// Indicate if srt_proc is done with its execution.
+static bool volatile srt_proc_done = false;
+
+// The code executed by srt_proc. Simply set srt_proc_done to true and lock_up
+// the cpu.
+static void srt_proc_code(void * arg) {
+    srt_proc_done = true;
+
+    // Wait to be reset by the cpu running the test.
+    while (1) {
+        cpu_set_interrupt_flag_and_halt();
+    }
+}
+
+static bool schedule_resched_test(void) {
+    sched_init();
+    struct sched * const old_sched = SCHEDULER;
+    SCHEDULER = &srt_sched;
+
+    uint8_t const cpu = TEST_TARGET_CPU(0);
+    for (uint8_t i = 0; i < 3; ++i) {
+        if (i) {
+            init_aps();
+            delete_proc(srt_proc);
+        }
+
+        struct proc * remote_curr = NULL;
+        switch (i) {
+            // Test case 1: The current process is NULL.
+            case 0:
+                remote_curr = NULL;
+                break;
+
+            // Test case 2: The current process is idle_proc, the cpu is
+            // considered idle.
+            case 1:
+                remote_curr = cpu_var(idle_proc, cpu);
+                break;
+
+            // Test case 3: The current process is not runnable anymore.
+            case 2:
+                remote_curr = create_proc();
+                break;
+        }
+
+        // Set the curr_proc on the remote cpu and start execution (only
+        // applicable for the idle case).
+        exec_remote_call(cpu, srt_remote_start, remote_curr, false);
+
+        // Create a new runnable process.
+        srt_proc_done = false;
+        srt_proc = create_kproc(srt_proc_code, NULL);
+
+        // Call schedule() on the remote cpu.
+        exec_remote_call(cpu, srt_remote_schedule, NULL, false);
+
+        // Since the remote cpu is either idle, not running any process or has
+        // its current process non-runnable, the call to schedule() is expected
+        // to start executing srt_proc.
+        TEST_WAIT_FOR(srt_proc_done, 100);
+
+        if (i == 2) {
+            delete_proc(remote_curr);
+        }
+    }
+    init_aps();
+    sched_cancel_init();
+    delete_proc(srt_proc);
+    SCHEDULER = old_sched;
+    return true;
+}
+
 void sched_test(void) {
     TEST_FWK_RUN(sched_callbacks_test);
     TEST_FWK_RUN(curr_cpu_need_resched_test);
     TEST_FWK_RUN(schedule_test);
+    TEST_FWK_RUN(schedule_resched_test);
 }

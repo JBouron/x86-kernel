@@ -153,7 +153,7 @@ void schedule(void) {
         struct proc * const curr = this_cpu_var(curr_proc);
         struct proc * const idle = this_cpu_var(idle_proc);
 
-        if (curr && curr != idle && !proc_is_dead(curr)) {
+        if (curr && curr != idle && proc_is_runnable(curr)) {
             // Notify the scheduler of the context switch. This must be done
             // before picking the next proc, in case there is a single proc on
             // the system (i.e. curr).
