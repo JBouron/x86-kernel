@@ -49,13 +49,16 @@ void sched_init(void) {
             PANIC("Cannot create idle proc for cpu %u", cpu);
         }
         cpu_var(idle_proc, cpu) = idle;
+        LOG("[%u] Idle proc for %u = %p\n", cpu_id(), cpu, idle);
 
         // Set the curr proc for each cpu to NULL and not their corresponding
         // idle proc. This is because upon the first context switch, if
         // curr_proc is idle, then _schedule() will wrongly think that it is
         // using idle's kernel stack.
         cpu_var(curr_proc, cpu) = NULL;
-        LOG("[%u] Idle proc for %u = %p\n", cpu_id(), cpu, idle);
+        cpu_var(resched_flag, cpu) = false;
+        cpu_var(sched_running, cpu) = false;
+        cpu_var(context_switches, cpu) = 0;
     }
 
     // Initialize the actual scheduler.
@@ -137,7 +140,7 @@ static bool curr_cpu_need_resched(void) {
     //  - If the current process exited (is dead).
     struct proc * const curr = this_cpu_var(curr_proc);
     return !curr || cpu_is_idle(cpu_id()) || this_cpu_var(resched_flag) ||
-        proc_is_dead(curr);
+        !proc_is_runnable(curr);
 }
 
 void schedule(void) {

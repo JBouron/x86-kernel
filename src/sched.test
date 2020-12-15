@@ -13,6 +13,9 @@ static void sched_cancel_init(void) {
         ASSERT(idle);
         delete_proc(idle);
         cpu_var(curr_proc, cpu) = NULL;
+        cpu_var(resched_flag, cpu) = false;
+        cpu_var(sched_running, cpu) = false;
+        cpu_var(context_switches, cpu) = 0;
     } 
 }
 
@@ -121,6 +124,50 @@ static bool sched_callbacks_test(void) {
 }
 
 // ============================================================================= 
+// curr_cpu_need_resched() test.
+static bool curr_cpu_need_resched_test(void) {
+    sched_init();
+
+    // Test case 1: The cpu does not have a curr_proc. This is the first proc to
+    // be executed.
+    this_cpu_var(curr_proc) = NULL;
+    TEST_ASSERT(curr_cpu_need_resched());
+
+    // Test case 2: The cpu is idle, that is its current proc is its idle proc.
+    this_cpu_var(curr_proc) = this_cpu_var(idle_proc);
+    TEST_ASSERT(curr_cpu_need_resched());
+
+    // Test case 3: The resched_flag is set for the current cpu.
+    this_cpu_var(resched_flag) = true;
+    TEST_ASSERT(curr_cpu_need_resched());
+    this_cpu_var(resched_flag) = false;
+
+    // Test case 4: The current process is not runnable.
+    struct proc * const proc = create_proc();
+    // Curr proc is not runnable, but is not dead either. This particular
+    // scenario is not exactly realistic since no code is in the process, but
+    // all we need is state_flags not being runnable and not being dead.
+    this_cpu_var(curr_proc) = proc;
+    TEST_ASSERT(proc->state_flags == PROC_WAITING_EIP);
+    TEST_ASSERT(curr_cpu_need_resched());
+
+    // Test case 5: The current process is dead.
+    proc->state_flags = PROC_DEAD;
+    TEST_ASSERT(curr_cpu_need_resched());
+
+    // Test case 6: The current process is runnable, resched_flag is false. This
+    // is the only case where a resched is not necessary.
+    proc->state_flags = PROC_RUNNABLE;
+    this_cpu_var(resched_flag) = false;
+    TEST_ASSERT(!curr_cpu_need_resched());
+
+
+    sched_cancel_init();
+    delete_proc(proc);
+    return true;
+}
+
+// ============================================================================= 
 // schedule() test.
 // This test makes sure that schedule() correctly calls the put_prev_proc
 // callback on the current proc, calls the pick_next_proc to select a new proc
@@ -179,7 +226,6 @@ static void st_int_handler(struct interrupt_frame const * const frame) {
     struct proc * const curr = this_cpu_var(curr_proc);
 
     st_num_ints ++;
-    LOG("Proc %u raised interrupt %u\n", curr->pid, st_num_ints);
 
     if (st_num_ints == st_num_procs * st_num_ints_per_proc) {
         LOG("Max number of interrupts reached. Test over and successful\n");
@@ -193,8 +239,6 @@ static void st_int_handler(struct interrupt_frame const * const frame) {
     sched_resched();
 
     st_last_proc = curr;
-
-    LOG("Proc %u is calling schedule()\n", curr->pid);
 
     // Right before calling schedule(), save the current value of the registers
     // onto the current stack. EIP is set to some dummy value.
@@ -213,8 +257,6 @@ static void st_int_handler(struct interrupt_frame const * const frame) {
     ASSERT(regs_after_schedule.ebx == regs_before_schedule.ebx);
     ASSERT(regs_after_schedule.ebp == regs_before_schedule.ebp);
     ASSERT(regs_after_schedule.esp == regs_before_schedule.esp);
-
-    LOG("Proc %u returning from schedule()\n", curr->pid);
 
     // Make sure that the last proc calling schedule() let to a context switch.
     ASSERT(this_cpu_var(context_switches) == st_last_context_switches + 1);
@@ -243,15 +285,12 @@ static struct proc *st_sched_pick_next_proc(void) {
     ASSERT(this_cpu_var(context_switches) == st_last_context_switches);
 
     // The next process to run is the next in the array.
-    struct proc * const next = st_procs[st_num_ints % st_num_procs];
-    LOG("Pick next = %u\n", next->pid);
-    return next;
+    return st_procs[st_num_ints % st_num_procs];
 }
 
 // put_prev_proc callback of the scheduler used during this test. Simply checks
 // that this is the expected proc.
 static void st_sched_put_prev_proc(struct proc * const proc) {
-    LOG("Put prev %u\n", proc->pid);
     ASSERT(st_num_ints > 0);
     ASSERT(proc == st_procs[(st_num_ints - 1) % st_num_procs]);
 
@@ -315,5 +354,6 @@ static bool schedule_test(void) {
 
 void sched_test(void) {
     TEST_FWK_RUN(sched_callbacks_test);
+    TEST_FWK_RUN(curr_cpu_need_resched_test);
     TEST_FWK_RUN(schedule_test);
 }
