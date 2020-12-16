@@ -597,7 +597,7 @@ static bool interrupt_reg_save_test_ring3(void) {
     return interrupt_reg_save(3);
 }
 
-// ============================================================================= 
+// =============================================================================
 // This test checks that switching to a user process changes the ESP0 of the TSS
 // of the current cpu. This is a regression test of a BUG where switch_to_proc()
 // would not change the ESP0 of the TSS hence causing conflicts if multiple user
@@ -675,7 +675,7 @@ static bool tss_esp0_change_on_context_switch_test(void) {
     return true;
 }
 
-// ============================================================================= 
+// =============================================================================
 // do_context_switch() testing. In this test we are running N processes on the
 // same cpu and performing 2N context switches. This test makes sure that
 // registers are not changed between context switches.
@@ -879,6 +879,103 @@ static bool context_switch_test(void) {
     return true;
 }
 
+// =============================================================================
+// kernel proc migration test. In this test we check that migrating a kernel
+// process from core A to core B does not break percpu variables for that
+// process. More specifically, we verify that when running a kernel process on a
+// core, the value of GS must be "pointing" to the percpu segment of that core.
+//
+// This test runs a simple kernel process that executes an INT 0x80. Before the
+// INT, the process executes on core A, before the INT it execute on core B.
+// Before and after the INT the process ASSERTs the value of the GS.
+
+// The expected value of GS before and after the INT instruction respectively.
+static uint16_t kpmt_exp_gs[2];
+// Indicate if the test process has done executing.
+static bool volatile kpmt_proc_done = false;
+
+// The code executed by the test process.
+static void kpmt_proc_code(void * unused) {
+    // Stage 1: We are running on the first cpu, the GS MUST be the same as the
+    // expected value in kpmt_exp_gs[0].
+    uint16_t const gs1 = cpu_read_gs().value;
+    LOG("Stage 1, GS = %x\n", gs1);
+    ASSERT(gs1 == kpmt_exp_gs[0]);
+
+    asm("int $0x80");
+
+    // Stage 1: We have been migrated and are now running on the first cpu, the
+    // GS MUST be the same as the expected value in kpmt_exp_gs[1].
+    uint16_t const gs2 = cpu_read_gs().value;
+    LOG("Stage 2, GS = %x\n", gs2);
+    ASSERT(gs2 == kpmt_exp_gs[1]);
+
+    // Indicate to the cpu running the test that the test is done.
+    kpmt_proc_done = true;
+    while (1) {
+        cpu_set_interrupt_flag_and_halt();
+    }
+}
+
+// When the test process migrates from core A to core B (within the interrupt
+// handler), core A will switch to a "dead" process which will simply halt. This
+// is this process.
+static struct proc * kpmt_dead_proc = NULL;
+// Indicate to the cpu running the test that core A has entered its "dead" test
+// and therefore the test process is ready to be migrated.
+static bool volatile kpmt_first_cpu_dead = false;
+// The code of kpmt_dead_proc.
+static void kpmt_dead_proc_code(void * unused) {
+    LOG("Cpu %u dead\n", cpu_id());
+    kpmt_first_cpu_dead = true;
+    while (1) {
+        cpu_set_interrupt_flag_and_halt();
+    }
+}
+
+// Temp interrupt handler for interrupt 0x80. This handler will perform a
+// context switch to kpmt_dead_proc.
+static void kpmt_int_handler(struct interrupt_frame const * const frame) {
+    // We are on core A.
+    LOG("Process called interrupt handler.\n");
+    switch_to_proc(kpmt_dead_proc);
+    // We are now on core B after the migration.
+    LOG("Resume execution on second CPU\n");
+}
+
+static bool kernel_proc_migration_correct_gs_test(void) {
+    interrupt_register_global_callback(SYSCALL_VECTOR, kpmt_int_handler);
+
+    kpmt_dead_proc = create_kproc(kpmt_dead_proc_code, NULL);
+
+    struct proc * const proc = create_kproc(kpmt_proc_code, NULL);
+    uint8_t const first_cpu = TEST_TARGET_CPU(0);
+    uint8_t const second_cpu = TEST_TARGET_CPU(1);
+
+    // Get the GS for both cpus.
+    exec_remote_call(first_cpu, remote_read_gs, &kpmt_exp_gs[0], true);
+    exec_remote_call(second_cpu, remote_read_gs, &kpmt_exp_gs[1], true);
+
+    exec_remote_call(first_cpu, exec_proc, proc, false);
+
+    // Wait for the first cpu to "receive" the 0x80 interrupt raised by the test
+    // process and perform a context switch, thus saving the state of the test
+    // proc.
+    TEST_WAIT_FOR(kpmt_first_cpu_dead, 100);
+
+    // Migrate the proc to the second cpu and resume execution.
+    exec_remote_call(second_cpu, exec_proc, proc, false);
+
+    // Wait for the process to be done.
+    TEST_WAIT_FOR(kpmt_proc_done, 100);
+
+    init_aps();
+    interrupt_delete_global_callback(SYSCALL_VECTOR);
+    delete_proc(proc);
+    delete_proc(kpmt_dead_proc);
+    return true;
+}
+
 void proc_test(void) {
     TEST_FWK_RUN(get_stack_bottom_test);
     TEST_FWK_RUN(create_proc_test);
@@ -894,4 +991,5 @@ void proc_test(void) {
     TEST_FWK_RUN(interrupt_reg_save_test_ring3);
     TEST_FWK_RUN(tss_esp0_change_on_context_switch_test);
     TEST_FWK_RUN(context_switch_test);
+    TEST_FWK_RUN(kernel_proc_migration_correct_gs_test);
 }

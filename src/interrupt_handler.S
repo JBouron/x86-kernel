@@ -252,12 +252,28 @@ do_fixup_priv_change_end:
     // The interrupt has been dealt with. We can now restore the registers and
     // return from the interrupt.
 
-    // Restore DS, ES, FS, and GS. SS and CS are special cases and will be
+    // Restore DS, ES, and FS. GS, SS and CS are special cases and will be
     // handled separately.
     mov     ds, [ebp - 0x28]
     mov     es, [ebp - 0x1C]
     mov     fs, [ebp - 0x2C]
+
+    // For kernel processes, the GS cannot be restored, it must be the GS
+    // "pointing" to the percpu segment of the current cpu. It is not
+    // necessarily the same as the one stored onto the stack as the process
+    // might have been migrated to another core since the interrupt.
+    // For user processes we need to restore the GS.
+    // Test the privilege level of the interrupt context to know if we need to
+    // skip the write to GS.
+    mov     ax, [ebp - 0x0C]
+    test    ax, 3
+    jz      0f
+
+    // This is a user process, we can restore the GS with the one saved onto the
+    // stack.
     mov     gs, [ebp - 0x30]
+0:
+    // Kernel processes will jump here, effectively skipping the write to GS.
 
     // SS does not need to be restored because:
     // - If a priv change occured, the SS will be restored by the IRET.
