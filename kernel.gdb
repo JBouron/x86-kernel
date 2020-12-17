@@ -13,3 +13,8 @@ define cpu
     set $__i = $arg0 + 1
     thread $__i
 end
+
+define cpu_var
+    set $off = (void*)&__percpu_$arg0 - (void*)&SECTION_PERCPU_START
+    x /x PER_CPU_OFFSETS[$arg1] + $off
+end
