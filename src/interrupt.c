@@ -7,7 +7,6 @@
 #include <percpu.h>
 #include <ipm.h>
 #include <proc.h>
-#include <sched.h>
 
 // Interrupt gate descriptor.
 union interrupt_descriptor_t {
@@ -139,12 +138,6 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
     // gate.
     ASSERT(!interrupts_enabled());
 
-    if (sched_running_on_cpu()) {
-        struct proc * const curr = this_cpu_var(curr_proc);
-        ASSERT(curr);
-        curr->interrupt_nest_level++;
-    }
-
     // Now that the nesting level has been taken care of we can safely enable
     // interrupts again.
     // Note: The Intel manual says:
@@ -195,24 +188,6 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
     //  the registers of the first interrupt (in the scheduler) saved instead.
     cpu_set_interrupt_flag(false);
 
-    if (sched_running_on_cpu()) {
-        // Update stats about the current process.
-        sched_update_curr();
-
-        struct proc * const curr = this_cpu_var(curr_proc);
-        bool const nested_interrupt = curr->interrupt_nest_level > 1;
-
-        // Check if we need another round of scheduling. For now only do this if
-        // we are not in a nested interrupt. That way a process cannot be
-        // migrated to another cpu in the middle of a kernel operation and
-        // percpu variable are always correct. FIXME: Add a system to disable
-        // preemption when handling percpu vars.
-        if (!nested_interrupt) {
-            schedule();
-        }
-        curr->interrupt_nest_level--;
-    }
-    
     return false;
 }
 
