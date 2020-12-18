@@ -400,7 +400,10 @@ static void srt_remote_schedule(void * unused) {
 // it is runnable.
 // @param arg: A struct proc * to use as curr_proc.
 static void srt_remote_start(void * arg) {
+    cpu_set_interrupt_flag(false);
     struct proc * const proc = arg;
+
+    this_cpu_var(curr_proc) = NULL;
 
     if (proc && proc_is_runnable(proc)) {
         ASSERT(proc == this_cpu_var(idle_proc));
