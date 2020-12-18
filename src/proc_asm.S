@@ -72,9 +72,10 @@ ASM_FUNC_DEF(save_registers):
     leave
     ret
 
-// void resume_proc_exec(struct proc const * const next);
-// This function will start/resume the execution of a process. This function
-// DOES NOT RETURN.
+// void resume_proc_exec(struct proc * const next, struct proc * const prev );
+// This function will switch its stack to the kernel stack of the `next`
+// process, call sched_put_prev_proc(prev) and start/resume the execution of
+// `next`. This function DOES NOT RETURN.
 // @param next: The process to resume/start execution.
 ASM_FUNC_DEF(resume_proc_exec):
     push    ebp
@@ -107,8 +108,28 @@ ASM_FUNC_DEF(resume_proc_exec):
     // the time of its last context switch. Hence we need to switch to its
     // stack to build the IRET frame.
     mov     esp, [edi + 0xC]
+    jmp     1f
 
 0:
+    // The task we are about to swith has its CS in user space. This is the case
+    // if this is the very first time a user process is running. Instead of
+    // using the current stack to prepare the frame, use the kernel stack of the
+    // process.
+    mov     eax, [ebp + 0x8]
+    add     eax, [KSTACK_BOTTOM_OFFSET]
+    mov     esp, [eax]
+
+1:
+    // Now that we have switched stack, we can safely put back the current
+    // process into the scheduler queue.
+    push    [ebp + 0xC]
+    call    sched_put_prev_proc
+    add     esp, 0x4
+
+    // From this point on, we CANNOT ACCESS THE STACK OF THE PREV PROC. After
+    // the call to sched_put_prev_proc, the previous proc might have been
+    // migrated to another core a resumed execution.
+
     // AX = Next context is user context.
     mov     dx, 1
     xor     ax, ax
@@ -181,6 +202,7 @@ ASM_FUNC_DEF(do_context_switch):
 
 skip_reg_save:
     // Start executing the next process.
+    push    [ebp + 0x8]
     push    [ebp + 0xC]
     call    resume_proc_exec
     // Unreachable.

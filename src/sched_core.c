@@ -9,9 +9,9 @@
 // The core logic of scheduling. This file defines the functions declared in
 // sched.h.
 
-extern struct sched ts_sched;
-// The scheduler implementation to use.
-static struct sched *SCHEDULER = &ts_sched;
+// The scheduler implementation to use. A value of NULL indicate that no
+// scheduler is available.
+static struct sched *SCHEDULER = NULL;
 
 // Indicate if the scheduler is running on the current cpu.
 DECLARE_PER_CPU(bool, sched_running) = false;
@@ -62,7 +62,8 @@ void sched_init(void) {
     }
 
     // Initialize the actual scheduler.
-    SCHEDULER->sched_init();
+    if (SCHEDULER)
+        SCHEDULER->sched_init();
 }
 
 bool sched_running_on_cpu(void) {
@@ -145,6 +146,20 @@ static bool curr_cpu_need_resched(void) {
         !proc_is_runnable(curr);
 }
 
+// Call put_prev_proc of the schedule with the given proc as argument. This
+// function makes sure that put_prev_proc is not called on procs that are not
+// runnable, NULL, or the idle proc of the current cpu.
+// @param prev: The proc to pass to put_prev_proc.
+// Note: This function is not static, nor is it public (in the .h). This is
+// because its usage is strictly limited to the resume_proc_exec assembly
+// routine.
+void sched_put_prev_proc(struct proc * const prev) {
+    struct proc * const idle = this_cpu_var(idle_proc);
+    if (SCHEDULER && prev && prev != idle && proc_is_runnable(prev)) {
+        SCHEDULER->put_prev_proc(prev);
+    }
+}
+
 void schedule(void) {
     ASSERT(SCHEDULER);
 
@@ -154,13 +169,6 @@ void schedule(void) {
     if (curr_cpu_need_resched()) {
         struct proc * const curr = this_cpu_var(curr_proc);
         struct proc * const idle = this_cpu_var(idle_proc);
-
-        if (curr && curr != idle && proc_is_runnable(curr)) {
-            // Notify the scheduler of the context switch. This must be done
-            // before picking the next proc, in case there is a single proc on
-            // the system (i.e. curr).
-            SCHEDULER->put_prev_proc(curr);
-        }
 
         // Pick a new process to run. Default to idle_proc.
         struct proc * next = SCHEDULER->pick_next_proc();

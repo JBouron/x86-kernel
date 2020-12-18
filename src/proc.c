@@ -258,6 +258,8 @@ struct proc *create_kproc(void (*func)(void*), void * const arg) {
 
 // Used by assembly code to access the `registers` field of a struct proc.
 uint32_t const REG_SAVE_OFFSET = offsetof(struct proc, registers);
+uint32_t const KSTACK_BOTTOM_OFFSET = offsetof(struct proc, kernel_stack) +
+    offsetof(struct stack, bottom);
 
 // Perform the actual context switch from prev to next.
 // @param prev: The process that was running up until this call. If this is the

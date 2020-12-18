@@ -294,9 +294,8 @@ static void st_sched_put_prev_proc(struct proc * const proc) {
     ASSERT(st_num_ints > 0);
     ASSERT(proc == st_procs[(st_num_ints - 1) % st_num_procs]);
 
-    // The context switch did not happen yet. It will be _after_ the call to
-    // pick_next_proc.
-    ASSERT(this_cpu_var(context_switches) == st_last_context_switches);
+    // The put_prev_proc happens after the context_switches is updated.
+    ASSERT(this_cpu_var(context_switches) == st_last_context_switches + 1);
 }
 
 // The scheduler used for the schedule() test. Note that since schedule() only
@@ -549,10 +548,152 @@ static bool sched_update_curr_test(void) {
     return true;
 }
 
+// =============================================================================
+// schedule() migration stress test. In this test we have a single process
+// shared between all APs. At all times the APs call schedule() and try to run
+// the process. Only one of them will succeed.
+// This test makes sure that even though the process can quickly go from
+// executing on a core and being migrated to another, no stack or state
+// corruption occurs. This is a regression test for a previous bug where a cpu
+// would put_prev_proc(curr) but still use curr's stack afterwards leading to
+// corruption if another cpu would start executing curr at the same time.
+//
+// The test process will be a simple infinite loop calling sched_resched()
+// followed by schedule(). The idle processes (private to each cpu) will be the
+// same so that a cpu is always trying to schedule a new proc (in this case the
+// test proc).
+//
+// The test will run until the test process has migrated `sst_num_migrations`
+// times.
+
+// The test process.
+static struct proc * sst_proc = NULL;
+
+// Code of the test process. Note that this is also the code of the idle process
+// of each core.
+static void sst_proc_code(void * unused) {
+    while (true) {
+        sched_resched();
+        schedule();
+    }
+}
+
+// Lock protecting the test process.
+static DECLARE_SPINLOCK(sst_proc_lock);
+// Only one cpu can run the test process at a time. This flag indicate if the
+// process is running (false) or free to be run on a cpu (true).
+static bool volatile sst_proc_free = true;
+// The number of migrations of the test process so far.
+static uint32_t sst_num_migrations = 0;
+// The maximum number of migrations of the test process / terminating condition.
+static uint32_t sst_max_num_migrations = 2048;
+// Notify the cpu running the test that a cpu is done running the test and did
+// not experience errors.
+DECLARE_PER_CPU(bool, sst_success) = false;
+
+// The pick_next_proc callback of the scheduler used in this test. Since we only
+// have one process of interest (the test process), this function will return
+// the test process if it is free, NO_PROC otherwise.
+static struct proc *sst_pick_next_proc(void) {
+    spinlock_lock(&sst_proc_lock);
+
+    struct proc * next = NULL;
+    if (sst_proc_free) {
+        // Update the migration count.
+        if (sst_proc->cpu != cpu_id()) {
+            sst_num_migrations++;
+        }
+
+        // If we reach the max number of migration, lock up and wait for the
+        // reset.
+        if (sst_num_migrations >= sst_max_num_migrations) {
+            LOG("[%u] Done\n", cpu_id());
+            this_cpu_var(sst_success) = true;
+            // Let other cpus in.
+            spinlock_unlock(&sst_proc_lock);
+            lock_up();
+        } else {
+            // The current cpu won the race and got the right to execute the
+            // test process.
+            sst_proc_free = false;
+            next = sst_proc;
+        }
+    } else {
+        // Test process is already running on another cpu.
+        next = NO_PROC;
+    }
+
+    spinlock_unlock(&sst_proc_lock);
+    return next;
+}
+
+// The put_prev_proc callback of the test scheduler. Simply marks the test
+// process as free.
+static void sst_put_prev(struct proc * const prev) {
+    ASSERT(prev == sst_proc);
+    ASSERT(!sst_proc_free);
+    sst_proc_free = true;
+}
+
+// The scheduler used in this test.
+static struct sched sst_sched = {
+    .pick_next_proc = sst_pick_next_proc,
+    .put_prev_proc = sst_put_prev,
+};
+
+// The actual test.
+static bool schedule_stress_test(void) {
+    struct sched * const old_sched = SCHEDULER;
+    SCHEDULER = &sst_sched;
+
+    // Create the special idle processes for the remote cores. The idle proc is
+    // identical to the test proc, it is calling schedule as much as possible in
+    // a loop.
+    uint16_t const ncpus = acpi_get_number_cpus();
+    for (uint16_t cpu = 0; cpu < ncpus; ++cpu) {
+        struct proc * const idle = create_kproc(sst_proc_code, NULL);
+        cpu_var(idle_proc, cpu) = idle;
+        cpu_var(sst_success, cpu) = false;
+    }
+
+    // Create the test process.
+    sst_proc = create_kproc(sst_proc_code, NULL);
+
+    // Start the execution on all cores simulteanously.
+    broadcast_remote_call((void*)schedule, NULL, false);
+
+    // Wait for all the migrations to occur.
+    TEST_WAIT_FOR(sst_num_migrations >= sst_max_num_migrations, 5000);
+    LOG("All %u migrations occured\n", sst_max_num_migrations);
+
+    // Make sure that all cpus are ok and completed the test successfully.
+    for (uint16_t cpu = 0; cpu < ncpus; ++cpu) {
+        if (cpu == cpu_id()) {
+            continue;
+        }
+        TEST_WAIT_FOR(cpu_var(sst_success, cpu), 1000);
+    }
+    LOG("All APs OK, test successful\n");
+
+    // Test complete. Reset the APs.
+    init_aps();
+
+    // Clean up.
+    delete_proc(sst_proc);
+    for (uint16_t cpu = 0; cpu < ncpus; ++cpu) {
+        delete_proc(cpu_var(idle_proc, cpu));
+        cpu_var(idle_proc, cpu) = NULL;
+    }
+
+    SCHEDULER = old_sched;
+    return true;
+}
+
 void sched_test(void) {
     TEST_FWK_RUN(sched_callbacks_test);
     TEST_FWK_RUN(curr_cpu_need_resched_test);
     TEST_FWK_RUN(schedule_test);
     TEST_FWK_RUN(schedule_resched_test);
     TEST_FWK_RUN(sched_update_curr_test);
+    TEST_FWK_RUN(schedule_stress_test);
 }
