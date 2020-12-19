@@ -2,6 +2,7 @@
 #include <ipm.h>
 #include <smp.h>
 #include <kmalloc.h>
+#include <list.h>
 
 // Helper function to cancel the effect of a sched_init() call. More
 // specifically, this function will delete the idle processes created in
@@ -689,6 +690,244 @@ static bool schedule_stress_test(void) {
     return true;
 }
 
+
+// =============================================================================
+// preemption test. This test ensures that when disabling preemption, the
+// current process of a cpu will not be preempted no matter what happens
+// (interrupts, ticks, explicit calls to schedule(), ...).
+//
+// This test is composed of multiple test kernel processes all running the same
+// code pt_proc_code. This code will simulate multiple test cases multiple times
+// before signaling to the cpu running the test that it is done.
+// The test runs with scheduling ticks enabled to generate as much interrupts as
+// possible. Each tick will also enforce a round of scheduling by setting the
+// resched_flags and calling schedule().
+
+// Indicates to the cpu running the test how many processes are done executing
+// and successfully passed all the checks/test cases.
+static atomic_t pt_procs_done;
+// The number of scheduler ticks during this test per cpu.
+DECLARE_PER_CPU(uint32_t, pt_num_ticks) = 0;
+
+// This is the code executed by all the processes used in this test. This code
+// simulates multiple test cases related ot preemption.
+static void pt_proc_code(void * unused) {
+    // Get a pointer on self, this will be used to kill ourselves at the end of
+    // the test.
+    preempt_disable();
+    struct proc * const self = this_cpu_var(curr_proc);
+    preempt_enable();
+
+    uint32_t const max_ite = 32;
+    for (uint32_t i = 0; i < max_ite; ++i) {
+        uint8_t cpu_before, cpu_after;
+        uint64_t cs_before, cs_after;
+
+        // Test case 1: We are calling scheduler (with the resched_flags
+        // enabled) while having preemption enabled. This should result in no
+        // context switch and schedule should return immediately.
+        ASSERT(preemptible());
+        preempt_disable();
+        ASSERT(!preemptible());
+
+        cpu_before = cpu_id();
+        cs_before = this_cpu_var(context_switches);
+
+        // Sanity check that the percpu variables are correct.
+        ASSERT(cpu_before == this_cpu_var(curr_proc)->cpu);
+        ASSERT(cpu_before == cpu_apic_id());
+
+        // Try to resched.
+        sched_resched();
+        schedule();
+
+        cs_after = this_cpu_var(context_switches);
+        cpu_after = cpu_id();
+
+        preempt_enable();
+        ASSERT(preemptible());
+
+        // The number of context switches should be the same as before, that
+        // means that no context switch happened in the last call to schedule.
+        ASSERT(cs_before == cs_after);
+
+        // Since there were no context switch, no migration was possible.
+        ASSERT(cpu_before == cpu_after);
+
+
+        // Test case 2: We are doing a long operations with preemption disabled.
+        // This operation lasts for multiple ticks. Once again no context
+        // switches nor migrations is expected.
+        preempt_disable();
+        ASSERT(!preemptible());
+
+        cpu_before = cpu_id();
+        cs_before = this_cpu_var(context_switches);
+        uint32_t const tick_start = this_cpu_var(pt_num_ticks);
+        // Wait for at least 10 ticks.
+        while (this_cpu_var(pt_num_ticks) < tick_start + 10) {
+            ASSERT(cpu_id() == cpu_before);
+            ASSERT(this_cpu_var(context_switches) == cs_before);
+        }
+
+        preempt_enable();
+        ASSERT(preemptible());
+
+
+        // Test case 3:  Preemption is only enabled after the number of calls to
+        // preempt_enable() is the same as the number of calls to
+        // preempt_disable().
+        ASSERT(preemptible());
+        preempt_disable();
+        ASSERT(!preemptible());
+        preempt_disable();
+        ASSERT(!preemptible());
+
+        preempt_enable();
+        ASSERT(!preemptible());
+
+        cpu_before = cpu_id();
+        cs_before = this_cpu_var(context_switches);
+
+        // Sanity check that the percpu variables are correct.
+        ASSERT(cpu_before == this_cpu_var(curr_proc)->cpu);
+        ASSERT(cpu_before == cpu_apic_id());
+
+        // Try to resched. Not possible because the cpu is still
+        // not-preemptible.
+        sched_resched();
+        schedule();
+
+        cs_after = this_cpu_var(context_switches);
+        cpu_after = cpu_id();
+
+        // Finally re-enable the preemption for next test case.
+        preempt_enable();
+        ASSERT(preemptible());
+
+
+        // Test case 4: Sanity check, do the same as above without disabling
+        // preemption and check that the process eventually gets migrated.
+        cpu_before = cpu_apic_id();
+        while (cpu_id() == cpu_before) {
+            cpu_pause();
+        }
+    }
+
+    // This process managed to pass all the cases multiple times. It is now
+    // done.
+    atomic_inc(&pt_procs_done);
+
+    // Declare this process as dead so that it won't run after the call to
+    // schedule() below.
+    self->state_flags = PROC_DEAD;
+    schedule();
+
+    __UNREACHABLE__;
+}
+
+// The total number of processes to use for this test.
+static uint32_t pt_num_procs = 16;
+// All the processes used in this test.
+static struct proc **pt_procs = NULL;
+// The queue of processes used by the custom scheduler for this test.
+static struct list_node pt_queue;
+// Protect the queue of processes.
+DECLARE_SPINLOCK(pt_procs_lock);
+
+// pick_next_proc callback for the custom scheduler used in this test.
+// @return: The first process in the `pt_queue`. If the queue is empty, return
+// NO_PROC instead.
+static struct proc *pt_pick_next_proc(void) {
+    struct proc * next = NULL;
+
+    spinlock_lock(&pt_procs_lock);
+    if (!list_size(&pt_queue)) {
+        // No more processes to run.
+        next = NO_PROC;
+    } else {
+        next = list_first_entry(&pt_queue, struct proc, rq);
+        list_del(&next->rq);
+    }
+    spinlock_unlock(&pt_procs_lock);
+
+    return next;
+}
+
+// put_prev_proc callback for the custom scheduler.
+// @param proc: The process to enqueue back into the scheduler.
+static void pt_put_prev_proc(struct proc * const proc) {
+    spinlock_lock(&pt_procs_lock);
+    list_add_tail(&pt_queue, &proc->rq);
+    spinlock_unlock(&pt_procs_lock);
+}
+
+// tick callback of the custom scheduler. This function will increment the
+// pt_num_ticks variable of the current cpu, set the resched flag and call
+// schedule().
+static void pt_tick(void) {
+    preempt_disable();
+    this_cpu_var(pt_num_ticks) ++;
+    preempt_enable();
+
+    sched_resched();
+    schedule();
+}
+
+// The custom scheduler used by this test.
+static struct sched pt_sched = {
+    .tick = pt_tick,
+    .pick_next_proc = pt_pick_next_proc,
+    .put_prev_proc = pt_put_prev_proc,
+};
+
+// The actual test.
+static bool preemption_test(void) {
+    // One of the test cases is for the process to be migrated to another cpu.
+    // Since a cpu is running the test we need at least 3 cores in order to see
+    // migrations.
+    TEST_ASSERT(acpi_get_number_cpus() > 2);
+
+    // Initialize the idle processes.
+    sched_init();
+
+    struct sched * const old_sched = SCHEDULER;
+    SCHEDULER = &pt_sched;
+
+    atomic_init(&pt_procs_done, 0);
+    list_init(&pt_queue);
+    pt_procs = kmalloc(pt_num_procs * sizeof(*pt_procs));
+
+    // Create the test processes and enqueue them into pt_queue. Note: No lock
+    // required here, since only one cpu is running.
+    for (uint32_t i = 0; i < pt_num_procs; ++i) {
+        pt_procs[i] = create_kproc(pt_proc_code, NULL);
+        list_add_tail(&pt_queue, &pt_procs[i]->rq);
+    }
+
+    // Start the scheduler on remote cpus.
+    broadcast_remote_call((void*)sched_start, NULL, false);
+
+    // Wait for all the processes to succeed.
+    TEST_WAIT_FOR((uint32_t)atomic_read(&pt_procs_done) == pt_num_procs, 10000);
+
+    // We need to stop the lapic timer on remote cpus before resetting them.
+    // Otherwise they could receive an unexpected timer interrupt after the
+    // reset.
+    broadcast_remote_call((void*)lapic_stop_timer, NULL, true);
+
+    // Reset and clean up.
+    init_aps();
+    for (uint32_t i = 0; i < pt_num_procs; ++i) {
+        delete_proc(pt_procs[i]);
+    }
+    kfree(pt_procs);
+
+    SCHEDULER = old_sched;
+    sched_cancel_init();
+    return true;
+}
+
 void sched_test(void) {
     TEST_FWK_RUN(sched_callbacks_test);
     TEST_FWK_RUN(curr_cpu_need_resched_test);
@@ -696,4 +935,5 @@ void sched_test(void) {
     TEST_FWK_RUN(schedule_resched_test);
     TEST_FWK_RUN(sched_update_curr_test);
     TEST_FWK_RUN(schedule_stress_test);
+    TEST_FWK_RUN(preemption_test);
 }

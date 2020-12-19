@@ -22,6 +22,16 @@ DECLARE_PER_CPU(bool, resched_flag) = false;
 // The number of context switches performed by a cpu so far.
 DECLARE_PER_CPU(uint64_t, context_switches) = 0;
 
+// Preemption is implemented in a similar fashion as the Linux kernel: each cpu
+// has a counter preempt_count which indicate if the cpu (more specifically the
+// process currently running on the cpu) is preemptible or not. preempt_count >
+// 0 indicates that the proc is not preemptible, preempt_count == 0 indicates
+// that it is preemptible. Having interrupts disabled also implies that the proc
+// is _not_ preemptible.
+// The preempt_count is not meant to be accessed directly, but rather using
+// preempt_disable(), preempt_enable() and preemptible().
+DECLARE_PER_CPU(uint32_t, preempt_count) = 0;
+
 // The interrupt vector to use for scheduler ticks.
 #define SCHED_TICK_VECTOR   34
 
@@ -59,6 +69,7 @@ void sched_init(void) {
         cpu_var(resched_flag, cpu) = false;
         cpu_var(sched_running, cpu) = false;
         cpu_var(context_switches, cpu) = 0;
+        cpu_var(preempt_count, cpu) = 0;
     }
 
     // Initialize the actual scheduler.
@@ -79,20 +90,18 @@ static void sched_tick(struct interrupt_frame const * const frame) {
 
 // Arm the LAPIC timer to send a tick in SCHED_TICK_PERIOD ms.
 static void enable_sched_tick(void) {
-    ASSERT(!interrupts_enabled());
-
     // Start the scheduler timer to fire every SCHED_TICK_PERIOD ms.
     // This will enable interrupts.
     lapic_start_timer(SCHED_TICK_PERIOD, true, SCHED_TICK_VECTOR, sched_tick);
-    ASSERT(!interrupts_enabled());
 }
 
 void sched_start(void) {
-    cpu_set_interrupt_flag(false);
-
+    this_cpu_var(preempt_count) = 0;
     this_cpu_var(sched_running) = true;
 
     enable_sched_tick();
+    cpu_set_interrupt_flag(true);
+
     // Start running the first process we can.
     schedule();
 
@@ -163,9 +172,12 @@ void sched_put_prev_proc(struct proc * const prev) {
 void schedule(void) {
     ASSERT(SCHEDULER);
 
+    if (!preemptible()) {
+        return;
+    }
+
     bool const int_enabled = interrupts_enabled();
     cpu_set_interrupt_flag(false);
-
     if (curr_cpu_need_resched()) {
         struct proc * const curr = this_cpu_var(curr_proc);
         struct proc * const idle = this_cpu_var(idle_proc);
@@ -198,6 +210,61 @@ bool cpu_is_idle(uint8_t const cpu) {
     // There is a small race condition here if the target cpu is in the middle
     // of a context switch, but this is ok.
     return curr == idle;
+}
+
+void preempt_disable(void) {
+    // Accessing percpu variable in a preemptible context is not safe, therefore
+    // make sure to disable preemption but temporarily disabling interrupts.
+    bool const int_flag = interrupts_enabled();
+    cpu_set_interrupt_flag(false);
+
+    this_cpu_var(preempt_count)++;
+
+    // Reset interrupt flag as it was before this function.
+    cpu_set_interrupt_flag(int_flag);
+
+    // Make sure nothing crosses a call to preempt_disable().
+    cpu_mfence();
+}
+
+void preempt_enable(void) {
+    // Make sure nothing crosses a call to preempt_enable().
+    cpu_mfence();
+
+    // Accessing percpu variable in a preemptible context is not safe, therefore
+    // make sure to disable preemption but temporarily disabling interrupts.
+    bool const int_flag = interrupts_enabled();
+    cpu_set_interrupt_flag(false);
+
+    uint32_t const count = --this_cpu_var(preempt_count);
+
+    // Reset interrupt flag as it was before this function.
+    cpu_set_interrupt_flag(int_flag);
+
+    if (!count) {
+        // preempt_count == 0 indicate that the current process is preemptible.
+        // It may have been non-preemptible for a while, therefore do a round of
+        // scheduling.
+        schedule();
+    }
+}
+
+bool preemptible(void) {
+    // Accessing percpu variable in a preemptible context is not safe, therefore
+    // make sure to disable preemption but temporarily disabling interrupts.
+    bool const int_flag = interrupts_enabled();
+    cpu_set_interrupt_flag(false);
+
+    uint32_t const count = this_cpu_var(preempt_count);
+
+    // A process is interruptible iff:
+    //  - The preempt_count is 0
+    //  - Interrupts are disabled.
+    bool const res = !count && int_flag;
+
+    // Reset interrupt flag as it was before this function.
+    cpu_set_interrupt_flag(int_flag);
+    return res;
 }
 
 #include <sched.test>

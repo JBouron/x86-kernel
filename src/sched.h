@@ -82,5 +82,20 @@ void sched_resched(void);
 // @return: true if the cpu is idle, false otherwise.
 bool cpu_is_idle(uint8_t const cpu);
 
+// Disable preemption of the current process running on the current cpu. This
+// function can be called multiple times (even in nested interrupt) but
+// preemption will only be enabled back if preempt_enable() is called the exact
+// same number of times.
+void preempt_disable(void);
+
+// Try to enable preemption of the current process running on the current cpu.
+// Note that this function will not necessarily enable preemption, it will only
+// do so if it has been called the same number of times as preempt_disable().
+void preempt_enable(void);
+
+// Check if the current process on the current cpu is preemptible.
+// @return: true if it is preemptible, false otherwise.
+bool preemptible(void);
+
 // Execute scheduling tests.
 void sched_test(void);
