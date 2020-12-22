@@ -3,6 +3,7 @@
 #include <acpi.h>
 #include <kmalloc.h>
 #include <memory.h>
+#include <sched.h>
 
 void allocate_aps_percpu_areas(void) {
     uint8_t const ncpus = acpi_get_number_cpus();
@@ -66,6 +67,21 @@ void init_bsp_boot_percpu(void) {
 
     extern uint8_t stack_top;
     this_cpu_var(kernel_stack) = &stack_top;
+}
+
+bool check_percpu_prerequisites(char const * const var,
+                                char const * const func,
+                                char const * const file,
+                                uint32_t const line) {
+    ASSERT(cpu_read_gs().value);
+    if (preemptible()) {
+        preempt_disable();
+        char const * const msg =
+            "Access to percpu var \"%s\" while being preemptible in %s (%s:%u)";
+        PANIC(msg, var, func, file, line);
+        __UNREACHABLE__;
+    }
+    return true;
 }
 
 #include <percpu.test>

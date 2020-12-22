@@ -56,11 +56,31 @@ void *_read_void_ptr_at_offset(uint32_t const offset);
 
 // Accessor macros:
 
+// Check that all prerequisites are met before accessing a percpu variable using
+// the this_cpu_var macro. The preriquisites are:
+//  - Preemption is disabled.
+//  - GS is loaded with a valid segment.
+// If any preriquisite is missing, this function will PANIC with a message
+// describing which variable is accessed and where.
+// @param var: The name of the variable being accessed.
+// @param func: The name of the function in which the access takes place.
+// @param func: The name of the file in which the access takes place.
+// @param line: The line number where the access takes place in the file above.
+// @return: On success, return true, on failure this function will PANIC and
+// therefore not return.
+bool check_percpu_prerequisites(char const * const var,
+                                char const * const func,
+                                char const * const file,
+                                uint32_t const line);
+
 // Get the value of this cpu's variable `var`. 
 // @param var: The name of the variable, as declared using DECLARE_PER_CPU.
 // Note: this macro can be used as a left and right value, to write and read
 // respectively.
-#define this_cpu_var(var) (*(_THIS_CPU_VAR_PTR(var)))
+#define this_cpu_var(var)                                               \
+    (*(check_percpu_prerequisites(#var, __func__, __FILE__, __LINE__) ? \
+       (_THIS_CPU_VAR_PTR(var)) :                                       \
+       ((typeof(_PERCPU_NAME(var))*)NULL)))
 
 // Access a remote cpu's variable.
 // @param var: The name of the variable, as declared using DECLARE_PER_CPU.

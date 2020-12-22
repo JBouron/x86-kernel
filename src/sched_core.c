@@ -237,11 +237,12 @@ void preempt_enable(void) {
     cpu_set_interrupt_flag(false);
 
     uint32_t const count = --this_cpu_var(preempt_count);
+    bool const sched_running = this_cpu_var(sched_running);
 
     // Reset interrupt flag as it was before this function.
     cpu_set_interrupt_flag(int_flag);
 
-    if (!count) {
+    if (!count && sched_running) {
         // preempt_count == 0 indicate that the current process is preemptible.
         // It may have been non-preemptible for a while, therefore do a round of
         // scheduling.
@@ -249,17 +250,29 @@ void preempt_enable(void) {
     }
 }
 
+// Get the value of this cpu's variable `var`. This macro will NOT CHECK THE
+// PRERIQUISITES. This macro is meant to be used by the preemptible() function
+// ONLY.
+// @param var: The name of the variable, as declared using DECLARE_PER_CPU.
+#define this_cpu_var_unsafe(var) (*(_THIS_CPU_VAR_PTR(var)))
+
 bool preemptible(void) {
     // Accessing percpu variable in a preemptible context is not safe, therefore
     // make sure to disable preemption but temporarily disabling interrupts.
     bool const int_flag = interrupts_enabled();
     cpu_set_interrupt_flag(false);
 
-    uint32_t const count = this_cpu_var(preempt_count);
+    // This function is called by check_percpu_prerequesites() which will be
+    // called by every access of the current cpu's percpu variable (through
+    // this_cpu_var). Hence we cannot use this_cpu_var here or we will end in an
+    // infinte loop. Instead use the ""unsafe"" variant which will skip the call
+    // to check_percpu_prerequesites(). This is ok because preemption has been
+    // disabled by disabling the interrupts.
+    uint32_t const count = this_cpu_var_unsafe(preempt_count);
 
-    // A process is interruptible iff:
+    // A process is preemptible iff:
     //  - The preempt_count is 0
-    //  - Interrupts are disabled.
+    //  - Interrupts are enabled.
     bool const res = !count && int_flag;
 
     // Reset interrupt flag as it was before this function.
