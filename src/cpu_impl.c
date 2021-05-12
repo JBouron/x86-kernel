@@ -1,6 +1,7 @@
 #include <cpu.h>
 #include <percpu.h>
 #include <debug.h>
+#include <sched.h>
 
 // Those functions read the raw value of the segment registers.
 extern uint16_t __cpu_read_cs(void);
@@ -58,7 +59,10 @@ uint8_t cpu_id(void) {
     if (cpu_read_gs().value) {
         // If the GS register is non null then we assume that it points to the
         // percpu segment of this cpu.
-        return this_cpu_var(cpu_id);
+        preempt_disable();
+        uint8_t const cpu =  this_cpu_var(cpu_id);
+        preempt_enable();
+        return cpu;
     } else {
         // We are most likely early at boot and percpu segments were not
         // initialized yet. Use the CPUID instruction to get the ID.

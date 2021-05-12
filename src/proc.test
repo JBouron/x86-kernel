@@ -203,8 +203,10 @@ static void kernel_process_code(void * arg) {
     success &= cpu_read_gs().value == kernel_process_test_expected_gs;
 
     // Try to access the cpu vars.
+    preempt_disable();
     success &= this_cpu_var(kernel_process_test_data) ==
         kernel_process_test_data_expected;
+    preempt_enable();
 
     // Try to execute some privileged instructions.
     cpu_set_interrupt_flag(false);
@@ -727,7 +729,7 @@ static struct proc **context_switch_test_procs = NULL;
 // context switch everytime an interrupt is raised.
 static void cs_test_handler(struct interrupt_frame const * const frame) {
     // Make sure the current process is the one expected.
-    struct proc const * const curr = this_cpu_var(curr_proc);
+    struct proc const * const curr = get_curr_proc();
     uint32_t const curr_exp_idx = context_switch_test_num_ints %
         context_switch_test_num_procs;
     ASSERT(curr == context_switch_test_procs[curr_exp_idx]);

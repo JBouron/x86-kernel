@@ -6,7 +6,7 @@
 #include <spinlock.h>
 #include <percpu.h>
 #include <ipm.h>
-#include <proc.h>
+#include <sched.h>
 
 // Interrupt gate descriptor.
 union interrupt_descriptor_t {
@@ -129,6 +129,23 @@ static void dump_registers(struct interrupt_frame const * const frame) {
     LOG("EFER = %X\n", efer);
 }
 
+// Get the int_callback_t registered for a given vector.
+// @param vector: The vector to get the callback for.
+// @return: If available, the int_callback_t registered for vector `vector`
+// otherwise NULL.
+static int_callback_t get_callback(uint8_t const vector) {
+    // Check for local callback first.
+    preempt_disable();
+    int_callback_t const local_callback = this_cpu_var(local_callbacks)[vector];
+    preempt_enable();
+
+    if (local_callback) {
+        return local_callback;
+    } else {
+        return GLOBAL_CALLBACKS[vector];
+    }
+}
+
 // The generic interrupt handler. Eventually all the interrupts call the generic
 // handler.
 // @param frame: Information about the interrupt.
@@ -153,14 +170,7 @@ bool generic_interrupt_handler(struct interrupt_frame const * const frame) {
 
     uint8_t const vector = frame->vector;
 
-    // Check for local callback first.
-    int_callback_t callback = this_cpu_var(local_callbacks)[vector];
-
-    // Check for global callback.
-    if (!callback) {
-        callback = GLOBAL_CALLBACKS[vector];
-    }
-
+    int_callback_t const callback = get_callback(vector);
     if (callback) {
         callback(frame);
     } else {
@@ -302,17 +312,21 @@ static void register_callback(uint8_t const vector,
 // @param global: If set, remove the global callback registered for `vector`,
 // otherwise remove the local callback.
 static void delete_callback(uint8_t const vector, bool const global) {
-    int_callback_t * const callbacks = global ?
-        GLOBAL_CALLBACKS : this_cpu_var(local_callbacks);
-
     if (global) {
         spinlock_lock(&GLOBAL_CALLBACKS_LOCK);
+    } else {
+        preempt_disable();
     }
+
+    int_callback_t * const callbacks = global ?
+        GLOBAL_CALLBACKS : this_cpu_var(local_callbacks);
 
     callbacks[vector] = NULL;
 
     if (global) {
         spinlock_unlock(&GLOBAL_CALLBACKS_LOCK);
+    } else {
+        preempt_disable();
     }
 }
 

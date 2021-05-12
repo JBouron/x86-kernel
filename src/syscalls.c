@@ -56,7 +56,7 @@ static reg_t syscall_dispatch(struct syscall_args const * const args) {
         // NULL pointer (in the case of the test syscall for instance).
         PANIC("Unimplemented syscall number: %u\n", syscall_nr);
     }
-    struct proc * const curr = this_cpu_var(curr_proc);
+    struct proc * const curr = get_curr_proc();
     uint32_t const debug_n = curr->_debug_syscall_nr;
 
     // Do we need to debug that syscall ?
@@ -111,7 +111,7 @@ static void syscall_revert_init(void) {
 void do_exit(uint8_t const exit_code) {
     // For now, do_exit is trivial, we only set the state of the process to
     // dead. The exit code is stored, but not used yet.
-    struct proc * const curr = this_cpu_var(curr_proc);
+    struct proc * const curr = get_curr_proc();
     LOG("[%u] Process %p is dead\n", cpu_id(), curr);
     curr->exit_code = exit_code;
     curr->state_flags |= PROC_DEAD;
@@ -127,7 +127,7 @@ void do_exit(uint8_t const exit_code) {
 fd_t do_open(pathname_t const u_path) {
     pathname_t const path = memdup(u_path, strlen(u_path) + 1);
     TODO_PROPAGATE_ERROR(!path);
-    struct proc * const curr = this_cpu_var(curr_proc);
+    struct proc * const curr = get_curr_proc();
 
     // Open the file.
     struct file * const file = vfs_open(path);
@@ -156,7 +156,7 @@ fd_t do_open(pathname_t const u_path) {
 }
 
 size_t do_read(fd_t const fd, uint8_t * const buf, size_t const len) {
-    struct proc * const curr = this_cpu_var(curr_proc);
+    struct proc * const curr = get_curr_proc();
 
     // Get the file from the file table.
     struct file_table_entry * const op_file = curr->file_table[fd];
@@ -171,7 +171,7 @@ size_t do_read(fd_t const fd, uint8_t * const buf, size_t const len) {
 }
 
 size_t do_write(fd_t const fd, uint8_t const * const buf, size_t const len) {
-    struct proc * const curr = this_cpu_var(curr_proc);
+    struct proc * const curr = get_curr_proc();
 
     // Get the file from the file table.
     struct file_table_entry * const op_file = curr->file_table[fd];
@@ -190,12 +190,12 @@ size_t do_write(fd_t const fd, uint8_t const * const buf, size_t const len) {
 }
 
 pid_t do_get_pid(void) {
-    struct proc * const curr = this_cpu_var(curr_proc);
+    struct proc * const curr = get_curr_proc();
     return curr->pid;
 }
 
 void do_klog(char const * const message) {
-    struct proc * const curr = this_cpu_var(curr_proc);
+    struct proc * const curr = get_curr_proc();
     uint64_t const tsc = read_tsc();
     pid_t const pid = curr->pid;
     uint8_t const cpu = cpu_id();

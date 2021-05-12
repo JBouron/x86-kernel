@@ -69,7 +69,17 @@ static inline void exec_proc(void * proc) {
     // We need to reset the curr_proc to NULL, otherwise, _schedule() will
     // wrongly think the current stack is the kernel stack of a process (which
     // does not exist anymore).
-    this_cpu_var(curr_proc) = NULL;
+    set_curr_proc(NULL);
+
+    // Reset the preempt count of the current cpu. At this point the cpu becomes
+    // preemptible.
+    preempt_reset();
+
+    // Preemption needs to be disable when performing a context switch.
+    // FIXME: With the current state of do_context_switch, it is impossible to
+    // enable preemption after a context switch, unless the process explicitely
+    // does it. For now leave preemption enabled, this should be fine for now.
+    //preempt_disable();
 
     switch_to_proc(proc);
 

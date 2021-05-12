@@ -85,7 +85,9 @@ bool sched_running_on_cpu(void) {
 // @param frame: Unused, but mandatory to be used as an interrupt callback.
 static void sched_tick(struct interrupt_frame const * const frame) {
     ASSERT(SCHEDULER);
+    preempt_disable();
     SCHEDULER->tick();
+    preempt_enable();
 }
 
 // Arm the LAPIC timer to send a tick in SCHED_TICK_PERIOD ms.
@@ -96,8 +98,10 @@ static void enable_sched_tick(void) {
 }
 
 void sched_start(void) {
-    this_cpu_var(preempt_count) = 0;
     this_cpu_var(sched_running) = true;
+
+    // Do this after setting the other vars to avoid issues.
+    this_cpu_var(preempt_count) = 0;
 
     enable_sched_tick();
     cpu_set_interrupt_flag(true);
@@ -114,12 +118,16 @@ void sched_enqueue_proc(struct proc * const proc) {
     ASSERT(SCHEDULER);
     ASSERT(proc_is_runnable(proc));
 
+    preempt_disable();
     SCHEDULER->enqueue_proc(proc);
+    preempt_enable();
 }
 
 void sched_dequeue_proc(struct proc * const proc) {
     ASSERT(SCHEDULER);
+    preempt_disable();
     SCHEDULER->dequeue_proc(proc);
+    preempt_enable();
 }
 
 void sched_update_curr(void) {
@@ -128,7 +136,7 @@ void sched_update_curr(void) {
     bool const int_enabled = interrupts_enabled();
     cpu_set_interrupt_flag(false);
 
-    struct proc * const curr = this_cpu_var(curr_proc);
+    struct proc * const curr = get_curr_proc();
     if (!proc_is_runnable(curr)) {
         // The current proc is not runnable anymore, we should set the
         // resched_flag so that the next call to schedule() will choose another
@@ -150,7 +158,7 @@ static bool curr_cpu_need_resched(void) {
     //  - If this cpu was idle, check for a new proc anyway. This avoids bugs in
     //    which a cpu has processes waiting in its runqueue but never wakes up.
     //  - If the current process exited (is dead).
-    struct proc * const curr = this_cpu_var(curr_proc);
+    struct proc * const curr = get_curr_proc();
     return !curr || cpu_is_idle(cpu_id()) || this_cpu_var(resched_flag) ||
         !proc_is_runnable(curr);
 }
@@ -163,10 +171,12 @@ static bool curr_cpu_need_resched(void) {
 // because its usage is strictly limited to the resume_proc_exec assembly
 // routine.
 void sched_put_prev_proc(struct proc * const prev) {
+    preempt_disable();
     struct proc * const idle = this_cpu_var(idle_proc);
     if (SCHEDULER && prev && prev != idle && proc_is_runnable(prev)) {
         SCHEDULER->put_prev_proc(prev);
     }
+    preempt_enable();
 }
 
 void schedule(void) {
@@ -179,7 +189,7 @@ void schedule(void) {
     bool const int_enabled = interrupts_enabled();
     cpu_set_interrupt_flag(false);
     if (curr_cpu_need_resched()) {
-        struct proc * const curr = this_cpu_var(curr_proc);
+        struct proc * const curr = get_curr_proc();
         struct proc * const idle = this_cpu_var(idle_proc);
 
         // Pick a new process to run. Default to idle_proc.
@@ -200,7 +210,9 @@ void schedule(void) {
 }
 
 void sched_resched(void) {
+    preempt_disable();
     this_cpu_var(resched_flag) = true;
+    preempt_enable();
 }
 
 bool cpu_is_idle(uint8_t const cpu) {
@@ -236,6 +248,7 @@ void preempt_enable(void) {
     bool const int_flag = interrupts_enabled();
     cpu_set_interrupt_flag(false);
 
+    ASSERT(this_cpu_var(preempt_count));
     uint32_t const count = --this_cpu_var(preempt_count);
     bool const sched_running = this_cpu_var(sched_running);
 
@@ -278,6 +291,25 @@ bool preemptible(void) {
     // Reset interrupt flag as it was before this function.
     cpu_set_interrupt_flag(int_flag);
     return res;
+}
+
+void preempt_reset(void) {
+    this_cpu_var_unsafe(preempt_count) = 0;
+}
+
+#undef this_cpu_var_unsafe
+
+struct proc *get_curr_proc(void) {
+    preempt_disable();
+    struct proc * const curr = this_cpu_var(curr_proc);
+    preempt_enable();
+    return curr;
+}
+
+void set_curr_proc(struct proc * const proc) {
+    preempt_disable();
+    this_cpu_var(curr_proc) = proc;
+    preempt_enable();
 }
 
 #include <sched.test>

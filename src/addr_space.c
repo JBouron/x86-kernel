@@ -5,6 +5,7 @@
 #include <paging.h>
 #include <acpi.h>
 #include <error.h>
+#include <sched.h>
 
 // The kernel's address space needs to be statically allocated since it will be
 // used even before dynamic allocation is setup.
@@ -19,7 +20,10 @@ struct addr_space KERNEL_ADDR_SPACE = {
 DECLARE_PER_CPU(struct addr_space *, curr_addr_space);
 
 struct addr_space *get_curr_addr_space(void) {
-    return this_cpu_var(curr_addr_space);
+    preempt_disable();
+    struct addr_space * const addr_space = this_cpu_var(curr_addr_space);
+    preempt_enable();
+    return addr_space;
 }
 
 void switch_to_addr_space(struct addr_space * const addr_space) {

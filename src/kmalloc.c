@@ -602,8 +602,8 @@ static bool KMALLOC_OOM_SIMULATION = false;
 // @return: The virtual address of the allocated memory.
 void * kmalloc(size_t const size) {
     ASSERT(cpu_paging_enabled());
-    this_cpu_var(kmalloc_nest_level) ++;
     spinlock_lock(&KMALLOC_LOCK);
+    this_cpu_var(kmalloc_nest_level) ++;
 
     if (!KMALLOC_INITIALIZED) {
         // Initialize the group list if it wasn't done already.

@@ -3,11 +3,14 @@
 
 //void spinlock_lock(spinlock_t * const lock, bool const irq_enabled);
 ASM_FUNC_DEF(_spinlock_lock):
+    push    ebp
+    mov     ebp, esp
+
     push    ebx
     // EDX = lock.
-    mov     edx, [esp + 0x8]
+    mov     edx, [ebp + 0x8]
     // EBX = irq_enabled.
-    mov     ebx, [esp + 0xC]
+    mov     ebx, [ebp + 0xC]
 
     // Quick and dirty implementation of test and cmpxchg. If requested
     // interrupts will be enabled between two tries while executing the pause
@@ -38,10 +41,14 @@ test:
     jnz     backoff
     // The lock has been acquired.
     pop     ebx
+    leave
     ret
 
 //void spinlock_unlock(spinlock_t * const lock);
 ASM_FUNC_DEF(_spinlock_unlock):
-    mov     edx, [esp + 0x4]
+    push    ebp
+    mov     ebp, esp
+    mov     edx, [ebp + 0x8]
     mov     BYTE PTR [edx], 0
+    leave
     ret

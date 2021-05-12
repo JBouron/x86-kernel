@@ -271,20 +271,27 @@ uint32_t const KSTACK_BOTTOM_OFFSET = offsetof(struct proc, kernel_stack) +
 extern void do_context_switch(struct proc * prev, struct proc * next);
 
 void switch_to_proc(struct proc * const proc) {
-    struct proc * const prev = this_cpu_var(curr_proc);
+    // FIXME: Ideally we should assert that preemption is disabled at this
+    // point. However, because this function is used as is in some tests to
+    // forcely run a process (e.g. without calling schedule()), we cannot.
+    struct proc * const prev = get_curr_proc();
 
     proc->cpu = cpu_id();
 
     // Switch to the next process' address space and update this cpu's curr_proc
     // variable. This won't be done by do_context_switch()!
-    this_cpu_var(curr_proc) = proc;
+    set_curr_proc(proc);
     switch_to_addr_space(proc->addr_space);
 
     // Change the kernel stack of the TSS of this cpu. This is only required for
     // user processes since kernel processes will never have to switch privilege
     // level.
     if (!proc->is_kernel_proc) {
+        // FIXME: This is related to the FIXME just above. We shouldn't need to
+        // disable/enable preemption here.
+        preempt_disable();
         change_tss_esp0(proc->kernel_stack.bottom);
+        preempt_enable();
     }
 
     // Perform the actual context switch.

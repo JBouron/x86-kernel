@@ -1,6 +1,7 @@
 #include <error.h>
 #include <debug.h>
 #include <kmalloc.h>
+#include <sched.h>
 
 // The linked list of error descs.
 DECLARE_PER_CPU(struct list_node, error_list);
@@ -35,9 +36,11 @@ static void reset_statically_allocated_error_desc(void) {
 
 // Initialize the error mechanism on the current cpu.
 static void init_error_mechanism(void) {
+    preempt_disable();
     list_init(&this_cpu_var(error_list));
     reset_statically_allocated_error_desc();
     this_cpu_var(error_list_initialized) = true;
+    preempt_enable();
 }
 
 // Get the address of a free statically allocated struct error_desc for this

@@ -97,5 +97,19 @@ void preempt_enable(void);
 // @return: true if it is preemptible, false otherwise.
 bool preemptible(void);
 
+// Reset the preempt count of the current cpu. The cpu then becomes preemptible.
+void preempt_reset(void);
+
+// Get the current process running on the current cpu.
+// @return: The process currently running on this cpu.
+struct proc *get_curr_proc(void);
+
+// Set the current process pointer of this cpu.
+// @param proc: The value to use as current process.
+// NOTE: This function is dangerous and only used in very peculiar scenarios.
+// The only reason this function is exported in this header is because it is
+// used both by the scheduling code and proc.test.
+void set_curr_proc(struct proc * const proc);
+
 // Execute scheduling tests.
 void sched_test(void);

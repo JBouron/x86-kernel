@@ -101,7 +101,7 @@ static bool sched_callbacks_test(void) {
     ct_last_proc = NULL;
 
     // We need to mock the fact that the cpu is running the process.
-    this_cpu_var(curr_proc) = proc;
+    set_curr_proc(proc);
     sched_update_curr();
     TEST_ASSERT(ct_last_callback == UPDATE_CURR);
     ct_last_callback = NONE;
@@ -128,14 +128,15 @@ static bool sched_callbacks_test(void) {
 // curr_cpu_need_resched() test.
 static bool curr_cpu_need_resched_test(void) {
     sched_init();
+    preempt_disable();
 
     // Test case 1: The cpu does not have a curr_proc. This is the first proc to
     // be executed.
-    this_cpu_var(curr_proc) = NULL;
+    set_curr_proc(NULL);
     TEST_ASSERT(curr_cpu_need_resched());
 
     // Test case 2: The cpu is idle, that is its current proc is its idle proc.
-    this_cpu_var(curr_proc) = this_cpu_var(idle_proc);
+    set_curr_proc(this_cpu_var(idle_proc));
     TEST_ASSERT(curr_cpu_need_resched());
 
     // Test case 3: The resched_flag is set for the current cpu.
@@ -148,7 +149,7 @@ static bool curr_cpu_need_resched_test(void) {
     // Curr proc is not runnable, but is not dead either. This particular
     // scenario is not exactly realistic since no code is in the process, but
     // all we need is state_flags not being runnable and not being dead.
-    this_cpu_var(curr_proc) = proc;
+    set_curr_proc(proc);
     TEST_ASSERT(proc->state_flags == PROC_WAITING_EIP);
     TEST_ASSERT(curr_cpu_need_resched());
 
@@ -165,6 +166,7 @@ static bool curr_cpu_need_resched_test(void) {
 
     sched_cancel_init();
     delete_proc(proc);
+    preempt_enable();
     return true;
 }
 
@@ -224,7 +226,7 @@ extern void save_registers(struct register_save_area *, void*);
 // The 0x80 interrupt handler.
 // @param frame: unused.
 static void st_int_handler(struct interrupt_frame const * const frame) {
-    struct proc * const curr = this_cpu_var(curr_proc);
+    struct proc * const curr = get_curr_proc();
 
     st_num_ints ++;
 
@@ -234,7 +236,9 @@ static void st_int_handler(struct interrupt_frame const * const frame) {
         lock_up();
     }
 
+    preempt_disable();
     st_last_context_switches = this_cpu_var(context_switches);
+    preempt_enable();
 
     // Make sure the next call to schedule() performs a context switch.
     sched_resched();
@@ -246,6 +250,7 @@ static void st_int_handler(struct interrupt_frame const * const frame) {
     struct register_save_area regs_before_schedule;
     save_registers(&regs_before_schedule, (void*)0xBEEFBABE);
 
+    ASSERT(preemptible());
     schedule();
 
     // Execution resumed after a while, read the current values of the registers
@@ -260,14 +265,16 @@ static void st_int_handler(struct interrupt_frame const * const frame) {
     ASSERT(regs_after_schedule.esp == regs_before_schedule.esp);
 
     // Make sure that the last proc calling schedule() let to a context switch.
+    preempt_disable();
     ASSERT(this_cpu_var(context_switches) == st_last_context_switches + 1);
+    preempt_enable();
 
     // The last process MUST be the previous one in the array st_procs (wrap
     // around if curr is proc 0).
     ASSERT(st_last_proc == st_procs[(st_num_ints - 1) % st_num_procs]);
 
     // From our point of view, nothing should have changed.
-    ASSERT(this_cpu_var(curr_proc) == curr);
+    ASSERT(get_curr_proc() == curr);
     ASSERT(curr == st_procs[st_num_ints % st_num_procs]);
 }
 
@@ -275,7 +282,7 @@ static void st_int_handler(struct interrupt_frame const * const frame) {
 // This function makes sure that the interleaving of processes looks as follows:
 //  0 1 2 3 ... N-2 N-1 0 1 2 ...
 static struct proc *st_sched_pick_next_proc(void) {
-    struct proc * const prev = this_cpu_var(curr_proc);
+    struct proc * const prev = get_curr_proc();
 
     // The previous process (which is the current process at this point) must be
     // the proc at index st_num_ints - 1.
@@ -315,12 +322,14 @@ static struct sched st_sched = {
 // Start executing the first process of st_procs.
 static void st_start_exec(void * arg) {
     // Start the execution of the first process in st_procs.
+    preempt_reset();
     switch_to_proc(st_procs[0]);
     __UNREACHABLE__;
 }
 
 // The actual test.
 static bool schedule_test(void) {
+    sched_init();
     struct sched * const old_sched = SCHEDULER;
     SCHEDULER = &st_sched;
 
@@ -349,6 +358,7 @@ static bool schedule_test(void) {
 
     interrupt_delete_global_callback(SYSCALL_VECTOR);
     SCHEDULER = old_sched;
+    sched_cancel_init();
     return true;
 }
 
@@ -388,6 +398,10 @@ static struct sched srt_sched = {
 
 // Call schedule on the current cpu. This function is meant to be used remotely.
 static void srt_remote_schedule(void * unused) {
+    // We need to enable preemption because we are under process_message from
+    // the IPM module which processes messages with preemption disabled.
+    preempt_reset();
+
     schedule();
     // The call to schedule is not expected to return, this is because the cpu
     // will be reset between each test case. This assert also makes sure that a
@@ -403,14 +417,14 @@ static void srt_remote_start(void * arg) {
     cpu_set_interrupt_flag(false);
     struct proc * const proc = arg;
 
-    this_cpu_var(curr_proc) = NULL;
+    set_curr_proc(NULL);
 
     if (proc && proc_is_runnable(proc)) {
         ASSERT(proc == this_cpu_var(idle_proc));
         switch_to_proc(arg);
     } else {
         LOG("Proc not runnable\n");
-        this_cpu_var(curr_proc) = proc;
+        set_curr_proc(proc);
     }
 }
 
@@ -512,10 +526,14 @@ static bool sched_update_curr_test(void) {
     struct sched * const old_sched = SCHEDULER;
     SCHEDULER = &suct_sched;
 
+    // We don't need preemption during this test and we are going to access a
+    // log of cpu_vars.
+    preempt_disable();
+
     // Test case 1: The current proc is runnable. sched_update_curr() is
     // expected to call the update_curr callback. No rescheduling is requested.
     struct proc * const proc = create_kproc(NULL, NULL);
-    this_cpu_var(curr_proc) = proc;
+    set_curr_proc(proc);
     suct_update_curr_called = false;
     sched_update_curr();
     TEST_ASSERT(suct_update_curr_called);
@@ -524,7 +542,7 @@ static bool sched_update_curr_test(void) {
     // Test case 2: The current process is not runnable, sched_update_curr()
     // should not call update_curr and instead should set the resched_flag.
     proc->state_flags = PROC_WAITING_EIP;
-    this_cpu_var(curr_proc) = proc;
+    set_curr_proc(proc);
     this_cpu_var(resched_flag) = false;
 
     // Case 2.1: state_flags == PROC_WAITING_EIP.
@@ -545,7 +563,9 @@ static bool sched_update_curr_test(void) {
     SCHEDULER = old_sched;
     delete_proc(proc);
     this_cpu_var(resched_flag) = false;
-    this_cpu_var(curr_proc) = NULL;
+    set_curr_proc(NULL);
+
+    preempt_enable();
     return true;
 }
 
@@ -661,7 +681,9 @@ static bool schedule_stress_test(void) {
     sst_proc = create_kproc(sst_proc_code, NULL);
 
     // Start the execution on all cores simulteanously.
-    broadcast_remote_call((void*)schedule, NULL, false);
+    // FIXME: Use srt_remote_schedule instead of schedule here so that the
+    // preemption count is reset prior to calling schedule.
+    broadcast_remote_call((void*)srt_remote_schedule, NULL, false);
 
     // Wait for all the migrations to occur.
     TEST_WAIT_FOR(sst_num_migrations >= sst_max_num_migrations, 5000);
@@ -715,7 +737,7 @@ static void pt_proc_code(void * unused) {
     // Get a pointer on self, this will be used to kill ourselves at the end of
     // the test.
     preempt_disable();
-    struct proc * const self = this_cpu_var(curr_proc);
+    struct proc * const self = get_curr_proc();
     preempt_enable();
 
     uint32_t const max_ite = 32;
@@ -734,7 +756,7 @@ static void pt_proc_code(void * unused) {
         cs_before = this_cpu_var(context_switches);
 
         // Sanity check that the percpu variables are correct.
-        ASSERT(cpu_before == this_cpu_var(curr_proc)->cpu);
+        ASSERT(cpu_before == get_curr_proc()->cpu);
         ASSERT(cpu_before == cpu_apic_id());
 
         // Try to resched.
@@ -790,7 +812,7 @@ static void pt_proc_code(void * unused) {
         cs_before = this_cpu_var(context_switches);
 
         // Sanity check that the percpu variables are correct.
-        ASSERT(cpu_before == this_cpu_var(curr_proc)->cpu);
+        ASSERT(cpu_before == get_curr_proc()->cpu);
         ASSERT(cpu_before == cpu_apic_id());
 
         // Try to resched. Not possible because the cpu is still
@@ -910,6 +932,13 @@ static bool preemption_test(void) {
 
     // Wait for all the processes to succeed.
     TEST_WAIT_FOR((uint32_t)atomic_read(&pt_procs_done) == pt_num_procs, 10000);
+
+    // Stop the scheduler by setting sched_running to false for each APs. We
+    // can't use a broadcast_remote_call() because APs will eventually call
+    // preempt_enable() which will call schedule.
+    for (uint8_t cpu = 0; cpu < acpi_get_number_cpus(); ++cpu) {
+        cpu_var(sched_running, cpu) = false;
+    }
 
     // We need to stop the lapic timer on remote cpus before resetting them.
     // Otherwise they could receive an unexpected timer interrupt after the

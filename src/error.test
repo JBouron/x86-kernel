@@ -50,6 +50,7 @@ static bool get_static_error_desc_test(void) {
 // Check that errors are appended in order in the linked list and the
 // information is correct.
 static bool set_error_test(void) {
+    preempt_disable();
     init_error_mechanism();
 
     uint32_t line_numbers[4];
@@ -84,10 +85,12 @@ static bool set_error_test(void) {
     CLEAR_ERROR();
     TEST_ASSERT(list_size(error_ll_head) == 0);
 
+    preempt_enable();
     return true;
 }
 
 static bool set_error_under_kmalloc_test(void) {
+    preempt_disable();
     cpu_set_interrupt_flag(false);
 
     init_error_mechanism();
@@ -132,11 +135,13 @@ static bool set_error_under_kmalloc_test(void) {
     this_cpu_var(kmalloc_nest_level) --;
     cpu_set_interrupt_flag(true);
 
+    preempt_enable();
     return true;
 }
 
 // Check that using ENONE as error code is mirroring the previous error code.
 static bool set_error_enone_test(void) {
+    preempt_disable();
     init_error_mechanism();
 
     uint32_t line_numbers[4];
@@ -171,6 +176,7 @@ static bool set_error_enone_test(void) {
     CLEAR_ERROR();
     TEST_ASSERT(list_size(error_ll_head) == 0);
 
+    preempt_enable();
     return true;
 }
 

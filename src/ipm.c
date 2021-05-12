@@ -5,6 +5,7 @@
 #include <debug.h>
 #include <kmalloc.h>
 #include <memory.h>
+#include <sched.h>
 
 // This structure contains all the state necesasry to execute a remote function.
 // This represents the payload of an IPM message with tag REMOTE_CALL.
@@ -171,7 +172,9 @@ static void ipm_handler(struct interrupt_frame const * const frame) {
     ASSERT(frame);
     // Jump to the process_messages function to processes any message(s) in the
     // message queue.
+    preempt_disable();
     process_messages();
+    preempt_enable();
 }
 
 void init_ipm(void) {
