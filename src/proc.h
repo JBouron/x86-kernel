@@ -70,12 +70,6 @@ struct proc {
     // paused the execution of this process.
     struct register_save_area registers;
 
-    // Indicate the nesting level of the interrupt for this process.
-    // 0  = process is running.
-    // 1  = process execution has been interrupted, process now in kernel mode.
-    // >1 = process was interrupted N-1 times while in kernel.
-    uint32_t interrupt_nest_level;
-
     // The stack used by the process while operating in user mode. Note that
     // kernel proceses do not use a user stack.
     struct stack user_stack;
