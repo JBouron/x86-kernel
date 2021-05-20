@@ -376,7 +376,7 @@ static void set_registers_for_test(struct proc * const proc) {
 // Run the test for a certain ring.
 // @param ring: The ring of the process to create and execute.
 // @return: true if the test is successful, false otherwise.
-static bool switch_to_proc_test(uint8_t const ring) {
+static bool switch_to_proc_test_ring3(void) {
     // This test runs as follows:
     //  1. The process is created.
     //  2. The process' registers (saved into the struct proc) are set to some
@@ -397,7 +397,7 @@ static bool switch_to_proc_test(uint8_t const ring) {
     // the `flag` field.
     extern void switch_to_proc_test_routine(void);
 
-    struct proc * const p = create_test_proc(ring, switch_to_proc_test_routine);
+    struct proc * const p = create_test_proc(3, switch_to_proc_test_routine);
 
     // The cpu on which the process will run.
     uint8_t const cpu = TEST_TARGET_CPU(0);
@@ -426,23 +426,6 @@ static bool switch_to_proc_test(uint8_t const ring) {
     struct register_save_area * const exp = &p->registers;
     struct register_save_area const * const curr = &data->registers;
 
-    if (p->is_kernel_proc) {
-        // For kernel processes, the GS is set to the percpu segment of the cpu
-        // running them.
-        union segment_selector_t target_gs;
-        exec_remote_call(cpu, remote_read_gs, &target_gs, true);
-
-        // Since the GS is forced (i.e. not restored) we expect it to differ
-        // from the expected values.
-        TEST_ASSERT(exp->gs != curr->gs);
-        // The GS must be the GS of the remote cpu.
-        TEST_ASSERT(curr->gs == target_gs.value);
-
-        // Overwrite the exp so that we can use memeq to compare the other
-        // values.
-        exp->gs = curr->gs;
-    }
-
     bool const same = memeq(exp, curr, sizeof(*exp));
     LOG("Comparison = %d\n", same);
 
@@ -451,17 +434,6 @@ static bool switch_to_proc_test(uint8_t const ring) {
     init_aps();
     delete_proc(p);
     return same;
-}
-
-static bool switch_to_proc_test_ring0(void) {
-    // FIXME: Disabled for now as switch_to_proc_test() needs to pass data onto
-    // the process' stack. This is not possible with kernel processes since 
-    return false;
-    return switch_to_proc_test(0);
-}
-
-static bool switch_to_proc_test_ring3(void) {
-    return switch_to_proc_test(3);
 }
 
 // =============================================================================
@@ -522,7 +494,7 @@ static void int_reg_save_handler(struct interrupt_frame const * const frame) {
 // ring.
 // @param ring: The ring to use for the process.
 // @return: true on sucess, false otherwise.
-static bool interrupt_reg_save(uint8_t const ring) {
+static bool interrupt_reg_save_test_ring3(void) {
     // i.  Execute a int 0x80.
     // ii. After returning from the interrupt save all the registers into the
     //     struct proc_test_data present on the stack and set its flag to 1.
@@ -534,7 +506,7 @@ static bool interrupt_reg_save(uint8_t const ring) {
 
     interrupt_register_global_callback(SYSCALL_VECTOR, int_reg_save_handler);
 
-    proc = create_test_proc(ring, interrupt_reg_save_routine);
+    proc = create_test_proc(3, interrupt_reg_save_routine);
 
     int_frame_has_correct_regs = false;
     // Compute the expected EIP to see within the interrupt handler.
@@ -575,23 +547,6 @@ static bool interrupt_reg_save(uint8_t const ring) {
     struct register_save_area * const exp = &proc->registers;
     struct register_save_area const * const curr = &data->registers;
 
-    if (proc->is_kernel_proc) {
-        // For kernel processes, the GS is set to the percpu segment of the cpu
-        // running them.
-        union segment_selector_t target_gs;
-        exec_remote_call(cpu, remote_read_gs, &target_gs, true);
-
-        // Since the GS is forced (i.e. not restored) we expect it to differ
-        // from the expected values.
-        TEST_ASSERT(exp->gs != curr->gs);
-        // The GS must be the GS of the remote cpu.
-        TEST_ASSERT(curr->gs == target_gs.value);
-
-        // Overwrite the exp so that we can use memeq to compare the other
-        // values.
-        exp->gs = curr->gs;
-    }
-
     bool const same = memeq(exp, curr, sizeof(*exp));
     LOG("Comparison = %d\n", same);
 
@@ -602,17 +557,6 @@ static bool interrupt_reg_save(uint8_t const ring) {
     init_aps();
     delete_proc(proc);
     return same;
-}
-
-static bool interrupt_reg_save_test_ring0(void) {
-    return false;
-    // FIXME: This test is disabled for kernel processes until a way to pass the
-    // struct proc_test_data to them is found.
-    //return interrupt_reg_save(0);
-}
-
-static bool interrupt_reg_save_test_ring3(void) {
-    return interrupt_reg_save(3);
 }
 
 // =============================================================================
@@ -767,16 +711,12 @@ static void cs_test_handler(struct interrupt_frame const * const frame) {
         uint32_t const next_idx = context_switch_test_num_ints %
             context_switch_test_num_procs;
         struct proc * const next = context_switch_test_procs[next_idx];
+        preempt_disable();
         switch_to_proc(next);
     }
 }
 
 static bool context_switch_test(void) {
-    // FIXME: This test is disabled a way to pass the struct proc_test_data to
-    // kernel processes is found.
-    //return interrupt_reg_save(0);
-    return false;
-
     // i.  Execute a int 0x80.
     // ii. After returning from the interrupt save all the registers into the
     //     struct proc_test_data present on the stack.
@@ -823,13 +763,7 @@ static bool context_switch_test(void) {
         kmalloc(num_procs * sizeof(*expected_values));
 
     for (uint32_t i = 0; i < num_procs; ++i) {
-        // For the priv level make sure the levels have the following pattern:
-        //  Procs: 1 2 3 4 5 6 ...
-        //  CPL:   K K U U K K ...
-        // This is to make sure that we test all permutations of context
-        // switches, that is K -> K, K -> U, U -> U and U -> K.
-        uint8_t const ring = 3 * ((i / 2) % 2);
-        struct proc * proc = create_test_proc(ring, interrupt_reg_save_routine);
+        struct proc * proc = create_test_proc(3, interrupt_reg_save_routine);
         context_switch_test_procs[i] = proc;
 
         set_registers_for_test(proc);
@@ -866,24 +800,6 @@ static bool context_switch_test(void) {
         switch_to_addr_space(context_switch_test_procs[i]->addr_space);
         struct register_save_area * const exp = &expected_values[i];
         struct register_save_area const * const curr = &data->registers;
-
-        if (context_switch_test_procs[i]->is_kernel_proc) {
-            // For kernel processes, the GS is set to the percpu segment of the
-            // cpu running them.
-            union segment_selector_t target_gs;
-            exec_remote_call(cpu, remote_read_gs, &target_gs, true);
-
-            // Since the GS is forced (i.e. not restored) we expect it to differ
-            // from the expected values.
-            TEST_ASSERT(exp->gs != curr->gs);
-            // The GS must be the GS of the remote cpu.
-            TEST_ASSERT(curr->gs == target_gs.value);
-
-            // Overwrite the exp so that we can use memeq to compare the other
-            // values.
-            exp->gs = curr->gs;
-        }
-
         TEST_ASSERT(memeq(exp, curr, sizeof(*exp)));
     }
 
@@ -1012,9 +928,7 @@ void proc_test(void) {
     TEST_FWK_RUN(kernel_process_test);
     TEST_FWK_RUN(create_proc_oom_test);
     TEST_FWK_RUN(save_registers_test);
-    TEST_FWK_RUN(switch_to_proc_test_ring0);
     TEST_FWK_RUN(switch_to_proc_test_ring3);
-    TEST_FWK_RUN(interrupt_reg_save_test_ring0);
     TEST_FWK_RUN(interrupt_reg_save_test_ring3);
     TEST_FWK_RUN(tss_esp0_change_on_context_switch_test);
     TEST_FWK_RUN(context_switch_test);
