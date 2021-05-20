@@ -547,19 +547,6 @@ static bool vfs_concurrent_read_and_write_test(void) {
 // readers are reading. In other words the readers should read either the
 // original contents of the file or the content being written by the writer but
 // not a mix of the two.
-// Additionaly, this test makes sure that the readers are allowed to read
-// concurrently by checking that both readers read the exact same data. This
-// condition is sufficient here because:
-//   - We are in hardware and hence the readers and writer attempt to read/write
-// almost at the same time. This means they try to acquire the RW lock almost at
-// the same time.
-//   - The first cpu acquiring the lock can be either:
-//     * One of the reader, this means that the second reader should also be
-//     acquiring the lock almost at the same time (see above). In this case both
-//     readers proceed _before_ the writter and both are reading what was in the
-//     file _before_ the write.
-//     * The writer. In this case both readers are waiting for the writer to
-//     complete and will both read what the writer wrote.
 static bool vfs_concurrent_multiple_readers_single_writer_test(void) {
     struct disk * const disk = create_test_disk();
     pathname_t const mount_point = "/some/mount/point/";
@@ -635,9 +622,6 @@ static bool vfs_concurrent_multiple_readers_single_writer_test(void) {
             (!memeq(filedata, reader_buf2, file_size) &&
             !memeq(writer_buf, reader_buf2, file_size))) {
             LOG("Race condition detected after %u tries\n", i + 1);
-            race_cond = true;
-        } else if (!memeq(reader_buf1, reader_buf2, file_size)) {
-            LOG("Discrepency between readers detected after %u tries\n", i + 1);
             race_cond = true;
         }
 
