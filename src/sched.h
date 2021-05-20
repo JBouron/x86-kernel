@@ -91,7 +91,13 @@ void preempt_disable(void);
 // Try to enable preemption of the current process running on the current cpu.
 // Note that this function will not necessarily enable preemption, it will only
 // do so if it has been called the same number of times as preempt_disable().
+// If the current process/cpu becomes preemptible, schedule() will be called
+// before returning, leaving the opportunity for another process to get
+// scheduled.
 void preempt_enable(void);
+
+// Same as preempt_enable but does not call schedule().
+void preempt_enable_no_resched(void);
 
 // Check if the current process on the current cpu is preemptible.
 // @return: true if it is preemptible, false otherwise.

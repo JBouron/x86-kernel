@@ -66,8 +66,9 @@ struct proc {
     // The private address space of this process.
     struct addr_space * addr_space;
 
-    // The state of the registers at the time of the last context switch that
-    // paused the execution of this process.
+    // State of the registers when the process starts execution for the first
+    // time.
+    // Note: As of now this field is not used for kernel processes.
     struct register_save_area registers;
 
     // The stack used by the process while operating in user mode. Note that
@@ -76,6 +77,11 @@ struct proc {
     // The stack used by the process while operating in kernel mode. For kernel
     // stack, this is the only stack.
     struct stack kernel_stack;
+
+    // The saved kernel stack pointer of this process. When doing a context
+    // switch the ESP register will be switched to that value in order to resume
+    // execution of this process.
+    void *kernel_stack_ptr;
 
     // This bit indicates if the process is a kernel process.
     bool is_kernel_proc;

@@ -87,12 +87,25 @@ static bool allocate_stack(struct proc * const proc, bool const kernel_stack) {
         proc->kernel_stack.top = stack_top;
         proc->kernel_stack.bottom = stack_bottom;
         proc->kernel_stack.num_pages = n_stack_frames;
+        proc->kernel_stack_ptr = stack_bottom;
     } else {
         proc->user_stack.top = stack_top;
         proc->user_stack.bottom = stack_bottom;
         proc->user_stack.num_pages = n_stack_frames;
     }
     return true;
+}
+
+// Push a DWORD on a process's kernel stack and update the saved stack pointer.
+// @param proc: The process to push the DWORD onto its stack.
+// @param val: The value of the DWORD to push.
+static void push_kernel_stack(struct proc * const proc, uint32_t const val) {
+    // FIXME: We don't check the bounds here. For now this is fine because this
+    // function is only used to mock up the first stack frame(s) used by the
+    // process.
+    uint32_t * const new_esp = ((uint32_t*)proc->kernel_stack_ptr) - 1;
+    *new_esp = val;
+    proc->kernel_stack_ptr = (void*)new_esp;
 }
 
 // This lock is used by get_new_pid() to atomically get a new pid.
@@ -216,18 +229,46 @@ static struct proc *create_proc_in_ring(uint8_t const ring) {
     return proc;
 }
 
-struct proc *create_proc(void) {
-    // For user processes, the create_proc_in_ring() will do all the required
-    // work. After this call one only needs to copy the code into the process'
-    // address space and point EIP to the right place.
-    return create_proc_in_ring(3);
-}
-
 // This function is meant to be called if a kernel stack underflow occurs while
 // context switching. This is a protection mechanism used when a function passed
 // to init_kernel_stack returns.
 static void catch_kstack_underflow(void) {
     PANIC("Kernel stack underflow");
+}
+
+// This is the first function called by a new process on its first context
+// switch (e.g. the first time the process gets to run). This function will take
+// care of jumping to user space with the correct values in the registers
+// (values given in the `registers` field of the struct proc).
+// @param self: Pointer to the struct proc of the process.
+// NOTE: As of now this function is only used for processes running in user
+// space.
+extern void initial_ret_from_spawn(struct proc * const self);
+
+struct proc *create_proc(void) {
+    // After this call one only needs to copy the code into the process'
+    // address space and point EIP to the right place.
+    struct proc * const proc = create_proc_in_ring(3);
+    if (!proc) {
+        return NULL;
+    }
+
+    // Create stack frame(s) so that the first function called after the first
+    // context switch to this process is initial_ret_from_spawn(proc).
+    push_kernel_stack(proc, (uint32_t)proc);
+    push_kernel_stack(proc, (uint32_t)&catch_kstack_underflow);
+    push_kernel_stack(proc, (uint32_t)&initial_ret_from_spawn);
+
+    // Push dummy values for the callee-saved registers supposedly saved onto
+    // the stack that will be poped out by do_context_switch().
+    // Fake the saved EBP.
+    push_kernel_stack(proc, 0);
+    // Fake the saved callee-saved registers.
+    push_kernel_stack(proc, 0);
+    push_kernel_stack(proc, 0);
+    push_kernel_stack(proc, 0);
+
+    return proc;
 }
 
 struct proc *create_kproc(void (*func)(void*), void * const arg) {
@@ -241,13 +282,18 @@ struct proc *create_kproc(void (*func)(void*), void * const arg) {
     //  - arg
     //  - Dummy return address. Use catch_kstack_underflow so that any return
     //  would be caught and PANIC.
-    uint32_t * esp = (uint32_t*)kproc->registers.esp;
-    *(--esp) = (uint32_t)arg;
-    *(--esp) = (uint32_t)&catch_kstack_underflow;
-    kproc->registers.esp = (reg_t)esp;
+    push_kernel_stack(kproc, (uint32_t)arg);
+    push_kernel_stack(kproc, (uint32_t)&catch_kstack_underflow);
+    push_kernel_stack(kproc, (uint32_t)func);
 
-    // Set the EIP to the target function.
-    kproc->registers.eip = (reg_t)func;
+    // Push dummy values for the callee-saved registers supposedly saved onto
+    // the stack that will be poped out by do_context_switch().
+    // Fake the saved EBP.
+    push_kernel_stack(kproc, 0);
+    // Fake the saved callee-saved registers.
+    push_kernel_stack(kproc, 0);
+    push_kernel_stack(kproc, 0);
+    push_kernel_stack(kproc, 0);
 
     // Kernel processes are runnable as soon as they are created since this
     // function sets up the EIP.
@@ -256,30 +302,41 @@ struct proc *create_kproc(void (*func)(void*), void * const arg) {
     return kproc;
 }
 
-// Used by assembly code to access the `registers` field of a struct proc.
+// Offset of the `registers` field in the struct proc. Used by assembly code.
 uint32_t const REG_SAVE_OFFSET = offsetof(struct proc, registers);
-uint32_t const KSTACK_BOTTOM_OFFSET = offsetof(struct proc, kernel_stack) +
-    offsetof(struct stack, bottom);
+// Offset of the kernel_stack_ptr field in the struct proc. Used by assembly
+// code to perform context switch.
+uint32_t const KERNEL_STACK_PTR_OFFSET = offsetof(struct proc,kernel_stack_ptr);
 
 // Perform the actual context switch from prev to next.
 // @param prev: The process that was running up until this call. If this is the
 // very first context switch on the current core then prev must be NULL.
 // @param next: The process to branch the execution to.
+// @param irqs: If true, re-enable interrupts just before returning.
 // Note: This function will not change the address space, nor the curr_proc
 // percpu variable. This MUST be done by the caller, before calling this
 // function.
-extern void do_context_switch(struct proc * prev, struct proc * next);
+// Note: This function will enable preemption using preempt_enable_no_resched()
+// before returning.
+extern void do_context_switch(struct proc * prev, struct proc * next, bool irq);
 
 void switch_to_proc(struct proc * const proc) {
-    // FIXME: Ideally we should assert that preemption is disabled at this
-    // point. However, because this function is used as is in some tests to
-    // forcely run a process (e.g. without calling schedule()), we cannot.
-    struct proc * const prev = get_curr_proc();
+    ASSERT(!preemptible());
 
-    proc->cpu = cpu_id();
+    bool const irqs = interrupts_enabled();
+    // Between the time the curr_proc variable is changed and the context switch
+    // happens, an interrupt could see an inconsistent state. Hence disable
+    // interrupts until the end of the context switch.
+    cpu_set_interrupt_flag(false);
+
+    // Read the curr process NOW, _before_ changing the curr_proc variable of
+    // this cpu! This pointer will be passed to do_context_switch to save the
+    // kernel stack pointer.
+    struct proc * const curr = get_curr_proc();
 
     // Switch to the next process' address space and update this cpu's curr_proc
     // variable. This won't be done by do_context_switch()!
+    proc->cpu = cpu_id();
     set_curr_proc(proc);
     switch_to_addr_space(proc->addr_space);
 
@@ -287,15 +344,12 @@ void switch_to_proc(struct proc * const proc) {
     // user processes since kernel processes will never have to switch privilege
     // level.
     if (!proc->is_kernel_proc) {
-        // FIXME: This is related to the FIXME just above. We shouldn't need to
-        // disable/enable preemption here.
-        preempt_disable();
         change_tss_esp0(proc->kernel_stack.bottom);
-        preempt_enable();
     }
 
-    // Perform the actual context switch.
-    do_context_switch(prev, proc);
+    // Perform the actual context switch. This will re-enable preemption and
+    // interrupts (if necessary).
+    do_context_switch(curr, proc, irqs);
 }
 
 // Close all the files opened by a process.

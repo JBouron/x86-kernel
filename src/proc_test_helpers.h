@@ -21,6 +21,10 @@ static inline void copy_code_to_proc(struct proc * const proc,
     // in size. This is ok as most of the test codes are very small anyways.
     ASSERT(len < PAGE_SIZE);
 
+    // As of now, kernel processes can only execute kernel functions, not
+    // arbitrary programs.
+    ASSERT(!proc->is_kernel_proc);
+
     // Allocate a new physical frame that will contain the code.
     void * code_frame = alloc_frame();
     // Map the frame to the current address space an copy the code.
@@ -76,10 +80,7 @@ static inline void exec_proc(void * proc) {
     preempt_reset();
 
     // Preemption needs to be disable when performing a context switch.
-    // FIXME: With the current state of do_context_switch, it is impossible to
-    // enable preemption after a context switch, unless the process explicitely
-    // does it. For now leave preemption enabled, this should be fine for now.
-    //preempt_disable();
+    preempt_disable();
 
     switch_to_proc(proc);
 

@@ -72,146 +72,139 @@ ASM_FUNC_DEF(save_registers):
     leave
     ret
 
-// void resume_proc_exec(struct proc * const next, struct proc * const prev );
-// This function will switch its stack to the kernel stack of the `next`
-// process, call sched_put_prev_proc(prev) and start/resume the execution of
-// `next`. This function DOES NOT RETURN.
-// @param next: The process to resume/start execution.
-ASM_FUNC_DEF(resume_proc_exec):
+// Start execution of a freshly spawned process. This function does not return,
+// it is meant to be executed by the process itself upon its first context
+// switch.
+// @param next: The process to start execution for.
+ASM_FUNC_DEF(initial_ret_from_spawn):
+    // Note: This routine has been written with kernel processes in mind, that
+    // is it should be able to work with kernel processes. This is to allow this
+    // option in the future if needed. For now this feature is not implemented
+    // fully nor tested.
     push    ebp
     mov     ebp, esp
 
     // We do not care about callee saved registers here as this function will
     // not return.
 
-    // ESI = pointer on proc.
-    mov     esi, [ebp + 0x8]
-    // EDI = pointer on saved registers.
-    mov     edi, [REG_SAVE_OFFSET]
-    add     edi, esi
-
-    // AX = CPL.
-    mov     ax, cs
-    and     ax, 0x3
-
-    // CX = Saved priv level.
-    lea     ecx, [edi + 0x38]
-    mov     cx, [ecx]
-    and     cx, 0x3
-    
-    // Compare the CPL with the saved PL to know if we are about to switch to
-    // user space or kernel space.
-    cmp     ax, cx
-    jne     0f
-
-    // The task we are about to switch to had its execution inside the kernel at
-    // the time of its last context switch. Hence we need to switch to its
-    // stack to build the IRET frame.
-    mov     esp, [edi + 0xC]
-    jmp     1f
-
-0:
-    // The task we are about to swith has its CS in user space. This is the case
-    // if this is the very first time a user process is running. Instead of
-    // using the current stack to prepare the frame, use the kernel stack of the
-    // process.
-    mov     eax, [ebp + 0x8]
-    add     eax, [KSTACK_BOTTOM_OFFSET]
-    mov     esp, [eax]
-
-1:
-    // Now that we have switched stack, we can safely put back the current
-    // process into the scheduler queue.
-    push    [ebp + 0xC]
-    call    sched_put_prev_proc
-    add     esp, 0x4
-
-    // From this point on, we CANNOT ACCESS THE STACK OF THE PREV PROC. After
-    // the call to sched_put_prev_proc, the previous proc might have been
-    // migrated to another core a resumed execution.
+    // EDI = pointer on proc's registers field.
+    mov     edi, [ebp + 0x8]
+    add     edi, [REG_SAVE_OFFSET]
 
     // AX = Next context is user context.
+    // CX = Next CS.
+    mov     cx, [edi + 0x38]
     mov     dx, 1
     xor     ax, ax
-    xor     cx, 0x3
-    cmovz   ax, dx
+    test    cx, 0x3
+    cmovnz  ax, dx
 
     test    ax, ax
     jz      0f
 
     // The next context is a user context, push saved SS and ESP onto the stack.
+    // This is not necessary to jump to kernel context.
     push    [edi + 0x34]
     push    [edi + 0x0C]
 
 0:
     // Terminate IRET frame by pushing EFLAGS, CS and EIP.
-    push    [edi + 0x20]
+    // Make sure the EFLAGS will enable interrupts.
+    mov     ecx, [edi + 0x20]
+    or      ecx, (1 << 9)
+    push    ecx
     push    [edi + 0x38]
     push    [edi + 0x24]
 
     // Push the general purpose registers onto the stack.
     sub     esp, 0x20 
-    // Save EDI temporarily.
     push    edi
-
     lea     esi, [edi + 0x1C]
     lea     edi, [esp + 0x20]
     std
     mov     ecx, 8
     rep     movsd
     pop     edi
-    
+
     // Restore segment regsiters.
     mov     fs, [edi + 0x2C]
     mov     es, [edi + 0x3C]
 
+    // AX still = Next context is user context.
     test    ax, ax
     jz      0f
-    // Restoring/changing GS is only possible for user processes.
+    // Restoring/changing GS is only possible for user processes. For kernel
+    // processes the GS must not change and keep the current one.
     mov     gs, [edi + 0x28]
 
 0:
+    // DS must be changed last. This is because in the case of a user process,
+    // reading memory (outside of stack) after setting CS would result in a page
+    // fault due to permissions.
     mov     ds, [edi + 0x30]
     popa
     iret
 
-// void do_context_switch(struct proc * curr, struct proc * next);
+// void do_context_switch(struct proc * curr, struct proc * next, bool irqs);
 // Perform a context switch between `curr` and `next`.
 // @param curr: MUST BE the curr process on the current cpu.
 // @param next: The process to branch execution to.
+// @param irqs: If true, re-enable interrupts just before returning.
 ASM_FUNC_DEF(do_context_switch):
     push    ebp
     mov     ebp, esp
 
-    // If there are no current process on the cpu (ie. this is the very first
-    // process executing on the cpu, ignore the register saving and directly
-    // execute the next proc.
-    mov     eax, [ebp + 0x8]
-    test    eax, eax
-    jz      skip_reg_save
+    // EAX = next
+    mov     eax, [ebp + 0xC]
 
-    add     eax, [REG_SAVE_OFFSET]
+    // ECX = curr (will be prev after context switch).
+    mov     ecx, [ebp + 0x8]
     
-    // Save the registers of the current process into its save area (registers
-    // field of its struct proc). For the EIP, use 0f so that the next time this
-    // process executes it will return to the caller of this function.
-    push    OFFSET FLAT : 0f
-    push    eax
-    call    save_registers
-    add     esp, 0x8
+    // Push callee-saved registers onto stack.
+    push    ebx
+    push    edi
+    push    esi
 
-skip_reg_save:
-    // Start executing the next process.
-    push    [ebp + 0x8]
-    push    [ebp + 0xC]
-    call    resume_proc_exec
-    // Unreachable.
-    int3
+    // SI = Enable interrupts before return.
+    mov     si, [ebp + 0x10]
 
+    .extern KERNEL_STACK_PTR_OFFSET
+    mov     edx, [KERNEL_STACK_PTR_OFFSET]
+
+    // Save current kernel stack pointer. (Only if curr != NULL).
+    test    ecx, ecx
+    jz      0f
+    mov     [ecx + edx], esp
 0:
-    // When execution starts again at this point, the top two values on the
-    // stacks are the ptr to the struct register_save_area and the saved EIP
-    // (right before the call to save_registers(). Doing a LEAVE here makes sure
-    // that we don't forget any pop/add esp and prevent stack frame corruption.
-    leave
+    // Perform actual context switch by switching to the kernel stack of the
+    // next proc.
+    mov     esp, [eax + edx]
+
+    // ECX now contains the address of the previous running process. Put it back
+    // into the runqueue.
+    // FIXME: We have a layer violation here, the put prev should be handled by
+    // the caller of this function. However doing so makes the initial return of
+    // process more complex, as they would need to call it themselves.
+    test    ecx, ecx
+    jz      0f
+    push    ecx
+    call    sched_put_prev_proc
+    add     esp, 4
+0:
+
+    // Re-enable preemption.
+    call    preempt_enable_no_resched
+
+    // Re-enable interrupts if requested.
+    test    si, si
+    jz      0f
+    sti
+0:
+
+    // Restore callee-saved registers.
+    pop     esi
+    pop     edi
+    pop     ebx
+
+    pop     ebp
     ret

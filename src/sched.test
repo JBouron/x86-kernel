@@ -323,6 +323,7 @@ static struct sched st_sched = {
 static void st_start_exec(void * arg) {
     // Start the execution of the first process in st_procs.
     preempt_reset();
+    preempt_disable();
     switch_to_proc(st_procs[0]);
     __UNREACHABLE__;
 }

@@ -186,8 +186,12 @@ void schedule(void) {
         return;
     }
 
-    bool const int_enabled = interrupts_enabled();
-    cpu_set_interrupt_flag(false);
+    // Because we are preemptible at this point, interrupts must be enabled.
+    ASSERT(interrupts_enabled());
+
+    // We are changing the state (e.g. curr proc) of the current cpu, preemption
+    // must be disabled.
+    preempt_disable();
     if (curr_cpu_need_resched()) {
         struct proc * const curr = get_curr_proc();
         struct proc * const idle = this_cpu_var(idle_proc);
@@ -200,13 +204,21 @@ void schedule(void) {
         this_cpu_var(resched_flag) = false;
 
         if (next != curr) {
-            // Interrupts are still disabled and will only be enabled by the
-            // context switch.
             this_cpu_var(context_switches) ++;
             switch_to_proc(next);
+        } else {
+            // No call to switch_to_proc to enable the preemption for us.
+            preempt_enable_no_resched();
         }
+    } else {
+        // No call to switch_to_proc to enable the preemption for us.
+        preempt_enable_no_resched();
     }
-    cpu_set_interrupt_flag(int_enabled);
+
+    // At the end of schedule() preemption and interrupts should have the same
+    // state as before the call.
+    ASSERT(interrupts_enabled());
+    ASSERT(preemptible());
 }
 
 void sched_resched(void) {
@@ -239,7 +251,10 @@ void preempt_disable(void) {
     cpu_mfence();
 }
 
-void preempt_enable(void) {
+// Enable preemption on the current cpu.
+// @param resched: If true and the preempt_count of the current cpu becomes 0
+// then calls schedule() before returning. Otherwise return normally.
+static void do_preempt_enable(bool const resched) {
     // Make sure nothing crosses a call to preempt_enable().
     cpu_mfence();
 
@@ -255,12 +270,20 @@ void preempt_enable(void) {
     // Reset interrupt flag as it was before this function.
     cpu_set_interrupt_flag(int_flag);
 
-    if (!count && sched_running) {
+    if (resched && !count && sched_running) {
         // preempt_count == 0 indicate that the current process is preemptible.
         // It may have been non-preemptible for a while, therefore do a round of
         // scheduling.
         schedule();
     }
+}
+
+void preempt_enable(void) {
+    do_preempt_enable(true);
+}
+
+void preempt_enable_no_resched(void) {
+    do_preempt_enable(false);
 }
 
 // Get the value of this cpu's variable `var`. This macro will NOT CHECK THE

@@ -25,6 +25,21 @@ static bool create_proc_test(void) {
     TEST_ASSERT(proc->registers.eflags == 1 << 9);
     TEST_ASSERT(proc->registers.esp == (reg_t)(proc->user_stack.bottom));
 
+    // Make sure the kernel stack contains the correct stack frames to call
+    // initial_ret_from_spawn(proc) as soon as the first context switch to this
+    // proc.
+    uint32_t const * const kesp = (uint32_t const*)proc->kernel_stack_ptr;
+    // First four values on the stack are the callee-saved values popped by
+    // do_context_switch after switching to the next process.
+    TEST_ASSERT(kesp[0] == 0);
+    TEST_ASSERT(kesp[1] == 0);
+    TEST_ASSERT(kesp[2] == 0);
+    TEST_ASSERT(kesp[3] == 0);
+    TEST_ASSERT(kesp[4] == (uint32_t)&initial_ret_from_spawn);
+    TEST_ASSERT(kesp[5] == (uint32_t)&catch_kstack_underflow);
+    TEST_ASSERT(kesp[6] == (uint32_t)proc);
+
+
     // No program has been loaded in this process yet.
     TEST_ASSERT(proc->state_flags == PROC_WAITING_EIP);
 
@@ -37,22 +52,17 @@ static bool create_kproc_test(void) {
     void * const arg = (void *)0xABCDEF;
     struct proc * const proc = create_kproc(func, arg);
 
-    // Check that registers are initialized correctly.
-    TEST_ASSERT(proc->registers.edi == 0);
-    TEST_ASSERT(proc->registers.esi == 0);
-    TEST_ASSERT(proc->registers.ebp == (reg_t)proc->kernel_stack.bottom);
-    TEST_ASSERT(proc->registers.ebx == 0);
-    TEST_ASSERT(proc->registers.edx == 0);
-    TEST_ASSERT(proc->registers.ecx == 0);
-    TEST_ASSERT(proc->registers.eax == 0);
-    TEST_ASSERT(proc->registers.eip == (reg_t)func);
-    TEST_ASSERT(proc->registers.eflags == 1 << 9);
-
+    // Values of proc->registers are not used in the case of kernel processes.
+    // No need to check them.
     // Check that current stack frame contains correct values.
-    TEST_ASSERT(proc->registers.esp == (reg_t)(proc->kernel_stack.bottom - 8));
-    uint32_t const * const esp = (uint32_t const *)proc->registers.esp;
-    TEST_ASSERT(esp[0] == (uint32_t)&catch_kstack_underflow);
-    TEST_ASSERT(esp[1] == (uint32_t)arg);
+    uint32_t const * const esp = (uint32_t const *)proc->kernel_stack_ptr;
+    TEST_ASSERT(esp[0] == 0);
+    TEST_ASSERT(esp[1] == 0);
+    TEST_ASSERT(esp[2] == 0);
+    TEST_ASSERT(esp[3] == 0);
+    TEST_ASSERT(esp[4] == (uint32_t)func);
+    TEST_ASSERT(esp[5] == (uint32_t)&catch_kstack_underflow);
+    TEST_ASSERT(esp[6] == (uint32_t)arg);
 
     TEST_ASSERT(proc->state_flags == PROC_RUNNABLE);
 
@@ -444,6 +454,9 @@ static bool switch_to_proc_test(uint8_t const ring) {
 }
 
 static bool switch_to_proc_test_ring0(void) {
+    // FIXME: Disabled for now as switch_to_proc_test() needs to pass data onto
+    // the process' stack. This is not possible with kernel processes since 
+    return false;
     return switch_to_proc_test(0);
 }
 
@@ -592,7 +605,10 @@ static bool interrupt_reg_save(uint8_t const ring) {
 }
 
 static bool interrupt_reg_save_test_ring0(void) {
-    return interrupt_reg_save(0);
+    return false;
+    // FIXME: This test is disabled for kernel processes until a way to pass the
+    // struct proc_test_data to them is found.
+    //return interrupt_reg_save(0);
 }
 
 static bool interrupt_reg_save_test_ring3(void) {
@@ -756,6 +772,11 @@ static void cs_test_handler(struct interrupt_frame const * const frame) {
 }
 
 static bool context_switch_test(void) {
+    // FIXME: This test is disabled a way to pass the struct proc_test_data to
+    // kernel processes is found.
+    //return interrupt_reg_save(0);
+    return false;
+
     // i.  Execute a int 0x80.
     // ii. After returning from the interrupt save all the registers into the
     //     struct proc_test_data present on the stack.
@@ -940,7 +961,11 @@ static void kpmt_dead_proc_code(void * unused) {
 static void kpmt_int_handler(struct interrupt_frame const * const frame) {
     // We are on core A.
     LOG("Process called interrupt handler.\n");
+
+    // Calling switch_to_proc() expects preemption to be disabled.
+    preempt_disable();
     switch_to_proc(kpmt_dead_proc);
+
     // We are now on core B after the migration.
     LOG("Resume execution on second CPU\n");
 }
