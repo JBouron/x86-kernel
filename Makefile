@@ -43,6 +43,15 @@ OBJ_FILES:=$(patsubst $(SRC_DIR)/%,$(BUILD_DIR)/%,$(_OBJ_FILES))
 
 all: debug
 
+QEMU_OPTIONS=-smp 4 -s -m 2048 -no-shutdown -no-reboot \
+			 -initrd ignore/userspace/fileops/initrd_main.tar \
+			 -nographic  -enable-kvm
+run: debug
+	qemu-system-i386 -kernel $(BUILD_DIR)/$(KERNEL_IMG_NAME) $(QEMU_OPTIONS)
+
+runs: debug
+	qemu-system-i386 -kernel $(BUILD_DIR)/$(KERNEL_IMG_NAME) $(QEMU_OPTIONS) -S
+
 release: CONT_RULE = release_in_cont
 release: OUTPUT=SERIAL
 release: build
