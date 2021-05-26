@@ -40,6 +40,7 @@
 #include <rw_lock.h>
 #include <error.h>
 #include <spinlock.h>
+#include <pcie.h>
 
 // Execute all the tests in the kernel.
 void test_kernel(void) {
@@ -132,6 +133,9 @@ void kernel_main(void) {
     // Initialize the Virtual File System. This must be done before running the
     // tests.
     init_vfs();
+
+    // Initialize PCIe sub-system.
+    init_pcie();
 
     // Run tests.
     test_kernel();
