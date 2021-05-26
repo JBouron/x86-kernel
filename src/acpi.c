@@ -173,6 +173,30 @@ struct madt_int_src_override_entry {
     uint16_t const flags;
 } __attribute__((packed));
 
+// Indicate how a PCIe segment is mapped to main memory.
+struct mcfg_table_conf_struct {
+    // The base address of the configuration space for this segment.
+    uint64_t const base_addr;
+    // The segment number.
+    uint16_t const pci_segment_group_number;
+    // The minimum bus number for this segment.
+    uint8_t const start_pci_bus_number;
+    // The maximum bus number for this segment.
+    uint8_t const end_pci_bus_number;
+    uint32_t : 32;
+} __attribute__((packed));
+
+// The MCFG SDT indicate how the PCIe configuration space is mapped to memory.
+struct mcfg_table {
+    // Common header.
+    struct sdt_header header;
+    uint64_t : 64;
+    // Zero or more "configuration struct" indicating how each PCIe segment has
+    // been mapped to memory. As of today in the usual case there is a single
+    // segment per machine.
+    struct mcfg_table_conf_struct confs[0];
+} __attribute__((packed));
+
 // Compute and verify the checksum of a set of bytes.
 // @param ptr: The pointer to the first byte of the data to verify the checksum
 // for.
@@ -522,15 +546,51 @@ static void process_madt(struct madt const * const madt) {
     }
 }
 
+// For now this kernel only supports a single PCIe segment. This means that we
+// only need to keep track of a single segment configuration struct.
+static struct mcfg_table_conf_struct MCFG_CONF;
+
+void *get_mcfg_table(void) {
+    return &MCFG_CONF;
+}
+
+// Parse an MCFG. This will set MCFG_CONF.
+// @param mcfg: The MCFG to parse.
+static void process_mcfg(struct mcfg_table const * const mcfg) {
+    LOG("MCFG found @ %p\n", mcfg);
+    struct mcfg_table_conf_struct const * ptr = &mcfg->confs[0];
+    uint32_t num_entries = 0;
+    while ((void*)ptr < (void*)mcfg + mcfg->header.length) {
+        LOG("   MCFG entry %p = {\n", num_entries);
+        LOG("       base      = %X\n", ptr->base_addr);
+        LOG("       group     = %d\n", ptr->pci_segment_group_number);
+        LOG("       start bus = %d\n", ptr->start_pci_bus_number);
+        LOG("       end bus   = %d\n", ptr->end_pci_bus_number);
+        LOG("   }\n");
+        memcpy(&MCFG_CONF, ptr, sizeof(MCFG_CONF));
+        num_entries ++;
+        ptr++;
+    }
+    if (num_entries > 1) {
+        PANIC("Multiple MCFG tables not supported yet\n");
+    }
+}
+
 // React to an ACPI SDT (or MADT) and parses further. Ignores any other table.
 // @param sdt: The SDT to check.
 static void acpi_table_callback(struct sdt_header const * const sdt) {
     char * const signature = get_sdt_signature(sdt);
 
-    LOG("Found SDT at %p, signature = %s\n", sdt, signature);
+    // FIXME: We should have better parsing here where callbacks are stored into
+    // a map signature -> function ptr.
     if (streq(signature, "APIC")) {
         struct madt const * const madt = (void*)sdt;
         process_madt(madt);
+    } else if (streq(signature, "MCFG")) {
+        struct mcfg_table const * const mcfg = (void*)sdt;
+        process_mcfg(mcfg);
+    } else {
+        LOG("Found SDT at %p, signature = %s\n", sdt, signature);
     }
     kfree(signature);
 }

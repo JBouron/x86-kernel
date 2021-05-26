@@ -18,3 +18,7 @@ uint8_t acpi_get_isa_interrupt_vector_mapping(uint8_t const isa_vector);
 // Get the number of cpus on the system as described by the ACPI tables.
 // @return: The number of cpus found in the MADT.
 uint16_t acpi_get_number_cpus(void);
+
+// Get a pointer on the MCFG table for the PCIe segment. The layout of this
+// table is not given on purpose to avoid layer violations.
+void *get_mcfg_table(void);
