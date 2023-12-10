@@ -96,7 +96,7 @@ baremetal_debug: build create_iso
 # This is the main rule. This rule will start the builder docker container that
 # will build the kernel for us.
 build:
-	[[ $$(docker images $(DOCKER_IMAGE) | wc -l) > 1 ]] || docker build -t $(DOCKER_IMAGE) ./docker/
+	[ "$$(sudo docker images $(DOCKER_IMAGE) | wc -l)" -gt 1 ] || sudo docker build -t $(DOCKER_IMAGE) ./docker/
 	@# We link the current directory to the same point in the container so that
 	@# debug info in the kernel image are correct. (Eg. the paths for the source
 	@# files are the same).
