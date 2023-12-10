@@ -67,10 +67,10 @@ static bool cpuid_test(void) {
     cpuid(0x0, (uint32_t*)eax, (uint32_t*)ebx, (uint32_t*)ecx, (uint32_t*)edx);
     // Make sure the strings are NULL terminated.
     eax[4] = 0; ebx[4] = 0; ecx[4] = 0; edx[4] = 0;
-    // Check that EBX:EDX:ECX spells out "GenuineIntel" vendor string.
-    TEST_ASSERT(streq(ebx, "Genu"));
-    TEST_ASSERT(streq(edx, "ineI"));
-    TEST_ASSERT(streq(ecx, "ntel"));
+    // Check that EBX:EDX:ECX spells out the vendor string.
+    TEST_ASSERT(streq(ebx, "Genu") || streq(ebx, "Auth"));
+    TEST_ASSERT(streq(edx, "ineI") || streq(edx, "enti"));
+    TEST_ASSERT(streq(ecx, "ntel") || streq(ecx, "cAMD"));
 
     // Do the same as above using the cpuid_ecx wrapper instead.
     // Reset the strings.
@@ -79,10 +79,10 @@ static bool cpuid_test(void) {
         (uint32_t*)edx);
     // Make sure the strings are NULL terminated.
     eax[4] = 0; ebx[4] = 0; ecx[4] = 0; edx[4] = 0;
-    // Check that EBX:EDX:ECX spells out "GenuineIntel" vendor string.
-    TEST_ASSERT(streq(ebx, "Genu"));
-    TEST_ASSERT(streq(edx, "ineI"));
-    TEST_ASSERT(streq(ecx, "ntel"));
+    // Check that EBX:EDX:ECX spells out the vendor string.
+    TEST_ASSERT(streq(ebx, "Genu") || streq(ebx, "Auth"));
+    TEST_ASSERT(streq(edx, "ineI") || streq(edx, "enti"));
+    TEST_ASSERT(streq(ecx, "ntel") || streq(ecx, "cAMD"));
     return true;
 }
 
