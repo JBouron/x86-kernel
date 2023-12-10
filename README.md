@@ -1,4 +1,4 @@
-# kernel
+# x86-kernel
 A 32-bit x86 kernel written from scratch in C.
 
 ## What is it?
