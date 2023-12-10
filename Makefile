@@ -1,3 +1,28 @@
+# Build and run the kernel. Targets:
+# 	- all/default: Build the kernel in debug mode.
+# 	- run: Build the kernel in debug mode and start it using qemu.
+# 	- runs: Build the kernel in debug mode and start it using qemu. Qemu is
+# 	starts with the -S flag, e.g. waiting for gdb to start the VM's execution.
+# 	- debug: Build the kernel in debug mode with -O0 and -g.
+# 	- release: Build the kernel in release mode with -O2
+#	- baremetal_debug: Build the kernel in debug mode and create an .iso file
+#	that is meant to be run on a physical machine.
+#	- baremetal_release: Build the kernel in release mode and create an .iso
+#	file that is meant to be run on a physical machine.
+#	- clean: Remove all compilation artifacts.
+# All compilation happens within a docker container which contains a
+# cross-compiler. The docker image is automatically created by this make file if
+# it does not already exist.
+
+# The docker image containing the cross-compiler used to build the kernel.
+DOCKER_IMAGE:=kernel_builder
+
+# VM configuration:
+# Number of virtual cpus to use in the VM.
+VM_CPUS:=16
+# Size of the VM's RAM in MiB.
+VM_RAMSIZE=2048
+
 # The compiler used to compile the kernel. The docker image contains the
 # cross-compiler i686-gcc and assembler i686-as which are installed in the
 # root's home directory.
@@ -11,8 +36,8 @@ KERNEL_CFLAGS=-Wall -Wextra -Werror -ffreestanding -nostdlib -I./src \
 # The name of the linker script used to build the kernel image.
 LINKER_SCRIPT=linker.ld
 
-# The number of jobs used by make inside the kernel builder container.
-NJOBS=16
+# Number of jobs for kernel compilation.
+NJOBS:=$(shell lscpu | grep '^CPU(s):' | awk '{print $$2}')
 
 # The name of the kernel image.
 KERNEL_IMG_NAME=kernel.bin
@@ -43,9 +68,9 @@ OBJ_FILES:=$(patsubst $(SRC_DIR)/%,$(BUILD_DIR)/%,$(_OBJ_FILES))
 
 all: debug
 
-QEMU_OPTIONS=-smp 4 -s -m 2048 -no-shutdown -no-reboot \
-			 -initrd ignore/userspace/fileops/initrd_main.tar \
+QEMU_OPTIONS=-smp $(VM_CPUS) -s -m $(VM_RAMSIZE) -no-shutdown -no-reboot \
 			 -nographic  -enable-kvm
+
 run: debug
 	qemu-system-i386 -kernel $(BUILD_DIR)/$(KERNEL_IMG_NAME) $(QEMU_OPTIONS)
 
@@ -71,6 +96,7 @@ baremetal_debug: build create_iso
 # This is the main rule. This rule will start the builder docker container that
 # will build the kernel for us.
 build:
+	[ "$$(sudo docker images $(DOCKER_IMAGE) | wc -l)" -gt 1 ] || sudo docker build -t $(DOCKER_IMAGE) ./docker/
 	@# We link the current directory to the same point in the container so that
 	@# debug info in the kernel image are correct. (Eg. the paths for the source
 	@# files are the same).
@@ -78,7 +104,7 @@ build:
 	@# The -r flag is of outmost importance: it turns out that not using -r
 	@# (i.e. using implicit rules) the build will fail on .test.S files as it
 	@# will not follow the .S rule below. This could be a `make` bug.
-	sudo docker run -v $(PWD):$(PWD) -t kernel_builder make -r -C $(PWD) -j $(NJOBS) OUTPUT=$(OUTPUT) $(CONT_RULE)
+	sudo docker run -v $(PWD):$(PWD) -t $(DOCKER_IMAGE) make -r -C $(PWD) -j $(NJOBS) OUTPUT=$(OUTPUT) $(CONT_RULE)
 	@# Since the user in the docker container is root, we need to change the
 	@# owner once the build is complete.
 	sudo chown $(USER):$(USER) $(BUILD_DIR) -R
